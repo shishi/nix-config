@@ -108,49 +108,24 @@
           };
         };
 
-      flake = {
-        # Home Manager設定（perSystemから集約）
-        homeConfigurations = {
-          # 各システムのhomeConfigurationsを統合
-          "shishi@ubuntu" = self.legacyPackages.x86_64-linux.homeConfigurations."shishi@ubuntu" or
-                            self.legacyPackages.aarch64-linux.homeConfigurations."shishi@ubuntu" or
-                            throw "No homeConfiguration found for shishi@ubuntu";
-            # Home Manager用のpkgs設定
-            # ここはユーザー環境にインストールされるパッケージ用
-            pkgs = import inputs.nixpkgs {
-              system = "x86_64-linux"; # Explicitly set for Ubuntu
-              config.allowUnfree = true;
-              overlays = [
-                (import ./overlays/default.nix)
-                inputs.fenix.overlays.default
-              ];
-            };
-            modules = [
-              ./home-manager
-              {
-                # カスタムライブラリをHome Managerに渡す
-                _module.args = {
-                  myLib = import ./lib {
-                    inherit (inputs.nixpkgs) lib;
-                    pkgs = import inputs.nixpkgs {
-                      system = "x86_64-linux"; # Explicitly set for Ubuntu
-                      config.allowUnfree = true;
-                      overlays = [
-                        (import ./overlays/default.nix)
-                        inputs.fenix.overlays.default
-                      ];
-                    };
-                  };
-                };
-              }
-            ];
+      flake =
+        let
+          self = inputs.self;
+        in
+        {
+          # Home Manager設定（perSystemから集約）
+          homeConfigurations = {
+            # 各システムのhomeConfigurationsを統合
+            "shishi@ubuntu" =
+              self.legacyPackages.x86_64-linux.homeConfigurations."shishi@ubuntu"
+              or self.legacyPackages.aarch64-linux.homeConfigurations."shishi@ubuntu"
+              or throw "No homeConfiguration found for shishi@ubuntu";
 
             # 複数マシンに対応する場合：
             # 1. ホスト名で分岐: if builtins.getEnv "HOSTNAME" == "machine1" then ...
             # 2. flake outputsで複数定義: homeConfigurations."user@machine1", "user@machine2"
             # 3. 共通設定をモジュール化して、マシン固有の設定だけ分離
           };
-        };
 
         # グローバルオーバーレイのエクスポート
         # 他のflakeがこのoverlayを使えるようにする

@@ -50,7 +50,7 @@ install_docker() {
     sudo apt-get update -qq
     sudo apt-get install -yqq --no-install-recommends docker-ce docker-ce-cli containerd.io docker-compose-plugin docker-buildx-plugin golang-docker-credential-helpers qemu-user-static
 
-    sudo usermod -aG docker ${USER}
+    sudo usermod -aG docker "${USER}"
     sudo systemctl enable --now docker
     sudo systemctl stop docker
 
