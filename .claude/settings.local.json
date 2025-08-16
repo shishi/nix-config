@@ -8,7 +8,9 @@
       "Bash(/dev/null)",
       "Bash(for:*)",
       "Bash(do echo \"=== Checking $file ===\")",
-      "Bash(done)"
+      "Bash(done)",
+      "Bash(nix show-config:*)",
+      "Bash(nix flake show:*)"
     ],
     "deny": []
   }

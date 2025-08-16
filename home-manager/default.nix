@@ -34,7 +34,10 @@
   nix = {
     package = pkgs.nix;
     settings = {
-      experimental-features = [ "nix-command" "flakes" ];
+      experimental-features = [
+        "nix-command"
+        "flakes"
+      ];
       # 信頼されたユーザー（自分自身）
       trusted-users = [ "shishi" ];
       # バイナリキャッシュの設定はflake.nixのnixConfigと同じものを使用

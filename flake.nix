@@ -24,7 +24,21 @@
 
   # nixConfig: Cachixなどのバイナリキャッシュ設定
   # この設定はflakeのトップレベルでのみ有効
+  # 注意: これらの設定はtrusted-userのみが使用可能
+  # trusted-userでない場合は --option を使用するか、以下のセットアップを実行:
+  # echo "trusted-users = root $USER" | sudo tee -a /etc/nix/nix.conf && sudo systemctl restart nix-daemon
   nixConfig = {
+    # 追加の公開鍵を許可（trusted-userでなくても使用可能）
+    extra-trusted-public-keys = [
+      "nix-community.cachix.org-1:mB9FSh9qf2dCimDSUo8Zy7bkq5CX+/rkCWyvRCYg3Fs="
+    ];
+
+    # 追加のバイナリキャッシュを許可（trusted-userでなくても使用可能）
+    extra-substituters = [
+      "https://nix-community.cachix.org"
+    ];
+
+    # デフォルトのキャッシュ設定（trusted-userが必要）
     trusted-public-keys = [
       "cache.nixos.org-1:6NCHdD59X431o0gWypbMrAURkbJ16ZPMQFGspcDShjY="
       "nix-community.cachix.org-1:mB9FSh9qf2dCimDSUo8Zy7bkq5CX+/rkCWyvRCYg3Fs="
@@ -34,6 +48,9 @@
       "https://cache.nixos.org"
       "https://nix-community.cachix.org"
     ];
+
+    # 警告を減らすための設定
+    accept-flake-config = true;
   };
 
   outputs =
@@ -82,9 +99,23 @@
           };
 
           apps = {
+            setup-sudo-nopasswd = {
+              type = "app";
+              program = "${pkgs.writeShellScript "setup-sudo-nopasswd" ''
+                exec ${pkgs.bash}/bin/bash ${./scripts/setup-sudo-nopasswd.sh} "$@"
+              ''}";
+            };
+            setup-trusted-user = {
+              type = "app";
+              program = "${pkgs.writeShellScript "setup-trusted-user" ''
+                exec ${pkgs.bash}/bin/bash ${./scripts/setup-nix-trusted-user.sh} "$@"
+              ''}";
+            };
             install-system-packages = {
               type = "app";
-              program = "${pkgs.bash}/bin/bash ${./scripts/install-system-packages.sh}";
+              program = "${pkgs.writeShellScript "install-system-packages" ''
+                exec ${pkgs.bash}/bin/bash ${./scripts/install-system-packages.sh} "$@"
+              ''}";
             };
           };
 
@@ -92,7 +123,7 @@
           # これによりsystemが自動的に使用される
           legacyPackages.homeConfigurations = {
             "shishi@ubuntu" = inputs.home-manager.lib.homeManagerConfiguration {
-              inherit pkgs;  # perSystemのpkgsを使用（systemが含まれている）
+              inherit pkgs; # perSystemのpkgsを使用（systemが含まれている）
               modules = [
                 ./home-manager
                 {
@@ -118,8 +149,8 @@
             # 各システムのhomeConfigurationsを統合
             "shishi@ubuntu" =
               self.legacyPackages.x86_64-linux.homeConfigurations."shishi@ubuntu"
-              or self.legacyPackages.aarch64-linux.homeConfigurations."shishi@ubuntu"
-              or throw "No homeConfiguration found for shishi@ubuntu";
+                or self.legacyPackages.aarch64-linux.homeConfigurations."shishi@ubuntu" or throw
+                "No homeConfiguration found for shishi@ubuntu";
 
             # 複数マシンに対応する場合：
             # 1. ホスト名で分岐: if builtins.getEnv "HOSTNAME" == "machine1" then ...
@@ -127,10 +158,10 @@
             # 3. 共通設定をモジュール化して、マシン固有の設定だけ分離
           };
 
-        # グローバルオーバーレイのエクスポート
-        # 他のflakeがこのoverlayを使えるようにする
-        # 例: 他の人が inputs.your-flake.overlays.default で利用可能
-        overlays.default = import ./overlays/default.nix;
-      };
+          # グローバルオーバーレイのエクスポート
+          # 他のflakeがこのoverlayを使えるようにする
+          # 例: 他の人が inputs.your-flake.overlays.default で利用可能
+          overlays.default = import ./overlays/default.nix;
+        };
     };
 }

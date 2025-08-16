@@ -32,19 +32,13 @@
 ### インストール手順
 
 ```bash
-# 1. リポジトリのクローン
 git clone https://github.com/shishi/nix-config.git
 cd nix-config
 
-# 2. システムパッケージのインストール（Ubuntu用）
+nix --experimental-features 'nix-command flakes' run .#setup-sudo-nopasswd
+nix --experimental-features 'nix-command flakes' run .#setup-trusted-user
 nix --experimental-features 'nix-command flakes' run .#install-system-packages
-
-# 3. Home Manager設定の適用
-# 注: 初回実行時はhome-managerがダウンロードされます
 nix --experimental-features 'nix-command flakes' run home-manager/master -- switch --flake .#shishi@ubuntu
-
-# 4. 開発シェルに入る（オプション）
-nix --experimental-features 'nix-command flakes' develop
 ```
 
 **注意**: 
@@ -124,6 +118,50 @@ echo "experimental-features = nix-command flakes" >> ~/.config/nix/nix.conf
 1. flake.nixのhomeConfigurationsに新しいエントリを追加
 2. ホスト固有の設定をhome-manager/hosts/に分離
 3. 共通設定をモジュール化
+
+## Trusted User設定について
+
+### 手動でのTrusted User設定
+
+自動設定スクリプトが使えない場合は、以下を手動で実行：
+
+```bash
+# /etc/nix/nix.confに現在のユーザーを追加
+echo "trusted-users = root $USER" | sudo tee -a /etc/nix/nix.conf
+
+# Nixデーモンを再起動
+# Linux (systemd)
+sudo systemctl restart nix-daemon
+
+# macOS
+sudo launchctl kickstart -k system/org.nixos.nix-daemon
+```
+
+### Trusted Userになれない環境での使用
+
+管理者権限がない環境では、以下のオプションを使用：
+
+```bash
+# flake設定を受け入れて実行
+nix run --accept-flake-config github:shishi/nix-config
+```
+
+## 開発環境の追加設定
+
+### Sudoパスワード不要設定（開発環境専用）
+
+開発環境でsudoコマンドをパスワードなしで実行できるように設定：
+
+```bash
+nix run .#setup-sudo-nopasswd
+```
+
+**⚠️ セキュリティ警告**: この設定は開発環境でのみ使用してください。本番環境では絶対に使用しないでください。
+
+設定を削除する場合：
+```bash
+sudo rm /etc/sudoers.d/50-$(whoami)-nopasswd
+```
 
 ## トラブルシューティング
 
