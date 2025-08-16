@@ -88,6 +88,8 @@ install_japanese_environment() {
 
   # im-configでfcitx5を設定
   im-config -n uim
+  sudo update-alternatives --install /usr/bin/uim-toolbar uim-toolbar /usr/bin/uim-toolbar-gtk-systray 90
+  # sudo update-alternatives --set uim-toolbar /usr/bin/uim-toolbar-gtk-systray
 
   # 自動起動設定
   mkdir -p ~/.config/autostart
