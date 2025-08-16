@@ -17,12 +17,16 @@
 ### 前提条件
 
 - Nix (2.4以降、flakes機能有効)
-  ```bash
-  # flakesが有効か確認
-  nix --version
-  # 有効でない場合は ~/.config/nix/nix.conf に以下を追加:
-  # experimental-features = nix-command flakes
-  ```
+
+`$ sh <(curl --proto '=https' --tlsv1.2 -L https://nixos.org/nix/install) --daemon`
+
+ ```bash
+ # flakesが有効か確認
+ nix --version
+ # 有効でない場合は ~/.config/nix/nix.conf に以下を追加:
+ # experimental-features = nix-command flakes
+ ```
+
 - Ubuntu（現在の設定対象）
 
 ### インストール手順
