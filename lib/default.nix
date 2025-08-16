@@ -3,87 +3,77 @@
 rec {
   # OSごとの条件分岐
   # 使用例: myLib.osCase { linux = "firefox"; darwin = "Safari"; }
-  osCase = { linux ? null, darwin ? null, default ? null }:
-    if pkgs.stdenv.isLinux then linux
-    else if pkgs.stdenv.isDarwin then darwin
-    else default;
+  osCase =
+    {
+      linux ? null,
+      darwin ? null,
+      default ? null,
+    }:
+    if pkgs.stdenv.isLinux then
+      linux
+    else if pkgs.stdenv.isDarwin then
+      darwin
+    else
+      default;
 
-  # ホームディレクトリの動的解決
-  # 使用例: "${myLib.homeDir "shishi"}/Documents"
-  homeDir = username: osCase {
-    linux = "/home/${username}";
-    darwin = "/Users/${username}";
-  };
-
-  # XDG準拠のディレクトリパス
-  # 使用例: 
-  #   xdg.configFile."app/config.toml".text = "...";
-  #   xdg.dataFile."app/data.db".source = ./data.db;
-  mkXdgPaths = username: {
-    configHome = "${homeDir username}/.config";
-    dataHome = "${homeDir username}/.local/share";
-    cacheHome = "${homeDir username}/.cache";
-    stateHome = "${homeDir username}/.local/state";
-  };
-
-  # dotfilesリポジトリとの統合
+  # GUI環境の検出
   # 使用例:
-  #   programs.git.extraConfig = myLib.importDotfile "shishi" "git/config.local";
-  #   programs.zsh.initExtra = myLib.importDotfile "shishi" "zsh/aliases.zsh";
-  importDotfile = username: path: 
-    let dotfilesPath = "${homeDir username}/dotfiles/${path}";
-    in if builtins.pathExists dotfilesPath
-       then builtins.readFile dotfilesPath
-       else "";
+  #   home.packages = []
+  #     ++ lib.optionals (myLib.hasGui { inherit pkgs lib; }) [ firefox vlc ]
+  #     ++ lib.optionals (!myLib.hasGui { inherit pkgs lib; }) [ lynx ];
+  hasGui =
+    { pkgs, lib }:
+    let
+      # 環境変数でGUI環境を検出
+      hasDisplay = builtins.getEnv "DISPLAY" != "";
+      hasWayland = builtins.getEnv "WAYLAND_DISPLAY" != "";
 
-  # 複数のソースから設定をマージ（後の設定が優先）
+      # macOSは常にGUI環境として扱う
+      isDarwin = pkgs.stdenv.isDarwin;
+
+      # SSHセッションかどうかを確認
+      isSSH = builtins.getEnv "SSH_CONNECTION" != "";
+
+      # WSL環境の検出とGUIサポートの確認
+      isWSL = builtins.pathExists "/proc/sys/fs/binfmt_misc/WSLInterop";
+      hasWSLDisplay = isWSL && (hasDisplay || hasWayland);
+    in
+    # macOSまたは、SSHでない環境でディスプレイが利用可能な場合はGUI環境
+    isDarwin || (!isSSH && (hasDisplay || hasWayland || hasWSLDisplay));
+
+  # プラットフォーム別のパッケージ選択
   # 使用例:
-  #   programs.git.extraConfig = myLib.mergeConfigs [
-  #     (import ./git-defaults.nix)
-  #     (import ./git-work.nix)  
-  #     { user.email = "personal@example.com"; }
+  #   home.packages = with pkgs; [
+  #     (myLib.platformPackage {
+  #       inherit pkgs lib;
+  #       gui = firefox;
+  #       cli = lynx;
+  #     })
   #   ];
-  mergeConfigs = configs:
-    lib.fold (a: b: lib.recursiveUpdate b a) {} configs;
+  platformPackage =
+    {
+      pkgs,
+      lib,
+      gui,
+      cli,
+    }:
+    if hasGui { inherit pkgs lib; } then gui else cli;
 
-  # 設定の条件付き有効化
+  # GUI/CLI環境に応じた設定の選択
   # 使用例:
-  #   imports = [
-  #     (myLib.enableIf config.services.docker.enable ./docker-tools.nix)
-  #     (myLib.enableIf (builtins.pathExists ./work.nix) ./work.nix)
-  #   ];
-  enableIf = condition: config:
-    if condition then config else {};
-
-  # シークレットファイルの安全な読み込み
-  # 使用例:
-  #   programs.git.extraConfig.user.signingkey = 
-  #     myLib.readSecretFile "shishi" "gpg-key.txt" "default-key";
-  readSecretFile = username: path: default:
-    let secretPath = "${homeDir username}/.secrets/${path}";
-    in if builtins.pathExists secretPath
-       then lib.removeSuffix "\n" (builtins.readFile secretPath)
-       else default;
-
-  # フォントの標準設定
-  # 使用例:
-  #   programs.alacritty.settings.font = {
-  #     normal.family = myLib.fonts.monospace;
-  #     size = 12;
+  #   programs.git.extraConfig = myLib.guiCliConfig {
+  #     inherit pkgs lib;
+  #     gui = { core.editor = "code --wait"; };
+  #     cli = { core.editor = "nvim"; };
   #   };
-  #   programs.vscode.userSettings."editor.fontFamily" = myLib.fonts.monospace;
-  fonts = {
-    monospace = osCase {
-      linux = "JetBrains Mono";
-      darwin = "SF Mono";
-      default = "monospace";
-    };
-    ui = osCase {
-      linux = "Inter";
-      darwin = "SF Pro Display";
-      default = "sans-serif";
-    };
-  };
+  guiCliConfig =
+    {
+      pkgs,
+      lib,
+      gui,
+      cli,
+    }:
+    if hasGui { inherit pkgs lib; } then gui else cli;
 
   # 開発言語の検出（プロジェクトファイルベース）
   # 使用例:
@@ -97,8 +87,8 @@ rec {
   detectLanguages = dir: {
     rust = builtins.pathExists "${dir}/Cargo.toml";
     node = builtins.pathExists "${dir}/package.json";
-    python = builtins.pathExists "${dir}/pyproject.toml" || 
-             builtins.pathExists "${dir}/requirements.txt";
+    python =
+      builtins.pathExists "${dir}/pyproject.toml" || builtins.pathExists "${dir}/requirements.txt";
     go = builtins.pathExists "${dir}/go.mod";
   };
 
@@ -134,62 +124,5 @@ rec {
       base0E = "#d3869b"; # purple
       base0F = "#d65d0e"; # brown
     };
-  };
-
-  # 一般的なaliasセット
-  # 使用例:
-  #   programs.bash.shellAliases = myLib.commonAliases // {
-  #     myalias = "mycommand";
-  #   };
-  commonAliases = {
-    ll = "ls -la";
-    la = "ls -A";
-    l = "ls -CF";
-    
-    # Git
-    g = "git";
-    gs = "git status";
-    ga = "git add";
-    gc = "git commit";
-    gp = "git push";
-    gl = "git pull";
-    gd = "git diff";
-    
-    # 安全なコマンド
-    rm = "rm -i";
-    cp = "cp -i";
-    mv = "mv -i";
-    
-    # その他便利なalias
-    ".." = "cd ..";
-    "..." = "cd ../..";
-    mkdir = "mkdir -p";
-  };
-
-  # Gitの一般的な設定
-  # 使用例:
-  #   programs.git = {
-  #     enable = true;
-  #     extraConfig = myLib.gitConfig.enhanced // {
-  #       user.email = "my@email.com";
-  #     };
-  #   };
-  gitConfig = {
-    minimal = {
-      init.defaultBranch = "main";
-      core.editor = "nvim";
-    };
-    
-    enhanced = mergeConfigs [
-      gitConfig.minimal
-      {
-        pull.rebase = true;
-        fetch.prune = true;
-        diff.colorMoved = "zebra";
-        merge.conflictStyle = "diff3";
-        rebase.autoStash = true;
-        core.autocrlf = "input";
-      }
-    ];
   };
 }

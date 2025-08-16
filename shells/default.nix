@@ -6,19 +6,14 @@
     buildInputs = with pkgs; [
       # Nix開発ツール
       nil
-      nixpkgs-fmt
-      
-      # 基本的な開発ツール
-      git
-      curl
-      jq
+      nixfmt
     ];
-    
+
     shellHook = ''
       echo "Welcome to Nix development shell!"
     '';
   };
-  
+
   # Python開発環境の例（将来用）
   # python = pkgs.mkShell {
   #   buildInputs = with pkgs; [
