@@ -79,13 +79,7 @@ install_japanese_environment() {
     language-pack-gnome-ja \
     fonts-noto-cjk \
     fonts-noto-cjk-extra \
-    fcitx5 \
-    fcitx5-skk \
-    fcitx5-config-qt \
-    fcitx5-frontend-gtk3 \
-    fcitx5-frontend-gtk4 \
-    fcitx5-frontend-qt5 \
-    libskk0 \
+    uim-skk \
     skkdic \
     skkdic-extra
 
@@ -93,101 +87,68 @@ install_japanese_environment() {
   sudo locale-gen ja_JP.UTF-8
 
   # im-configでfcitx5を設定
-  im-config -n fcitx5
+  im-config -n uim
 
-  # fcitx5の自動起動設定
+  # 自動起動設定
   mkdir -p ~/.config/autostart
-  cp /usr/share/applications/org.fcitx.Fcitx5.desktop ~/.config/autostart/
+
+  # uim-toolbar-gtk-systrayの自動起動設定
+  cat >~/.config/autostart/uim-toolbar-gtk-systray.desktop <<'EOF'
+[Desktop Entry]
+Type=Application
+Name=UIM Toolbar
+Exec=uim-toolbar-gtk-systray
+Hidden=false
+NoDisplay=false
+X-GNOME-Autostart-enabled=true
+Comment=UIM input method toolbar
+EOF
 
   # 環境変数の設定（.profileに追加）
-  if ! grep -q "GTK_IM_MODULE=fcitx" ~/.profile; then
+  if ! grep -q "GTK_IM_MODULE=uim" ~/.profile; then
     cat >>~/.profile <<'EOF'
 
-# Fcitx5 environment variables
-export GTK_IM_MODULE=fcitx
-export QT_IM_MODULE=fcitx
-export XMODIFIERS=@im=fcitx
-export DefaultIMModule=fcitx
+# uim environment variables
+export GTK_IM_MODULE=uim
+export QT_IM_MODULE=uim
+export XMODIFIERS=@im=uim
+export DefaultIMModule=uim
 EOF
   fi
 
-  # fcitx5-skkの設定ディレクトリを作成
-  mkdir -p ~/.config/fcitx5/conf
-
-  # sticky shift設定（セミコロンキー）
-  cat >~/.config/fcitx5/conf/skk.conf <<'EOF'
-# SKK設定
-# Sticky Shiftキーの設定
-StickyKey=semicolon
-
-# その他のSKK設定
-InitialInputMode=Latin
-PageSize=8
-CandidateChooseKeys=asdfhjkl
-ShowAnnotation=True
-EOF
-
-    # fcitx5アドオンの有効化設定
-    cat >~/.config/fcitx5/conf/addon.conf <<'EOF'
-[Addon/Skk]
-Enabled=True
-EOF
-
-  # fcitx5のプロファイル設定
-  mkdir -p ~/.config/fcitx5/profile
-  cat >~/.config/fcitx5/profile/default <<'EOF'
-[Groups/0]
-# Group 1
-Name=Default
-Default Layout=us
-DefaultIM=skk
-
-[Groups/0/Items/0]
-Name=skk
-Layout=
-EOF
-
-  # fcitx5グローバル設定
-  cat >~/.config/fcitx5/config <<'EOF'
-[Hotkey]
-# 入力メソッドの切り替え
-TriggerKeys=
-# 入力メソッドをオフに
-DeactivateKeys=
-
-[Hotkey/TriggerKeys]
-0=Control+space
-1=Zenkaku_Hankaku
-
-[Hotkey/DeactivateKeys]
-0=Escape
-
-[Behavior]
-# デフォルトで最初の入力メソッドをアクティブに(SKKの英字モード)
-ActiveByDefault=True
-ShareInputState=No
-ShowInputMethodInformation=True
-EOF
-
-  # 既存のfcitx5プロセスを終了（実行中の場合）
-  if pgrep fcitx5 >/dev/null 2>&1; then
-    log_info "既存のfcitx5プロセスを終了しています..."
-    pkill fcitx5 || true
-    sleep 2
-  fi
-
-  # fcitx5の設定キャッシュをクリア
-  if [ -d ~/.config/fcitx5/profile ]; then
-    # 既存のプロファイルをバックアップ
-    if [ -f ~/.config/fcitx5/profile/default ]; then
-      cp ~/.config/fcitx5/profile/default ~/.config/fcitx5/profile/default.bak
-      log_info "既存のfcitx5プロファイルをバックアップしました"
-    fi
-  fi
-
-  # fcitx5を再起動（バックグラウンドで）
-  log_info "fcitx5を起動しています..."
-  fcitx5 -d >/dev/null 2>&1 &
+  #   # libskkなら
+  #   cat >~/.config/libskk/rules/StickyShift/metadata.json <<'EOF'
+  # {
+  #   "name": "Sticky Shift",
+  #   "description": "Enable Sticky Shift"
+  # }
+  # EOF
+  #
+  #   cat >~/.config/libskk/rules/StickyShift/keymap/hiragana.json <<'EOF'
+  # {
+  #     "include": [
+  #         "default/hiragana"
+  #     ],
+  #     "define": {
+  #         "keymap": {
+  #             ";": "start-preedit-no-delete"
+  #         }
+  #     }
+  # }
+  # EOF
+  #
+  #   cat >~/.config/libskk/rules/StickyShift/keymap/katakana.json <<'EOF'
+  # {
+  #   "include": [
+  #       "default/katakana"
+  #   ],
+  #   "define": {
+  #     "keymap": {
+  #       ";": "start-preedit-no-delete"
+  #     }
+  #   }
+  # }
+  # EOF
 
   log_info "日本語環境のセットアップが完了しました"
   log_warn "設定を反映するには再ログインが必要です"

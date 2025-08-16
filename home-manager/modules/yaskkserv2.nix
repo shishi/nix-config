@@ -77,17 +77,17 @@ in
     };
   };
 
-  # fcitx5-skkの設定を更新してサーバーを使用
-  home.file.".config/fcitx5/conf/skk.conf".text = lib.mkAfter ''
-
-    [Dictionary]
-    # ファイルとサーバーの両方を使用
-    Sources=file,server
-
-    [DictionaryServer]
-    # yaskkserv2の設定
-    Host=localhost
-    Port=1178
-    Type=yaskkserv2
-  '';
+  # # fcitx5-skkの設定を更新してサーバーを使用
+  # home.file.".config/fcitx5/conf/skk.conf".text = lib.mkAfter ''
+  #
+  #   [Dictionary]
+  #   # ファイルとサーバーの両方を使用
+  #   Sources=file,server
+  #
+  #   [DictionaryServer]
+  #   # yaskkserv2の設定
+  #   Host=localhost
+  #   Port=1178
+  #   Type=yaskkserv2
+  # '';
 }
