@@ -44,6 +44,7 @@
       tailscale
       uv
       emacs
+      gnomeExtensions.clipboard-indicator
 
       # fonts
       noto-fonts
