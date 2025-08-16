@@ -71,6 +71,32 @@
         tap-to-click = true;
         two-finger-scrolling-enabled = true;
       };
+
+      # スクリーンセーバーとロック設定
+      "org/gnome/desktop/screensaver" = {
+        # スクリーンセーバー起動までの時間（秒）
+        idle-activation-enabled = true;
+        lock-enabled = true;
+        lock-delay = 0; # スクリーンセーバー後、即座にロック
+      };
+
+      # セッション設定
+      "org/gnome/desktop/session" = {
+        # アイドル状態と判定するまでの時間（秒）
+        # 300 = 5分, 600 = 10分, 900 = 15分, 1800 = 30分, 3600 = 60分
+        idle-delay = 3600; # 60分
+      };
+
+      # 電源管理設定
+      "org/gnome/settings-daemon/plugins/power" = {
+        # AC電源接続時の設定
+        sleep-inactive-ac-timeout = 7200; # 120分（2時間）でスリープ
+        sleep-inactive-ac-type = "suspend";
+
+        # バッテリー駆動時の設定
+        sleep-inactive-battery-timeout = 3600; # 60分でスリープ
+        sleep-inactive-battery-type = "suspend";
+      };
     };
   };
 
