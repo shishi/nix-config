@@ -5,6 +5,7 @@
     nixpkgs.url = "github:NixOS/nixpkgs/nixpkgs-unstable";
     flake-parts.url = "github:hercules-ci/flake-parts";
     systems.url = "github:nix-systems/default";
+    nixpkgs-ruby.url = "github:bobvanderlinden/nixpkgs-ruby";
 
     home-manager = {
       url = "github:nix-community/home-manager";
@@ -54,7 +55,12 @@
   };
 
   outputs =
-    inputs@{ flake-parts, systems, ... }:
+    inputs@{
+      flake-parts,
+      systems,
+      nixpkgs-ruby,
+      ...
+    }:
     flake-parts.lib.mkFlake { inherit inputs; } (
       { self, ... }:
       {
@@ -64,6 +70,12 @@
         ];
 
         systems = import systems;
+
+        # グローバルオーバーレイのエクスポート
+        # 他のflakeがこのoverlayを使えるようにする
+        flake = {
+          overlays.default = import ./overlays/default.nix;
+        };
 
         perSystem =
           {
@@ -85,12 +97,10 @@
               };
               overlays = [
                 (import ./overlays/default.nix)
+                nixpkgs-ruby.overlays.default
                 inputs.fenix.overlays.default
               ];
             };
-
-            packages = import ./pkgs { inherit pkgs; };
-            devShells = import ./shells { inherit pkgs; };
 
             # treefmtの設定
             treefmt = {
@@ -118,30 +128,6 @@
                 program = "${pkgs.writeShellScript "install-system-packages" ''
                   exec ${pkgs.bash}/bin/bash ${./scripts/install-system-packages.sh} "$@"
                 ''}";
-              };
-            };
-
-            # グローバルオーバーレイのエクスポート
-            # 他のflakeがこのoverlayを使えるようにする
-            # 例: 他の人が inputs.your-flake.overlays.default で利用可能
-            overlays.default = import ./overlays/default.nix;
-
-            # perSystem内でlegacyPackagesとしてhomeConfigurationを定義
-            # これによりsystemが自動的に使用される
-            homeConfigurations = {
-              "shishi@ubuntu" = inputs.home-manager.lib.homeManagerConfiguration {
-                inherit pkgs; # perSystemのpkgsを使用（systemが含まれている）
-                modules = [
-                  ./home-manager
-                  {
-                    # カスタムライブラリをHome Managerに渡す
-                    _module.args = {
-                      myLib = import ./lib {
-                        inherit (inputs.nixpkgs) lib pkgs;
-                      };
-                    };
-                  }
-                ];
               };
             };
           };

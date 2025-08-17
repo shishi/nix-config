@@ -15,10 +15,10 @@ let
       owner = "wachikun";
       repo = "yaskkserv2";
       rev = version;
-      sha256 = "sha256-Qa0j5wDPGYmVrgXfJxbCbgDQrMNJULnF1/eDzMhXeRk=";
+      sha256 = "sha256-bF8OHP6nvGhxXNvvnVCuOVFarK/n7WhGRktRN4X5ZjE=";
     };
 
-    cargoSha256 = "sha256-IqWdpMKAOIJMaglsqLlE+jp/DUL5lDCJ8szyDmsy1eo=";
+    cargoHash = "sha256-cycs8Zism228rjMaBpNYa4K1Ll760UhLKkoTX6VJRU0=";
 
     # ビルド時に必要な依存関係
     buildInputs = with pkgs; [
@@ -28,12 +28,16 @@ let
     nativeBuildInputs = with pkgs; [
       pkg-config
     ];
+
+    # Tests fail in sandboxed build environment
+    doCheck = false;
   };
 
   # SKK辞書の場所
   skkDictDir = "${config.home.homeDirectory}/skk";
   skkDictL = "${skkDictDir}/SKK-JISYO.L";
   yaskkservDict = "${skkDictDir}/yaskkserv2.dictionary";
+  yaskkservCache = "${skkDictDir}/yaskkserv2.cache";
 in
 {
   home.packages = [ yaskkserv2 ];
@@ -46,15 +50,13 @@ in
     # SKK-JISYO.Lのダウンロード(存在しない場合)
     if [ ! -f ${skkDictL} ]; then
       echo "Downloading SKK-JISYO.L..."
-      ${pkgs.curl}/bin/curl -L -o ${skkDictL} \
-        https://raw.githubusercontent.com/skk-dev/dict/master/SKK-JISYO.L
+      ${pkgs.curl}/bin/curl -L -o ${skkDictL} https://raw.githubusercontent.com/skk-dev/dict/master/SKK-JISYO.L
     fi
 
     # yaskkserv2用辞書の作成(更新チェック付き)
     if [ ! -f ${yaskkservDict} ] || [ ${skkDictL} -nt ${yaskkservDict} ]; then
       echo "Creating yaskkserv2 dictionary..."
-      ${yaskkserv2}/bin/yaskkserv2_make_dictionary \
-        ${yaskkservDict} ${skkDictL}
+      ${yaskkserv2}/bin/yaskkserv2_make_dictionary --dictionary-filename=${yaskkservDict} ${skkDictL}
     fi
   '';
 
@@ -67,7 +69,7 @@ in
 
     Service = {
       Type = "simple";
-      ExecStart = "${yaskkserv2}/bin/yaskkserv2 --port 1178 --google-japanese-input=last --google-suggest ${yaskkservDict}";
+      ExecStart = "${yaskkserv2}/bin/yaskkserv2 --port 1178 --google-japanese-input=last --google-suggest --google-cache-filename=${yaskkservCache} ${yaskkservDict}";
       Restart = "always";
       RestartSec = 3;
     };

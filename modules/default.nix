@@ -10,6 +10,12 @@
 }:
 
 {
+  imports = [
+    ./home-configurations.nix
+    ./shells.nix
+    ./packages.nix
+  ];
+
   # # perSystem: 各システム（linux、darwin等）ごとの設定
   # perSystem = { system, pkgs, ... }: {
   #   # 1. フォーマッター設定

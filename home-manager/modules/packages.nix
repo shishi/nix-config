@@ -27,7 +27,7 @@
       unar
       p7zip
       git
-      gpg
+      gnupg
       luajit
       pass
       xclip
@@ -36,7 +36,6 @@
       neovim
       rclone
       pkg-config
-      gcc
       wezterm
       nil
       less
