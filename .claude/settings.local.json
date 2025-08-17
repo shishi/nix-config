@@ -1,16 +1,7 @@
 {
   "permissions": {
     "allow": [
-      "Bash(nix flake check:*)",
-      "mcp__ide__getDiagnostics",
-      "Bash(shellcheck:*)",
-      "Bash(nix-instantiate:*)",
-      "Bash(/dev/null)",
-      "Bash(for:*)",
-      "Bash(do echo \"=== Checking $file ===\")",
-      "Bash(done)",
-      "Bash(nix show-config:*)",
-      "Bash(nix flake show:*)",
+      "Bash(gsettings get:*)"
     ],
     "deny": []
   }

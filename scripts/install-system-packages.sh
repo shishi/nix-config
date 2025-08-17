@@ -94,7 +94,8 @@ install_japanese_environment() {
   im-config -n fcitx5
 
   # 自動起動設定
-  # mkdir -p ~/.config/autostart
+  mkdir -p ~/.config/autostart
+  cp /usr/share/applications/org.fcitx.Fcitx5.desktop ~/.config/autostart/
 
   # 環境変数の設定（.profileに追加）
   if ! grep -q "GTK_IM_MODULE=fcitx5" ~/.profile; then
@@ -109,6 +110,7 @@ EOF
   fi
 
   # libskk
+  mkdir -p ~/.config/libskk/rules/StickyShift/keymap
   cat >~/.config/libskk/rules/StickyShift/metadata.json <<'EOF'
 {
   "name": "Sticky Shift",
@@ -128,7 +130,6 @@ EOF
     }
 }
 EOF
-
   cat >~/.config/libskk/rules/StickyShift/keymap/katakana.json <<'EOF'
 {
   "include": [
@@ -143,8 +144,12 @@ EOF
 EOF
 
   log_info "日本語環境のセットアップが完了しました"
-  log_info "fcitx5はログアウト後に fcitx5-configtool で設定してください"
   log_warn "設定を反映するには再ログインが必要です"
+  log_info "fcitx5はログアウト後に fcitx5-configtool で設定してください"
+  log_info "Current Input MethodからEnglishを削除し、SKKを追加してください"
+  log_info "各不要キーバインドの削除、Addons->SKKからRuleをSticky Shiftに変更してください"
+  log_info "Initial input modeはLatin、Page sizeは8、Candidate KeyはQwerty、Number candidate of ... は1に設定してください"
+  log_info "DictionaryにServerも追加してください"
 }
 
 main() {
