@@ -1,6 +1,12 @@
-{ lib, pkgs }:
+{ }:
 
 rec {
+  # macOS環境の検出（pkgsを使わない実装）
+  isMacOS = builtins.pathExists "/System/Library/CoreServices/SystemVersion.plist";
+
+  # Linux環境の検出
+  isLinux = builtins.pathExists "/proc/version";
+
   # OSごとの条件分岐
   # 使用例: myLib.osCase { linux = "firefox"; darwin = "Safari"; }
   osCase =
@@ -9,9 +15,9 @@ rec {
       darwin ? null,
       default ? null,
     }:
-    if pkgs.stdenv.isLinux then
+    if isLinux then
       linux
-    else if pkgs.stdenv.isDarwin then
+    else if isMacOS then
       darwin
     else
       default;
@@ -19,17 +25,13 @@ rec {
   # GUI環境の検出
   # 使用例:
   #   home.packages = []
-  #     ++ lib.optionals (myLib.hasGui { inherit pkgs lib; }) [ firefox vlc ]
-  #     ++ lib.optionals (!myLib.hasGui { inherit pkgs lib; }) [ lynx ];
+  #     ++ lib.optionals myLib.hasGui [ firefox vlc ]
+  #     ++ lib.optionals (!myLib.hasGui) [ lynx ];
   hasGui =
-    { pkgs, lib }:
     let
       # 環境変数でGUI環境を検出
       hasDisplay = builtins.getEnv "DISPLAY" != "";
       hasWayland = builtins.getEnv "WAYLAND_DISPLAY" != "";
-
-      # macOSは常にGUI環境として扱う
-      isDarwin = pkgs.stdenv.isDarwin;
 
       # SSHセッションかどうかを確認
       isSSH = builtins.getEnv "SSH_CONNECTION" != "";
@@ -39,41 +41,35 @@ rec {
       hasWSLDisplay = isWSL && (hasDisplay || hasWayland);
     in
     # macOSまたは、SSHでない環境でディスプレイが利用可能な場合はGUI環境
-    isDarwin || (!isSSH && (hasDisplay || hasWayland || hasWSLDisplay));
+    isMacOS || (!isSSH && (hasDisplay || hasWayland || hasWSLDisplay));
 
   # プラットフォーム別のパッケージ選択
   # 使用例:
   #   home.packages = with pkgs; [
   #     (myLib.platformPackage {
-  #       inherit pkgs lib;
   #       gui = firefox;
   #       cli = lynx;
   #     })
   #   ];
   platformPackage =
     {
-      pkgs,
-      lib,
       gui,
       cli,
     }:
-    if hasGui { inherit pkgs lib; } then gui else cli;
+    if hasGui then gui else cli;
 
   # GUI/CLI環境に応じた設定の選択
   # 使用例:
   #   programs.git.extraConfig = myLib.guiCliConfig {
-  #     inherit pkgs lib;
   #     gui = { core.editor = "code --wait"; };
   #     cli = { core.editor = "nvim"; };
   #   };
   guiCliConfig =
     {
-      pkgs,
-      lib,
       gui,
       cli,
     }:
-    if hasGui { inherit pkgs lib; } then gui else cli;
+    if hasGui then gui else cli;
 
   # 開発言語の検出（プロジェクトファイルベース）
   # 使用例:

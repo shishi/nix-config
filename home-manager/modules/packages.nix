@@ -3,13 +3,13 @@
   pkgs,
   lib,
   myLib,
+  nixpkgs-ruby,
   ...
 }:
 
 {
   home.packages =
-    with pkgs;
-    [
+    (with pkgs; [
       fish
       ripgrep
       fd
@@ -55,9 +55,9 @@
       udev-gothic-nf
 
       # 言語
+      ruby_3_4
       nodejs_24
       python314
-      "ruby-3.4"
       go
       clang
 
@@ -68,8 +68,8 @@
       postgresql.dev
       sqlite
       sqlite.dev
-    ]
-    ++ lib.optionals (myLib.hasGui { inherit pkgs lib; }) (
+    ])
+    ++ lib.optionals myLib.hasGui (
       with pkgs;
       [
         _1password-gui

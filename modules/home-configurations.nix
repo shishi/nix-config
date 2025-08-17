@@ -17,7 +17,6 @@
           };
           overlays = [
             (import "${self}/overlays/default.nix")
-            inputs.nixpkgs-ruby.overlays.default
             inputs.fenix.overlays.default
           ];
         };
@@ -27,12 +26,7 @@
           {
             # カスタムライブラリをHome Managerに渡す
             _module.args = {
-              myLib = import "${self}/lib" {
-                inherit (inputs.nixpkgs) lib;
-                pkgs = import inputs.nixpkgs {
-                  system = "x86_64-linux";
-                };
-              };
+              myLib = import "${self}/lib" { };
             };
           }
         ];

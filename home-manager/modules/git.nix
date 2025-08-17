@@ -24,7 +24,6 @@
 
       # GUI/CLI環境に応じたエディタ設定の例
       core.editor = myLib.guiCliConfig {
-        inherit pkgs lib;
         gui = "code --wait"; # GUI環境ではVS Code
         cli = "nvim"; # CLI環境ではNeovim
       };

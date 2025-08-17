@@ -5,7 +5,7 @@
     nixpkgs.url = "github:NixOS/nixpkgs/nixpkgs-unstable";
     flake-parts.url = "github:hercules-ci/flake-parts";
     systems.url = "github:nix-systems/default";
-    nixpkgs-ruby.url = "github:bobvanderlinden/nixpkgs-ruby";
+    # nixpkgs-ruby.url = "github:bobvanderlinden/nixpkgs-ruby";
 
     home-manager = {
       url = "github:nix-community/home-manager";
@@ -58,7 +58,6 @@
     inputs@{
       flake-parts,
       systems,
-      nixpkgs-ruby,
       ...
     }:
     flake-parts.lib.mkFlake { inherit inputs; } (
@@ -97,7 +96,6 @@
               };
               overlays = [
                 (import ./overlays/default.nix)
-                nixpkgs-ruby.overlays.default
                 inputs.fenix.overlays.default
               ];
             };

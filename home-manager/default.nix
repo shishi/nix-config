@@ -27,15 +27,14 @@
       VISUAL = "nvim";
       PAGER = "less";
       LESS = "-R";
-      LIBRARY_PATH = "$HOME/.nix-profile/lib:$LIBRARY_PATH";
-      LD_LIBRARY_PATH = "$HOME/.nix-profile/lib:$LD_LIBRARY_PATH";
-      C_INCLUDE_PATH = "HOME/.nix-profile/include:$C_INCLUDE_PATH";
-      CPLUS_INCLUDE_PATH = "HOME/.nix-profile/include:$CPLUS_INCLUDE_PATH";
-      PKG_CONFIG_PATH = "$HOME/.nix-profile/lib/pkgconfig:$PKG_CONFIG_PATH";
+      # LIBRARY_PATH = "$HOME/.nix-profile/lib:$LIBRARY_PATH";
+      # LD_LIBRARY_PATH = "$HOME/.nix-profile/lib:$LD_LIBRARY_PATH";
+      # C_INCLUDE_PATH = "HOME/.nix-profile/include:$C_INCLUDE_PATH";
+      # CPLUS_INCLUDE_PATH = "HOME/.nix-profile/include:$CPLUS_INCLUDE_PATH";
+      # PKG_CONFIG_PATH = "$HOME/.nix-profile/lib/pkgconfig:$PKG_CONFIG_PATH";
     };
   };
 
-  # Nix設定
   nix = {
     package = pkgs.nix;
     settings = {
@@ -43,7 +42,6 @@
         "nix-command"
         "flakes"
       ];
-      # 信頼されたユーザー（自分自身）
       trusted-users = [ "shishi" ];
       # バイナリキャッシュの設定はflake.nixのnixConfigと同じものを使用
       # これによりシステム全体で同じキャッシュが使用される
