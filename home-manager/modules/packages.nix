@@ -31,6 +31,7 @@
       luajit
       pass
       xclip
+      xsel
       vim
       neovim
       rclone
@@ -84,6 +85,7 @@
         flameshot
         teamviewer
         tailscale-systray
+        guake
       ]
     );
 }

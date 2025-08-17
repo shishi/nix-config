@@ -79,7 +79,11 @@ install_japanese_environment() {
     language-pack-gnome-ja \
     fonts-noto-cjk \
     fonts-noto-cjk-extra \
-    uim-skk \
+    im-config \
+    fcitx5 \
+    fcitx5-skk \
+    fcitx5-config-qt \
+    fcitx5-frontend-all \
     skkdic \
     skkdic-extra
 
@@ -87,72 +91,59 @@ install_japanese_environment() {
   sudo locale-gen ja_JP.UTF-8
 
   # im-configでfcitx5を設定
-  im-config -n uim
-  sudo update-alternatives --install /usr/bin/uim-toolbar uim-toolbar /usr/bin/uim-toolbar-gtk-systray 90
-  # sudo update-alternatives --set uim-toolbar /usr/bin/uim-toolbar-gtk-systray
+  im-config -n fcitx5
 
   # 自動起動設定
-  mkdir -p ~/.config/autostart
-
-  # uim-toolbar-gtk-systrayの自動起動設定
-  cat >~/.config/autostart/uim-toolbar-gtk-systray.desktop <<'EOF'
-[Desktop Entry]
-Type=Application
-Name=UIM Toolbar
-Exec=uim-toolbar-gtk-systray
-Hidden=false
-NoDisplay=false
-X-GNOME-Autostart-enabled=true
-Comment=UIM input method toolbar
-EOF
+  # mkdir -p ~/.config/autostart
 
   # 環境変数の設定（.profileに追加）
-  if ! grep -q "GTK_IM_MODULE=uim" ~/.profile; then
+  if ! grep -q "GTK_IM_MODULE=fcitx5" ~/.profile; then
     cat >>~/.profile <<'EOF'
 
-# uim environment variables
-export GTK_IM_MODULE=uim
-export QT_IM_MODULE=uim
-export XMODIFIERS=@im=uim
-export DefaultIMModule=uim
+# fcitx5 environment variables
+export GTK_IM_MODULE=fcitx5
+export QT_IM_MODULE=fcitx5
+export XMODIFIERS=@im=fcitx5
+export DefaultIMModule=fcitx5
 EOF
   fi
 
-  #   # libskkなら
-  #   cat >~/.config/libskk/rules/StickyShift/metadata.json <<'EOF'
-  # {
-  #   "name": "Sticky Shift",
-  #   "description": "Enable Sticky Shift"
-  # }
-  # EOF
-  #
-  #   cat >~/.config/libskk/rules/StickyShift/keymap/hiragana.json <<'EOF'
-  # {
-  #     "include": [
-  #         "default/hiragana"
-  #     ],
-  #     "define": {
-  #         "keymap": {
-  #             ";": "start-preedit-no-delete"
-  #         }
-  #     }
-  # }
-  # EOF
-  #
-  #   cat >~/.config/libskk/rules/StickyShift/keymap/katakana.json <<'EOF'
-  # {
-  #   "include": [
-  #       "default/katakana"
-  #   ],
-  #   "define": {
-  #     "keymap": {
-  #       ";": "start-preedit-no-delete"
-  #     }
-  #   }
-  # }
-  # EOF
+  # libskk
+  cat >~/.config/libskk/rules/StickyShift/metadata.json <<'EOF'
+{
+  "name": "Sticky Shift",
+  "description": "Enable Sticky Shift"
+}
+EOF
+
+  cat >~/.config/libskk/rules/StickyShift/keymap/hiragana.json <<'EOF'
+{
+    "include": [
+        "default/hiragana"
+    ],
+    "define": {
+        "keymap": {
+            ";": "start-preedit-no-delete"
+        }
+    }
+}
+EOF
+
+  cat >~/.config/libskk/rules/StickyShift/keymap/katakana.json <<'EOF'
+{
+  "include": [
+      "default/katakana"
+  ],
+  "define": {
+    "keymap": {
+      ";": "start-preedit-no-delete"
+    }
+  }
+}
+EOF
 
   log_info "日本語環境のセットアップが完了しました"
+  log_info "fcitx5はログアウト後に fcitx5-configtool で設定してください"
   log_warn "設定を反映するには再ログインが必要です"
 }
 
