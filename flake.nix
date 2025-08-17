@@ -55,113 +55,96 @@
 
   outputs =
     inputs@{ flake-parts, systems, ... }:
-    flake-parts.lib.mkFlake { inherit inputs; } {
-      imports = [
-        ./modules
-        inputs.treefmt-nix.flakeModule
-      ];
+    flake-parts.lib.mkFlake { inherit inputs; } (
+      { self, ... }:
+      {
+        imports = [
+          ./modules
+          inputs.treefmt-nix.flakeModule
+        ];
 
-      systems = import systems;
+        systems = import systems;
 
-      perSystem =
-        {
-          config,
-          self',
-          inputs',
-          pkgs,
-          system,
-          ...
-        }:
-        {
-          # perSystem内のpkgsカスタマイズ
-          # ここは開発シェル（devShells）やカスタムパッケージ（packages）用
-          # _module.args.pkgsでperSystem内のデフォルトpkgsを上書き
-          _module.args.pkgs = import inputs.nixpkgs {
-            inherit system;
-            config = {
-              allowUnfree = true;
-            };
-            overlays = [
-              (import ./overlays/default.nix)
-              inputs.fenix.overlays.default
-            ];
-          };
-
-          packages = import ./pkgs { inherit pkgs; };
-          devShells = import ./shells { inherit pkgs; };
-
-          # treefmtの設定
-          treefmt = {
-            projectRootFile = "flake.nix";
-            programs = {
-              nixfmt-rfc-style.enable = true;
-            };
-          };
-
-          apps = {
-            setup-sudo-nopasswd = {
-              type = "app";
-              program = "${pkgs.writeShellScript "setup-sudo-nopasswd" ''
-                exec ${pkgs.bash}/bin/bash ${./scripts/setup-sudo-nopasswd.sh} "$@"
-              ''}";
-            };
-            setup-trusted-user = {
-              type = "app";
-              program = "${pkgs.writeShellScript "setup-trusted-user" ''
-                exec ${pkgs.bash}/bin/bash ${./scripts/setup-nix-trusted-user.sh} "$@"
-              ''}";
-            };
-            install-system-packages = {
-              type = "app";
-              program = "${pkgs.writeShellScript "install-system-packages" ''
-                exec ${pkgs.bash}/bin/bash ${./scripts/install-system-packages.sh} "$@"
-              ''}";
-            };
-          };
-
-          # perSystem内でlegacyPackagesとしてhomeConfigurationを定義
-          # これによりsystemが自動的に使用される
-          legacyPackages.homeConfigurations = {
-            "shishi@ubuntu" = inputs.home-manager.lib.homeManagerConfiguration {
-              inherit pkgs; # perSystemのpkgsを使用（systemが含まれている）
-              modules = [
-                ./home-manager
-                {
-                  # カスタムライブラリをHome Managerに渡す
-                  _module.args = {
-                    myLib = import ./lib {
-                      inherit (inputs.nixpkgs) lib pkgs;
-                    };
-                  };
-                }
+        perSystem =
+          {
+            config,
+            self',
+            inputs',
+            pkgs,
+            system,
+            ...
+          }:
+          {
+            # perSystem内のpkgsカスタマイズ
+            # ここは開発シェル（devShells）やカスタムパッケージ（packages）用
+            # _module.args.pkgsでperSystem内のデフォルトpkgsを上書き
+            _module.args.pkgs = import inputs.nixpkgs {
+              inherit system;
+              config = {
+                allowUnfree = true;
+              };
+              overlays = [
+                (import ./overlays/default.nix)
+                inputs.fenix.overlays.default
               ];
             };
+
+            packages = import ./pkgs { inherit pkgs; };
+            devShells = import ./shells { inherit pkgs; };
+
+            # treefmtの設定
+            treefmt = {
+              projectRootFile = "flake.nix";
+              programs = {
+                nixfmt-rfc-style.enable = true;
+              };
+            };
+
+            apps = {
+              setup-sudo-nopasswd = {
+                type = "app";
+                program = "${pkgs.writeShellScript "setup-sudo-nopasswd" ''
+                  exec ${pkgs.bash}/bin/bash ${./scripts/setup-sudo-nopasswd.sh} "$@"
+                ''}";
+              };
+              setup-trusted-user = {
+                type = "app";
+                program = "${pkgs.writeShellScript "setup-trusted-user" ''
+                  exec ${pkgs.bash}/bin/bash ${./scripts/setup-nix-trusted-user.sh} "$@"
+                ''}";
+              };
+              install-system-packages = {
+                type = "app";
+                program = "${pkgs.writeShellScript "install-system-packages" ''
+                  exec ${pkgs.bash}/bin/bash ${./scripts/install-system-packages.sh} "$@"
+                ''}";
+              };
+            };
+
+            # グローバルオーバーレイのエクスポート
+            # 他のflakeがこのoverlayを使えるようにする
+            # 例: 他の人が inputs.your-flake.overlays.default で利用可能
+            overlays.default = import ./overlays/default.nix;
+
+            # perSystem内でlegacyPackagesとしてhomeConfigurationを定義
+            # これによりsystemが自動的に使用される
+            homeConfigurations = {
+              "shishi@ubuntu" = inputs.home-manager.lib.homeManagerConfiguration {
+                inherit pkgs; # perSystemのpkgsを使用（systemが含まれている）
+                modules = [
+                  ./home-manager
+                  {
+                    # カスタムライブラリをHome Managerに渡す
+                    _module.args = {
+                      myLib = import ./lib {
+                        inherit (inputs.nixpkgs) lib pkgs;
+                      };
+                    };
+                  }
+                ];
+              };
+            };
           };
-        };
-
-      flake =
-        let
-          self = inputs.self;
-        in
-        {
-          # Home Manager設定（perSystemから集約）
-          homeConfigurations = {
-            # 各システムのhomeConfigurationsを統合
-            "shishi@ubuntu" =
-              self.legacyPackages.x86_64-linux.homeConfigurations."shishi@ubuntu"
-                or self.legacyPackages.aarch64-linux.homeConfigurations."shishi@ubuntu" or throw
-                "No homeConfiguration found for shishi@ubuntu";
-
-            # 複数マシンに対応する場合：
-            # 1. ホスト名で分岐: if builtins.getEnv "HOSTNAME" == "machine1" then ...
-            # 2. flake outputsで複数定義: homeConfigurations."user@machine1", "user@machine2"
-            # 3. 共通設定をモジュール化して、マシン固有の設定だけ分離
-          };
-
-          # グローバルオーバーレイのエクスポート
-          # 他のflakeがこのoverlayを使えるようにする
-          # 例: 他の人が inputs.your-flake.overlays.default で利用可能
-          overlays.default = import ./overlays/default.nix;
-        };
-    };
+      }
+    );
 }

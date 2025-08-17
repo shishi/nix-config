@@ -35,10 +35,10 @@
 git clone https://github.com/shishi/nix-config.git
 cd nix-config
 
-nix --experimental-features 'nix-command flakes' run .#setup-sudo-nopasswd
-nix --experimental-features 'nix-command flakes' run .#setup-trusted-user
-nix --experimental-features 'nix-command flakes' run .#install-system-packages
-nix --experimental-features 'nix-command flakes' run home-manager/master -- switch --flake .#shishi@ubuntu
+nix --extra-experimental-features 'nix-command flakes' run .#setup-sudo-nopasswd
+nix --extra-experimental-features 'nix-command flakes' run .#setup-trusted-user
+nix --extra-experimental-features 'nix-command flakes' run .#install-system-packages
+nix --extra-experimental-features 'nix-command flakes' run home-manager/master -- switch --flake .#shishi@ubuntu --extra-experimental-features 'nix-command flakes'
 ```
 
 **注意**: 
