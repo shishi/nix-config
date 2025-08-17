@@ -57,7 +57,7 @@
       # 言語
       nodejs_24
       python314
-      ruby_3_4
+      "ruby-3.4"
       go
       clang
 
