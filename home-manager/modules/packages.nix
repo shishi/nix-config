@@ -3,13 +3,14 @@
   pkgs,
   lib,
   myLib,
-  nixpkgs-ruby,
+  # nixpkgs-ruby,
   ...
 }:
 
 {
   home.packages =
-    (with pkgs; [
+    with pkgs;
+    [
       fish
       ripgrep
       fd
@@ -38,6 +39,7 @@
       pkg-config
       wezterm
       nil
+      nixd
       less
       nixfmt
       _1password-cli
@@ -68,7 +70,7 @@
       postgresql.dev
       sqlite
       sqlite.dev
-    ])
+    ]
     ++ lib.optionals myLib.hasGui (
       with pkgs;
       [
