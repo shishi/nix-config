@@ -12,6 +12,10 @@
       inputs.nixpkgs.follows = "nixpkgs";
     };
 
+    neovim-nightly-overlay = {
+      url = "github:nix-community/neovim-nightly-overlay";
+    };
+
     fenix = {
       url = "github:nix-community/fenix";
       inputs.nixpkgs.follows = "nixpkgs";
@@ -96,6 +100,7 @@
               };
               overlays = [
                 (import ./overlays/default.nix)
+                inputs.neovim-nightly-overlay.overlays.default
                 inputs.fenix.overlays.default
               ];
             };

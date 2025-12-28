@@ -47,6 +47,8 @@
       uv
       emacs
       gnomeExtensions.clipboard-indicator
+      gh
+      nix-output-monitor
 
       # fonts
       noto-fonts

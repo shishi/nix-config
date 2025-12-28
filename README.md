@@ -177,4 +177,7 @@ nix --experimental-features 'nix-command flakes' flake check
 
 # デバッグ情報付きで実行
 nix --experimental-features 'nix-command flakes' run home-manager/master -- switch --flake .#shishi@ubuntu --show-trace
+
+# nom使用
+nix run home-manager/master -- switch --flake .#shishi@ubuntu  2>&1 | nom
 ```
