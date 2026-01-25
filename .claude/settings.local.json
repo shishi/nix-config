@@ -1,7 +1,8 @@
 {
   "permissions": {
     "allow": [
-      "Bash(gsettings get:*)"
+      "Bash(gsettings get:*)",
+      "Bash(nix search:*)"
     ],
     "deny": []
   }

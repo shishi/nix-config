@@ -49,6 +49,7 @@
       gnomeExtensions.clipboard-indicator
       gh
       nix-output-monitor
+      git-wt # git worktree を簡単に操作するツール
 
       # fonts
       noto-fonts
