@@ -2,7 +2,9 @@
   "permissions": {
     "allow": [
       "Bash(gsettings get:*)",
-      "Bash(nix search:*)"
+      "Bash(nix search:*)",
+      "WebSearch",
+      "Bash(home-manager switch:*)"
     ],
     "deny": []
   }

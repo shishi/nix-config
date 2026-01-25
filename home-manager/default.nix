@@ -9,6 +9,7 @@
 {
   imports = [
     ./modules/dconf.nix
+    ./modules/go.nix
     ./modules/packages.nix
     ./modules/rust.nix
     ./modules/shell.nix
