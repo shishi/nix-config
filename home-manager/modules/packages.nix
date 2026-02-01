@@ -49,6 +49,7 @@
       gnomeExtensions.clipboard-indicator
       gh
       nix-output-monitor
+      fish-lsp
 
       # fonts
       noto-fonts
