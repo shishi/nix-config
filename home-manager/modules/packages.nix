@@ -11,6 +11,7 @@
   home.packages =
     with pkgs;
     [
+      direnv
       fish
       ripgrep
       fd
@@ -38,7 +39,7 @@
       rclone
       pkg-config
       wezterm
-      nil
+      # nil
       nixd
       less
       nixfmt
