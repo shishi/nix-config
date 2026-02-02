@@ -11,7 +11,6 @@
   home.packages =
     with pkgs;
     [
-      nix-direnv
       fish
       ripgrep
       fd
