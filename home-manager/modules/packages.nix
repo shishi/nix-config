@@ -29,6 +29,7 @@
       unar
       p7zip
       git
+      git-wt
       gnupg
       luajit
       pass
@@ -47,12 +48,12 @@
       tailscale
       uv
       emacs
-      gnomeExtensions.clipboard-indicator
       gh
       nix-output-monitor
       fish-lsp
       llm-agents.claude-code
       llm-agents.codex
+      nix-update
 
       # fonts
       noto-fonts
@@ -93,6 +94,7 @@
         teamviewer
         tailscale-systray
         guake
+        gnomeExtensions.clipboard-indicator
       ]
     );
 }

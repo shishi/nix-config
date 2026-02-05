@@ -21,7 +21,13 @@
 # - 他のパッケージを参照する時は基本的にprevを使う
 # - finalは自己参照や、明確に「最終版」が必要な時のみ使う
 #
-final: prev: {
+final: prev:
+let
+  # pkgs/default.nix からカスタムパッケージを読み込む
+  customPkgs = import ../pkgs { pkgs = prev; lib = prev.lib; };
+in
+customPkgs
+// {
   # 1. 既存パッケージにパッチを適用する例
   # neovim = prev.neovim.overrideAttrs (oldAttrs: {
   #   patches = (oldAttrs.patches or []) ++ [
