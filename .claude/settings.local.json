@@ -4,7 +4,9 @@
       "Bash(gsettings get:*)",
       "Bash(nix search:*)",
       "WebSearch",
-      "Bash(home-manager switch:*)"
+      "Bash(home-manager switch:*)",
+      "WebFetch(domain:github.com)",
+      "Bash(gh api:*)"
     ],
     "deny": []
   }

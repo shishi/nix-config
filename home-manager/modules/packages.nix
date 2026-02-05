@@ -51,6 +51,8 @@
       gh
       nix-output-monitor
       fish-lsp
+      llm-agents.claude-code
+      llm-agents.codex
 
       # fonts
       noto-fonts

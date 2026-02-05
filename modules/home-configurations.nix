@@ -19,6 +19,7 @@
             (import "${self}/overlays/default.nix")
             inputs.fenix.overlays.default
             inputs.neovim-nightly-overlay.overlays.default
+            inputs.llm-agents.overlays.default
           ];
         };
 
