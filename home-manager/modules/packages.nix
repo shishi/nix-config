@@ -9,49 +9,48 @@
   home.packages =
     with pkgs;
     [
-      fish
-      ripgrep
-      fd
+      _1password-cli
       bat
-      eza
-      zoxide
-      curl
-      wget
       bottom
-      jq
-      yq
+      curl
       deno
-      zip
-      unzip
-      unar
-      p7zip
+      emacs
+      eza
+      fd
+      fish
+      fish-lsp
+      gh
       git
       git-wt
       gnupg
-      luajit
-      pass
-      xclip
-      xsel
-      vim
-      neovim
-      rclone
-      pkg-config
-      wezterm
-      # nil
-      nixd
+      jq
       less
-      nixfmt
-      _1password-cli
-      tailscale
-      uv
-      emacs
-      gh
-      nix-output-monitor
-      fish-lsp
       llm-agents.claude-code
       llm-agents.codex
-      nix-update
+      luajit
+      neovim
+      nix-output-monitor
       nix-search-cli
+      nix-update
+      nixd
+      nixfmt
+      p7zip
+      pass
+      pkg-config
+      rclone
+      ripgrep
+      tailscale
+      unar
+      unzip
+      uv
+      vim
+      wezterm
+      wget
+      xclip
+      xsel
+      yq
+      zip
+      zoxide
 
       # fonts
       noto-fonts
@@ -80,19 +79,19 @@
       with pkgs;
       [
         _1password-gui
-        firefox
-        google-chrome
-        microsoft-edge
-        vscode
-        slack
         discord
-        vlc
-        gnome-screenshot
+        firefox
         flameshot
-        teamviewer
-        tailscale-systray
-        guake
+        gnome-screenshot
         gnomeExtensions.clipboard-indicator
+        google-chrome
+        guake
+        microsoft-edge
+        slack
+        tailscale-systray
+        teamviewer
+        vlc
+        vscode
       ]
     );
 }
