@@ -6,7 +6,20 @@
       "WebSearch",
       "Bash(home-manager switch:*)",
       "WebFetch(domain:github.com)",
-      "Bash(gh api:*)"
+      "Bash(gh api:*)",
+      "Bash(wc:*)",
+      "Bash(nix flake check:*)",
+      "Bash(nix build:*)",
+      "Bash(nix run:*)",
+      "Bash(systemctl:*)",
+      "Bash(nix eval:*)",
+      "Bash(git -C /home/shishi/dev/src/github.com/shishi/nix-config add home-manager/modules/options.nix)",
+      "Bash(git -C /home/shishi/dev/src/github.com/shishi/nix-config status)",
+      "Bash(git -C /home/shishi/dev/src/github.com/shishi/nix-config diff)",
+      "Bash(git -C /home/shishi/dev/src/github.com/shishi/nix-config log --oneline -5)",
+      "Bash(git -C /home/shishi/dev/src/github.com/shishi/nix-config show --stat fea8e2d)",
+      "Bash(nix develop:*)",
+      "Bash(git add:*)"
     ],
     "deny": []
   }
