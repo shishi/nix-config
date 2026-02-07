@@ -14,7 +14,7 @@
         default = pkgs.mkShell {
           buildInputs = with pkgs; [
             # Nix開発ツール
-            nil
+            nixd
             nixfmt
           ];
 
