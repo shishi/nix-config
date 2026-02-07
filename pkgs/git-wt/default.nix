@@ -2,9 +2,10 @@
   lib,
   buildGoModule,
   fetchFromGitHub,
+  go_1_25,
 }:
 
-buildGoModule rec {
+buildGoModule.override { go = go_1_25; } rec {
   pname = "git-wt";
   version = "0.18.0";
 

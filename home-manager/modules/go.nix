@@ -9,38 +9,6 @@ let
   # nixpkgs にまだないGoパッケージをビルドするサンプル
   # buildGoModule を使って GitHub などから直接ビルドできるよ！
 
-  # git-wt: git worktree を簡単に操作するツール
-  # https://github.com/k1LoW/git-wt
-  git-wt = pkgs.buildGoModule rec {
-    pname = "git-wt";
-    version = "0.15.0";
-
-    src = pkgs.fetchFromGitHub {
-      owner = "k1LoW";
-      repo = "git-wt";
-      rev = "v${version}";
-      hash = "sha256-A8vkwa8+RfupP9UaUuSVjkt5HtWvqR5VmSsVg2KpeMo=";
-    };
-
-    vendorHash = "sha256-K5geAvG+mvnKeixOyZt0C1T5ojSBFmx2K/Msol0HsSg=";
-
-    # テストは git コマンドを必要とするが、nix サンドボックスでは利用不可のためスキップ
-    doCheck = false;
-
-    # ldflags でバージョン情報を埋め込む
-    ldflags = [
-      "-s"
-      "-w"
-      "-X github.com/k1LoW/git-wt/version.Version=${version}"
-    ];
-
-    meta = with lib; {
-      description = "A Git subcommand that makes git worktree simple";
-      homepage = "https://github.com/k1LoW/git-wt";
-      license = licenses.mit;
-    };
-  };
-
   # サンプル: buildGoModule の使い方
   # exampleTool = pkgs.buildGoModule rec {
   #   pname = "example-tool";
@@ -79,7 +47,4 @@ let
 
 in
 {
-  home.packages = [
-    git-wt
-  ];
 }
