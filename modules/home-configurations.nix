@@ -17,13 +17,7 @@
 
           modules = [
             "${self}/home-manager"
-            {
-              _module.args = {
-                myLib = import "${self}/lib" { inherit pkgs; };
-              # hasGui判定は myConfig.hasGui オプションで制御
-              # サーバー用configの場合: { myConfig.hasGui = false; } を modules に追加
-              };
-            }
+            # サーバー用configの場合: { myConfig.hasGui = false; } を追加
           ];
         }
       );
