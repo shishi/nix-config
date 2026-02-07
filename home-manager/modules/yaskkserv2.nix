@@ -40,42 +40,44 @@ let
   yaskkservCache = "${skkDictDir}/yaskkserv2.cache";
 in
 {
-  home.packages = [ yaskkserv2 ];
+  config = lib.mkIf pkgs.stdenv.isLinux {
+    home.packages = [ yaskkserv2 ];
 
-  # SKK辞書のダウンロードと変換スクリプト
-  home.activation.setupYaskkserv2 = lib.hm.dag.entryAfter [ "writeBoundary" ] ''
-    # SKK辞書ディレクトリの作成
-    mkdir -p ${skkDictDir}
+    # SKK辞書のダウンロードと変換スクリプト
+    home.activation.setupYaskkserv2 = lib.hm.dag.entryAfter [ "writeBoundary" ] ''
+      # SKK辞書ディレクトリの作成
+      mkdir -p ${skkDictDir}
 
-    # SKK-JISYO.Lのダウンロード(存在しない場合)
-    if [ ! -f ${skkDictL} ]; then
-      echo "Downloading SKK-JISYO.L..."
-      ${pkgs.curl}/bin/curl -L -o ${skkDictL} https://raw.githubusercontent.com/skk-dev/dict/master/SKK-JISYO.L
-    fi
+      # SKK-JISYO.Lのダウンロード(存在しない場合)
+      if [ ! -f ${skkDictL} ]; then
+        echo "Downloading SKK-JISYO.L..."
+        ${pkgs.curl}/bin/curl -L -o ${skkDictL} https://raw.githubusercontent.com/skk-dev/dict/master/SKK-JISYO.L
+      fi
 
-    # yaskkserv2用辞書の作成(更新チェック付き)
-    if [ ! -f ${yaskkservDict} ] || [ ${skkDictL} -nt ${yaskkservDict} ]; then
-      echo "Creating yaskkserv2 dictionary..."
-      ${yaskkserv2}/bin/yaskkserv2_make_dictionary --dictionary-filename=${yaskkservDict} ${skkDictL}
-    fi
-  '';
+      # yaskkserv2用辞書の作成(更新チェック付き)
+      if [ ! -f ${yaskkservDict} ] || [ ${skkDictL} -nt ${yaskkservDict} ]; then
+        echo "Creating yaskkserv2 dictionary..."
+        ${yaskkserv2}/bin/yaskkserv2_make_dictionary --dictionary-filename=${yaskkservDict} ${skkDictL}
+      fi
+    '';
 
-  # systemdユーザーサービスの設定
-  systemd.user.services.yaskkserv2 = {
-    Unit = {
-      Description = "Yet Another SKK server";
-      After = [ "network.target" ];
-    };
+    # systemdユーザーサービスの設定
+    systemd.user.services.yaskkserv2 = {
+      Unit = {
+        Description = "Yet Another SKK server";
+        After = [ "network.target" ];
+      };
 
-    Service = {
-      Type = "simple";
-      ExecStart = "${yaskkserv2}/bin/yaskkserv2 --port 1178 --google-japanese-input=last --google-suggest --google-cache-filename=${yaskkservCache} ${yaskkservDict}";
-      Restart = "always";
-      RestartSec = 3;
-    };
+      Service = {
+        Type = "simple";
+        ExecStart = "${yaskkserv2}/bin/yaskkserv2 --port 1178 --google-japanese-input=last --google-suggest --google-cache-filename=${yaskkservCache} ${yaskkservDict}";
+        Restart = "always";
+        RestartSec = 3;
+      };
 
-    Install = {
-      WantedBy = [ "default.target" ];
+      Install = {
+        WantedBy = [ "default.target" ];
+      };
     };
   };
 }

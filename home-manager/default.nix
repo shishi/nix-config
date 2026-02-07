@@ -2,21 +2,18 @@
   config,
   pkgs,
   lib,
-  myLib,
   ...
 }:
 
 {
   imports = [
+    ./modules/options.nix
     ./modules/dconf.nix
     ./modules/direnv.nix
-    ./modules/go.nix
     ./modules/packages.nix
     ./modules/rust.nix
     ./modules/shell.nix
     ./modules/yaskkserv2.nix
-    # ./modules/git.nix
-    # ./modules/editor.nix
   ];
 
   home = {
@@ -29,11 +26,6 @@
       VISUAL = "nvim";
       PAGER = "less";
       LESS = "-R";
-      # LIBRARY_PATH = "$HOME/.nix-profile/lib:$LIBRARY_PATH";
-      # LD_LIBRARY_PATH = "$HOME/.nix-profile/lib:$LD_LIBRARY_PATH";
-      # C_INCLUDE_PATH = "HOME/.nix-profile/include:$C_INCLUDE_PATH";
-      # CPLUS_INCLUDE_PATH = "HOME/.nix-profile/include:$CPLUS_INCLUDE_PATH";
-      # PKG_CONFIG_PATH = "$HOME/.nix-profile/lib/pkgconfig:$PKG_CONFIG_PATH";
     };
   };
 

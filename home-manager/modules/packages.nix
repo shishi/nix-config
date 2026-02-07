@@ -2,8 +2,6 @@
   config,
   pkgs,
   lib,
-  myLib,
-  # nixpkgs-ruby,
   ...
 }:
 
@@ -54,6 +52,7 @@
       llm-agents.claude-code
       llm-agents.codex
       nix-update
+      nix-search-cli
 
       # fonts
       noto-fonts
@@ -78,7 +77,7 @@
       sqlite
       sqlite.dev
     ]
-    ++ lib.optionals myLib.hasGui (
+    ++ lib.optionals config.myConfig.hasGui (
       with pkgs;
       [
         _1password-gui

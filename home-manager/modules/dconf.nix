@@ -2,14 +2,13 @@
   config,
   pkgs,
   lib,
-  myLib,
   ...
 }:
 
 {
   # dconf設定 (GNOME/GTK設定)
   # GUI環境でのみ有効化
-  dconf = lib.mkIf myLib.hasGui {
+  dconf = lib.mkIf config.myConfig.hasGui {
     enable = true;
     settings = {
       # キーボードレイアウト設定
@@ -109,7 +108,7 @@
   };
 
   # dconf2nixツールをインストール（設定のエクスポート用）
-  home.packages = lib.optionals myLib.hasGui [
+  home.packages = lib.optionals config.myConfig.hasGui [
     pkgs.dconf2nix
   ];
 }

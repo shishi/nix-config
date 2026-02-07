@@ -4,35 +4,29 @@
   config,
   inputs,
   lib,
+  withSystem,
   ...
 }:
 {
   flake = {
     homeConfigurations = {
-      "shishi@ubuntu" = inputs.home-manager.lib.homeManagerConfiguration {
-        pkgs = import inputs.nixpkgs {
-          system = "x86_64-linux";
-          config = {
-            allowUnfree = true;
-          };
-          overlays = [
-            (import "${self}/overlays/default.nix")
-            inputs.fenix.overlays.default
-            inputs.neovim-nightly-overlay.overlays.default
-            inputs.llm-agents.overlays.default
-          ];
-        };
+      "shishi@ubuntu" = withSystem "x86_64-linux" (
+        { pkgs, ... }:
+        inputs.home-manager.lib.homeManagerConfiguration {
+          inherit pkgs;
 
-        modules = [
-          "${self}/home-manager"
-          {
-            # カスタムライブラリをHome Managerに渡す
-            _module.args = {
-              myLib = import "${self}/lib" { };
-            };
-          }
-        ];
-      };
+          modules = [
+            "${self}/home-manager"
+            {
+              _module.args = {
+                myLib = import "${self}/lib" { inherit pkgs; };
+              # hasGui判定は myConfig.hasGui オプションで制御
+              # サーバー用configの場合: { myConfig.hasGui = false; } を modules に追加
+              };
+            }
+          ];
+        }
+      );
     };
   };
 }
