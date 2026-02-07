@@ -5,7 +5,6 @@
     nixpkgs.url = "github:NixOS/nixpkgs/nixpkgs-unstable";
     flake-parts.url = "github:hercules-ci/flake-parts";
     systems.url = "github:nix-systems/default";
-    # nixpkgs-ruby.url = "github:bobvanderlinden/nixpkgs-ruby";
 
     home-manager = {
       url = "github:nix-community/home-manager";
@@ -32,25 +31,21 @@
     };
   };
 
-  # nixConfig: Cachixなどのバイナリキャッシュ設定
-  # この設定はflakeのトップレベルでのみ有効
-  # 注意: これらの設定はtrusted-userのみが使用可能
-  # trusted-userでない場合は --option を使用するか、以下のセットアップを実行:
-  # echo "trusted-users = root $USER" | sudo tee -a /etc/nix/nix.conf && sudo systemctl restart nix-daemon
+  # バイナリキャッシュ設定
+  # trusted-userでない場合: nix run .#setup-trusted-user
   nixConfig = {
-    # 追加の公開鍵を許可（trusted-userでなくても使用可能）
+    # extra-*: trusted-userでなくても使用可能
     extra-trusted-public-keys = [
       "nix-community.cachix.org-1:mB9FSh9qf2dCimDSUo8Zy7bkq5CX+/rkCWyvRCYg3Fs="
       "niks3.numtide.com-1:DTx8wZduET09hRmMtKdQDxNNthLQETkc/yaX7M4qK0g="
     ];
 
-    # 追加のバイナリキャッシュを許可（trusted-userでなくても使用可能）
     extra-substituters = [
       "https://nix-community.cachix.org"
       "https://cache.numtide.com"
     ];
 
-    # デフォルトのキャッシュ設定（trusted-userが必要）
+    # trusted-userが必要
     trusted-public-keys = [
       "cache.nixos.org-1:6NCHdD59X431o0gWypbMrAURkbJ16ZPMQFGspcDShjY="
       "nix-community.cachix.org-1:mB9FSh9qf2dCimDSUo8Zy7bkq5CX+/rkCWyvRCYg3Fs="
@@ -63,7 +58,6 @@
       "https://cache.numtide.com"
     ];
 
-    # 警告を減らすための設定
     accept-flake-config = true;
   };
 
@@ -83,8 +77,7 @@
 
         systems = import systems;
 
-        # グローバルオーバーレイのエクスポート
-        # 他のflakeがこのoverlayを使えるようにする
+        # overlayをflake出力としてエクスポート
         flake = {
           overlays.default = import ./overlays/default.nix;
         };
@@ -99,9 +92,7 @@
             ...
           }:
           {
-            # perSystem内のpkgsカスタマイズ
-            # ここは開発シェル（devShells）やカスタムパッケージ（packages）用
-            # _module.args.pkgsでperSystem内のデフォルトpkgsを上書き
+            # overlays適用済みのpkgsを全perSystemモジュールに提供
             _module.args.pkgs = import inputs.nixpkgs {
               inherit system;
               config = {
@@ -123,17 +114,14 @@
               };
             };
 
-            # カスタムパッケージをpackages outputとして公開
-            # nix build .#git-wt や nix run .#git-wt で使える
-            # nix-update でバージョン更新も可能
+            # カスタムパッケージ: nix build .#<pkg> / nix run .#update で更新
             packages = import ./pkgs {
               inherit pkgs;
               lib = pkgs.lib;
             };
 
             apps = {
-              # nix flake update と nix-update を同時実行
-              # 使い方: nix run .#update
+              # nix run .#update: flake update + nix-update を一括実行
               update = {
                 type = "app";
                 program = "${pkgs.writeShellScript "update-all" ''

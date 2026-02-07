@@ -1,3 +1,6 @@
+# GNOME/GTK設定 (dconf)
+# GUI環境でのみ有効化 (myConfig.hasGui)
+# 現在の設定をエクスポート: dconf2nix -o dconf-dump.nix
 {
   config,
   pkgs,
@@ -6,24 +9,12 @@
 }:
 
 {
-  # dconf設定 (GNOME/GTK設定)
-  # GUI環境でのみ有効化
   dconf = lib.mkIf config.myConfig.hasGui {
     enable = true;
     settings = {
-      # キーボードレイアウト設定
       "org/gnome/desktop/input-sources" = {
-        # Caps LockをCtrlに変更
+        # 他の選択肢: "ctrl:swapcaps" "caps:escape" "altwin:swap_lalt_lwin"
         xkb-options = [ "ctrl:nocaps" ];
-
-        # その他の便利なオプション例（コメントアウト）:
-        # xkb-options = [
-        #   "ctrl:nocaps"        # Caps Lock → Ctrl
-        #   "ctrl:swapcaps"      # Caps Lock ⇔ Ctrl 入れ替え
-        #   "caps:escape"        # Caps Lock → Escape
-        #   "caps:ctrl_modifier" # Caps Lockを追加のCtrlキーとして使用
-        #   "altwin:swap_lalt_lwin" # Alt ⇔ Super 入れ替え
-        # ];
       };
 
       # キーリピート設定
@@ -107,7 +98,6 @@
     };
   };
 
-  # dconf2nixツールをインストール（設定のエクスポート用）
   home.packages = lib.optionals config.myConfig.hasGui [
     pkgs.dconf2nix
   ];

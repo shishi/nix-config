@@ -1,36 +1,15 @@
-# Development shells module for flake-parts
-{
-  self,
-  config,
-  inputs,
-  lib,
-  ...
-}:
+# nix develop で使える開発シェル
+# プロジェクト別シェルの追加: devShells.<name> = pkgs.mkShell { ... };
+{ ... }:
 {
   perSystem =
     { pkgs, ... }:
     {
-      devShells = {
-        default = pkgs.mkShell {
-          buildInputs = with pkgs; [
-            # Nix開発ツール
-            nixd
-            nixfmt
-          ];
-
-          shellHook = ''
-            echo "Welcome to Nix development shell!"
-          '';
-        };
-
-        # Python開発環境の例（将来用）
-        # python = pkgs.mkShell {
-        #   buildInputs = with pkgs; [
-        #     python3
-        #     python3Packages.pip
-        #     python3Packages.virtualenv
-        #   ];
-        # };
+      devShells.default = pkgs.mkShell {
+        buildInputs = with pkgs; [
+          nixd
+          nixfmt
+        ];
       };
     };
 }
