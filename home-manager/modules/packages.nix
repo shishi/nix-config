@@ -27,6 +27,7 @@
       less
       llm-agents.claude-code
       llm-agents.codex
+      lua-language-server
       luajit
       neovim
       nix-output-monitor
@@ -37,9 +38,11 @@
       p7zip
       pass
       pkg-config
+      pyright
       rclone
       ripgrep
       tailscale
+      typescript-language-server
       unar
       unzip
       uv
