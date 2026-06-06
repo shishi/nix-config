@@ -9,7 +9,10 @@
 #   ラップ:         pkg = prev.symlinkJoin { name = "pkg"; paths = [ prev.pkg ]; ... };
 final: prev:
 let
-  customPkgs = import ../pkgs { pkgs = prev; lib = prev.lib; };
+  customPkgs = import ../pkgs {
+    pkgs = prev;
+    lib = prev.lib;
+  };
 in
 customPkgs
 // {

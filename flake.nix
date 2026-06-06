@@ -29,6 +29,11 @@
       url = "github:numtide/llm-agents.nix";
       inputs.nixpkgs.follows = "nixpkgs";
     };
+
+    nix-index-database = {
+      url = "github:nix-community/nix-index-database";
+      inputs.nixpkgs.follows = "nixpkgs";
+    };
   };
 
   # バイナリキャッシュ設定
@@ -110,7 +115,9 @@
             treefmt = {
               projectRootFile = "flake.nix";
               programs = {
-                nixfmt-rfc-style.enable = true;
+                # treefmt-nix で nixfmt-rfc-style は programs.nixfmt に統合された
+                # (nixfmt 本体が RFC 166 スタイルを採用したため)
+                nixfmt.enable = true;
               };
             };
 

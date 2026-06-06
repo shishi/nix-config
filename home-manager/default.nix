@@ -10,6 +10,7 @@
     ./modules/options.nix
     ./modules/dconf.nix
     ./modules/direnv.nix
+    ./modules/nix-index.nix
     ./modules/packages.nix
     ./modules/rust.nix
     ./modules/shell.nix

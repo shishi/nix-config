@@ -15,6 +15,10 @@
         inputs.home-manager.lib.homeManagerConfiguration {
           inherit pkgs;
 
+          # home-manager配下のモジュールから inputs を参照できるようにする
+          # (例: nix-index-database の homeModule を import するため)
+          extraSpecialArgs = { inherit inputs; };
+
           modules = [
             "${self}/home-manager"
             # サーバー用configの場合: { myConfig.hasGui = false; } を追加

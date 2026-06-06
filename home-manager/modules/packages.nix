@@ -27,6 +27,7 @@
       less
       llm-agents.claude-code
       llm-agents.codex
+      localsend
       lua-language-server
       luajit
       neovim
@@ -89,6 +90,7 @@
         gnomeExtensions.clipboard-indicator
         google-chrome
         guake
+        localsend
         microsoft-edge
         slack
         tailscale-systray
