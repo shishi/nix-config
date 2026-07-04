@@ -1,10 +1,12 @@
 # flake の apps 定義: nix run .#<name> で実行できるコマンド群
 #   update                  : flake update + カスタムパッケージ更新を一括実行
+#   default                 : update のエイリアス (引数なし nix run のフォールバック)
+#   switch                  : pinned 構成を home-manager CLI を介さず直接 activate
 #   setup-* / install-*     : scripts/ のシェルスクリプトを実行するラッパー
-{ ... }:
+{ self, ... }:
 {
   perSystem =
-    { pkgs, ... }:
+    { pkgs, self', ... }:
     let
       # scripts/<file> を bash で実行するだけの app を作るヘルパー。
       # setup-* / install-* のように「既存スクリプトに引数を渡すだけ」の app で使う。
@@ -33,6 +35,21 @@
               text = builtins.readFile ../scripts/update-all.sh;
             }
           }/bin/update-all";
+        };
+
+        # 引数なし `nix run` (fish では `#` 以降がコメント扱いになり
+        # `nix run .#update` が `nix run` になるケース) でも update を実行する
+        default = self'.apps.update;
+
+        # nix run .#switch: pinned 構成を home-manager CLI を介さず直接 activate する。
+        # `nix run home-manager/master -- switch` と違い master の fetch と CLI ビルドが
+        # 不要なぶん速い (activationPackage/activate は switch がビルド後に実行する本体)。
+        # 構成は現状 shishi@ubuntu のみ。増えたら分岐させる。
+        switch = {
+          type = "app";
+          program = "${pkgs.writeShellScript "hm-switch" ''
+            exec ${self.homeConfigurations."shishi@ubuntu".activationPackage}/activate
+          ''}";
         };
 
         setup-sudo-nopasswd = mkScriptApp "setup-sudo-nopasswd" ../scripts/setup-sudo-nopasswd.sh;
