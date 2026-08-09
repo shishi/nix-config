@@ -1,5 +1,6 @@
 {
   inputs,
+  lib,
   pkgs,
   ...
 }:
@@ -22,7 +23,11 @@
   ];
 
   nix = {
-    package = pkgs.nix;
+    # NixOS 統合ホストでは home-manager が system nix.package を
+    # home-manager.users.<name>.nix.package へ転送する(通常優先度)。
+    # ここも通常優先度で二重定義するとエラーになるため mkDefault にして
+    # 統合ホストでは system 側の値を単一真実として優先させる。
+    package = lib.mkDefault pkgs.nix;
     settings = {
       experimental-features = [
         "nix-command"

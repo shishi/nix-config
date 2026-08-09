@@ -17,4 +17,49 @@
       }
     );
   };
+
+  flake.nixosConfigurations =
+    let
+      mkNixos =
+        modules:
+        withSystem "x86_64-linux" (
+          { pkgs, ... }:
+          inputs.nixpkgs.lib.nixosSystem {
+            specialArgs = { inherit inputs; };
+            modules = [ { nixpkgs.pkgs = pkgs; } ] ++ modules; # pkgs 注入契約(allowUnfree/overlay の単一真実)
+          }
+        );
+      # 合成 DE 評価ターゲット: dummy hardware で HM 統合込みの DE 配線を eval する
+      mkSynth =
+        desktop:
+        mkNixos [
+          ../nixos
+          (../nixos/desktop + "/${desktop}.nix")
+          inputs.home-manager.nixosModules.home-manager
+          {
+            networking.hostName = "synth-${desktop}";
+            system.stateVersion = "25.05";
+            fileSystems."/" = {
+              device = "none";
+              fsType = "tmpfs";
+            };
+            boot.loader.grub.enable = false;
+            home-manager = {
+              useGlobalPkgs = true;
+              useUserPackages = true;
+              extraSpecialArgs = { inherit inputs; };
+              users.shishi = {
+                imports = [ ../home ];
+                my.desktopSession = desktop;
+              };
+            };
+          }
+        ];
+    in
+    {
+      jupiter = mkNixos [ ../hosts/jupiter ];
+      nixos-wsl = mkNixos [ ../hosts/nixos-wsl ];
+      synth-gnome = mkSynth "gnome";
+      synth-kde = mkSynth "kde";
+    };
 }
