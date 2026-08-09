@@ -4,6 +4,8 @@
     ./options.nix
     ./core/packages.nix
     ./core/shell.nix
+    ./core/direnv.nix
+    ./core/nix-tools.nix
   ];
 
   home.username = "shishi";
