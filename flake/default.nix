@@ -7,6 +7,7 @@
     ./packages.nix
     ./hosts.nix
     ./checks.nix
+    ./apps.nix
   ];
 
   perSystem =

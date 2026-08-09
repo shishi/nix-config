@@ -61,4 +61,4 @@ echo "The binary cache will be used automatically, significantly speeding up bui
 echo
 echo "Next steps:"
 echo "  nix --experimental-features 'nix-command flakes' run .#install-system-packages"
-echo "  nix --experimental-features 'nix-command flakes' run home-manager/master -- switch --flake .#shishi@ubuntu"
+echo "  nix --experimental-features 'nix-command flakes' run home-manager/master -- switch --flake .#shishi"

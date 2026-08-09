@@ -54,111 +54,21 @@ install_docker() {
   sudo systemctl enable --now docker
   sudo systemctl stop docker
 
-  sudo mkdir -p /etc/systemd/system/docker.service.d
-  sudo rm -f /etc/systemd/system/docker.service.d/override.conf
-  sudo touch /etc/systemd/system/docker.service.d/override.conf
-  cat <<EOF | sudo tee /etc/systemd/system/docker.service.d/override.conf
-[Service]
-ExecStart=
-ExecStart=/usr/bin/dockerd -H fd:// -H tcp://0.0.0.0:2375
-EOF
-
-  sudo systemctl daemon-reload
-  sudo systemctl start docker
-
-  log_info "dockerのインストールが完了しました"
-}
-
-install_japanese_environment() {
-  log_info "日本語環境のセットアップを開始します"
-
-  # 日本語言語パックと日本語入力メソッドのインストール
-  sudo apt-get update
-  sudo apt-get install -yqq --no-install-recommends \
-    language-pack-ja \
-    language-pack-gnome-ja \
-    fonts-noto-cjk \
-    fonts-noto-cjk-extra \
-    im-config \
-    fcitx5 \
-    fcitx5-skk \
-    fcitx5-config-qt \
-    fcitx5-frontend-all \
-    skkdic \
-    skkdic-extra
-
-  # ロケールの生成
-  sudo locale-gen ja_JP.UTF-8
-
-  # im-configでfcitx5を設定
-  im-config -n fcitx5
-
-  # 自動起動設定
-  mkdir -p ~/.config/autostart
-  cp /usr/share/applications/org.fcitx.Fcitx5.desktop ~/.config/autostart/
-
-  # 環境変数の設定（.profileに追加）
-  if ! grep -q "GTK_IM_MODULE=fcitx5" ~/.profile; then
-    cat >>~/.profile <<'EOF'
-
-# fcitx5 environment variables
-export GTK_IM_MODULE=fcitx5
-export QT_IM_MODULE=fcitx5
-export XMODIFIERS=@im=fcitx5
-export DefaultIMModule=fcitx5
-EOF
+  # #38 裁定: TCP 公開(tcp://0.0.0.0:2375 無認証)は廃止。過去の override も除去する
+  if [ -f /etc/systemd/system/docker.service.d/override.conf ]; then
+    sudo rm -f /etc/systemd/system/docker.service.d/override.conf
+    sudo systemctl daemon-reload
+    sudo systemctl restart docker
   fi
 
-  # libskk
-  mkdir -p ~/.config/libskk/rules/StickyShift/keymap
-  cat >~/.config/libskk/rules/StickyShift/metadata.json <<'EOF'
-{
-  "name": "Sticky Shift",
-  "description": "Enable Sticky Shift"
-}
-EOF
-
-  cat >~/.config/libskk/rules/StickyShift/keymap/hiragana.json <<'EOF'
-{
-    "include": [
-        "default/hiragana"
-    ],
-    "define": {
-        "keymap": {
-            ";": "start-preedit-no-delete"
-        }
-    }
-}
-EOF
-  cat >~/.config/libskk/rules/StickyShift/keymap/katakana.json <<'EOF'
-{
-  "include": [
-      "default/katakana"
-  ],
-  "define": {
-    "keymap": {
-      ";": "start-preedit-no-delete"
-    }
-  }
-}
-EOF
-
-  log_info "日本語環境のセットアップが完了しました"
-  log_warn "設定を反映するには再ログインが必要です"
-  log_info "fcitx5はログアウト後に fcitx5-configtool で設定してください"
-  log_info "Current Input MethodからEnglishを削除し、SKKを追加してください"
-  log_info "各不要キーバインドの削除、Addons->SKKからRuleをSticky Shiftに変更してください"
-  log_info "Initial input modeはLatin、Page sizeは8、Candidate KeyはQwerty、Number candidate of ... は1に設定してください"
-  log_info "DictionaryにServerも追加してください"
+  log_info "dockerのインストールが完了しました"
 }
 
 main() {
   install_apt_packages
   install_docker
-  install_japanese_environment
 
   log_info "すべてのインストールが完了しました"
-  log_warn "日本語入力を使用するには再ログインしてください"
 }
 
 # 直接実行時のみmainを実行
