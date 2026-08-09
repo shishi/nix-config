@@ -6,6 +6,7 @@
     ./devshells.nix
     ./packages.nix
     ./hosts.nix
+    ./checks.nix
   ];
 
   perSystem =
