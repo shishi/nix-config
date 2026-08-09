@@ -3,6 +3,7 @@
   imports = [
     ./options.nix
     ./core/packages.nix
+    ./core/shell.nix
   ];
 
   home.username = "shishi";
