@@ -6,6 +6,7 @@
     ./core/shell.nix
     ./core/direnv.nix
     ./core/nix-tools.nix
+    ./skk
   ];
 
   home.username = "shishi";
