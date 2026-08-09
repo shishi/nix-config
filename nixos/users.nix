@@ -13,7 +13,7 @@
     # 鍵は次 Step のコマンド出力で置換する(未置換は Task 14 のゲートが検出)。
     # initialPassword は初回ログイン後に必ず passwd で変更する
     openssh.authorizedKeys.keys = [
-      "ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAILarf1PUuzo6XLQNwnOf2IZeyCqXGxgNdrSJUjgbp/94 shishi@earth"
+      "ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAILarf1PUuzo6XLQNwnOf2IZeyCqXGxgNdrSJUjgbp/94"
     ];
     initialPassword = "changeme-on-first-login";
   };

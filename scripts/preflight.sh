@@ -35,7 +35,7 @@ for b in rustc cargo; do
   case "$target" in
     *rustup*) ok "$b -> rustup ($r)" ;;
     "$HOME/.cargo/bin/"*) ok "$b -> $r" ;;
-    *) ng "$b -> $r -> $target (non-rustup; fenix leftover?)" ;;
+    *) ng "$b -> $r -> $target (non-rustup; pre-cutover leftover?)" ;;
   esac
 done
 

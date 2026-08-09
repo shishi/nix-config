@@ -163,7 +163,7 @@ health_check() {
     case "$target" in
       *rustup*) ;;                # rustup proxy(nix)/ rustup 実体
       "$CARGO_BIN"/*) ;;          # ~/.cargo/bin のシム
-      *) note "health: $b -> $r -> $target (non-rustup; fenix leftover?)"; ok=0 ;;
+      *) note "health: $b -> $r -> $target (non-rustup; pre-cutover leftover?)"; ok=0 ;;
     esac
   done
   # 管理ツールの実行検証(不合格は ok に反映 — false-green を作らない)
