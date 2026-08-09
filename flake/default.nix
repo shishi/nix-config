@@ -5,6 +5,7 @@
     ./treefmt.nix
     ./devshells.nix
     ./packages.nix
+    ./hosts.nix
   ];
 
   perSystem =
