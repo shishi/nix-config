@@ -14,6 +14,7 @@ in
     inputs.home-manager.nixosModules.home-manager
     ../../nixos
     (../../nixos/desktop + "/${desktop}.nix")
+    ../../nixos/input-method.nix
     ./disko.nix
     ./hardware-configuration.nix
   ];
