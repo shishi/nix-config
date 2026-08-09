@@ -7,6 +7,7 @@
     ./core/direnv.nix
     ./core/nix-tools.nix
     ./skk
+    ./gui
   ];
 
   home.username = "shishi";
