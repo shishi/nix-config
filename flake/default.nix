@@ -4,6 +4,7 @@
   imports = [
     ./treefmt.nix
     ./devshells.nix
+    ./packages.nix
   ];
 
   perSystem =
