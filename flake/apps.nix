@@ -15,6 +15,7 @@
           gnugrep
           iproute2
           getent
+          glibc.bin
         ];
         text = builtins.readFile ../scripts/preflight.sh;
       };

@@ -94,6 +94,11 @@ if [ ! -e /etc/NIXOS ]; then
   else
     ok "no docker tcp exposure"
   fi
+  if locale -a 2>/dev/null | grep -qiE "ja_JP.(utf8|UTF-8)"; then
+    ok "ja_JP.UTF-8 locale generated"
+  else
+    ng "ja_JP.UTF-8 locale missing (run install-system-packages)"
+  fi
 fi
 
 if [ "$FAIL" = 0 ]; then echo "preflight: PASS"; fi

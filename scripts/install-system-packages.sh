@@ -26,7 +26,9 @@ install_apt_packages() {
   log_info "システムパッケージのインストールを開始します"
 
   sudo apt update
-  sudo apt-get install -yqq --no-install-recommends build-essential pkg-config software-properties-common
+  sudo apt-get install -yqq --no-install-recommends build-essential pkg-config software-properties-common language-pack-ja
+
+  sudo locale-gen ja_JP.UTF-8
 
   log_info "システムパッケージのインストールが完了しました"
 }
