@@ -7,7 +7,10 @@
     ../../home/profiles/wsl-gui.nix
   ];
 
-  my.skk.enable = true; # yaskkserv2 辞書サーバー(#37: 修理して維持)
+  # yaskkserv2 は earth では無効(2026-08-09 裁定): Windows 側 CorvusSKK が
+  # port 1178 を保持しており(mirrored networking でポート空間共有)、
+  # 日本語入力は Windows 側で完結している実測に基づく。jupiter では有効
+  my.skk.enable = false;
   my.shell = "fish";
 
   # standalone 専用: HM CLI(統合 NixOS ホストでは第 2 適用経路になるため禁止)
