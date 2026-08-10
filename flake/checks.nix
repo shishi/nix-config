@@ -19,7 +19,7 @@
         home-shishi = self.homeConfigurations."shishi".activationPackage;
         nixos-wsl-toplevel = self.nixosConfigurations.nixos-wsl.config.system.build.toplevel;
 
-        # 合成 DE(eval。update の main 編入時は実 build — scripts/update-all.sh 参照)
+        # 合成 DE(eval。update の main 編入時は実 build — scripts/update.sh 参照)
         synth-gnome-eval = evalOnly "synth-gnome" self.nixosConfigurations.synth-gnome;
         synth-kde-eval = evalOnly "synth-kde" self.nixosConfigurations.synth-kde;
 

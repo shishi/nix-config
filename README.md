@@ -13,14 +13,14 @@ WSL Ubuntu(standalone HM)/ NixOS 実機 jupiter / NixOS-WSL(スケルトン)。
 ## WSL Ubuntu(earth)
 
 前提: 標準パス `~/dev/src/github.com/shishi/nix-config` に clone。
-非 Nix 前提は `hosts/ubuntu-wsl/README.md`(preflight が機械検証)。
+非 Nix 前提は `hosts/ubuntu-wsl/README.md`(check-env が機械検証)。
 
 ```bash
 nix run .#setup-sudo-nopasswd
 nix run .#setup-trusted-user
 nix run .#install-system-packages
-nix run .#preflight            # 前提の機械検証
-nix run .#switch               # 適用(preflight-critical 内蔵。--force で省略)
+nix run .#check-env            # 前提の機械検証
+nix run .#switch               # 適用(check-env-critical 内蔵。--force で省略)
 ```
 
 適用経路は `switch` 一本(直接 activation + 適用記録)。素の `nh home switch` は

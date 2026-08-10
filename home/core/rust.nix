@@ -36,7 +36,7 @@ in
 
   # PATH 順序契約: nix profile → ~/.cargo/bin(v12 裁定)。
   # fish の実効 PATH は dotfiles 所有(#8(b))のため、ここは bash 系 +
-  # hm-session-vars 向けの宣言のみ。準拠は preflight が検証する。
+  # hm-session-vars 向けの宣言のみ。準拠は check-env が検証する。
   home.sessionPath = [ "$HOME/.cargo/bin" ];
 
   # sccache + mold(native のみ)+ alias。クロスターゲットと jobs 固定は

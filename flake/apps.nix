@@ -8,8 +8,8 @@
       ...
     }:
     let
-      preflight = pkgs.writeShellApplication {
-        name = "preflight";
+      check-env = pkgs.writeShellApplication {
+        name = "check-env";
         runtimeInputs = with pkgs; [
           coreutils
           gnugrep
@@ -17,7 +17,7 @@
           getent
           glibc.bin
         ];
-        text = builtins.readFile ../scripts/preflight.sh;
+        text = builtins.readFile ../scripts/check-env.sh;
       };
       mkScriptApp = name: script: {
         type = "app";
@@ -29,14 +29,14 @@
     {
       apps = {
         # standalone の公認適用経路(一本化)。
-        # 契約クリティカル preflight → 直接 activation → 成功記録。
+        # 契約クリティカル check-env → 直接 activation → 成功記録。
         # 素の `nh home switch` はガードを迂回するため非公認(#8(a) 裁定まで)
         switch = {
           type = "app";
           program = "${pkgs.writeShellScript "switch" ''
             set -euo pipefail
             if [ "''${1:-}" != "--force" ]; then
-              ${preflight}/bin/preflight --critical
+              ${check-env}/bin/check-env --critical
             fi
             ${self.homeConfigurations."shishi".activationPackage}/activate
             state_dir="$HOME/.local/state/nix-config"
@@ -48,9 +48,9 @@
           ''}";
         };
 
-        preflight = {
+        check-env = {
           type = "app";
-          program = "${preflight}/bin/preflight";
+          program = "${check-env}/bin/check-env";
         };
 
         # rust-bootstrap: HM 側と同一実体(home/core/rust.nix と同じ script + tools 既定値)
@@ -63,7 +63,7 @@
           type = "app";
           program = "${
             pkgs.writeShellApplication {
-              name = "update-all";
+              name = "update";
               runtimeInputs = with pkgs; [
                 git
                 nix
@@ -71,9 +71,9 @@
                 nix-update
                 nix-output-monitor
               ];
-              text = builtins.readFile ../scripts/update-all.sh;
+              text = builtins.readFile ../scripts/update.sh;
             }
-          }/bin/update-all";
+          }/bin/update";
         };
         default = self'.apps.update;
 

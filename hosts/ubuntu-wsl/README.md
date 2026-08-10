@@ -1,6 +1,6 @@
 # ubuntu-wsl(earth)の非 Nix 前提
 
-home/ の可搬性は以下のホスト側前提の上に成り立つ。preflight(`nix run .#preflight`)が機械検証する。
+home/ の可搬性は以下のホスト側前提の上に成り立つ。check-env(`nix run .#check-env`)が機械検証する。
 
 | 前提 | 所有者 | NixOS(jupiter)での対応物 |
 |---|---|---|

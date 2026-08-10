@@ -4,8 +4,8 @@
 # writeShellApplication が set -euo pipefail を注入するため errexit-safe に書く。
 MODE="${1:---full}"
 FAIL=0
-ng() { echo "preflight NG: $*" >&2; FAIL=1; }
-ok() { echo "preflight ok: $*"; }
+ng() { echo "check-env NG: $*" >&2; FAIL=1; }
+ok() { echo "check-env ok: $*"; }
 
 resolve() {
   if command -v fish >/dev/null 2>&1; then
@@ -49,7 +49,7 @@ for b in bat fd rg eza; do
   esac
 done
 
-# --- critical: 適用経路(スペック: preflight 検査対象 (c))---
+# --- critical: 適用経路(スペック: preflight(現 check-env)検査対象 (c))---
 FLAKE_DIR="$HOME/dev/src/github.com/shishi/nix-config"
 if [ -f "$FLAKE_DIR/flake.nix" ]; then
   ok "flake at standard path"
@@ -81,7 +81,7 @@ if [ ! -e /etc/NIXOS ] && command -v fish >/dev/null 2>&1; then
 fi
 
 if [ "$MODE" = "--critical" ]; then
-  if [ "$FAIL" = 0 ]; then echo "preflight (critical): PASS"; fi
+  if [ "$FAIL" = 0 ]; then echo "check-env (critical): PASS"; fi
   exit "$FAIL"
 fi
 
@@ -101,5 +101,5 @@ if [ ! -e /etc/NIXOS ]; then
   fi
 fi
 
-if [ "$FAIL" = 0 ]; then echo "preflight: PASS"; fi
+if [ "$FAIL" = 0 ]; then echo "check-env: PASS"; fi
 exit "$FAIL"
