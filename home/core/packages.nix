@@ -13,7 +13,7 @@
     fish-lsp
     gh
     git
-    git-wt # nixpkgs 版(旧自前パッケージから切替)
+    git-wt
     gnupg
     jq
     less
@@ -41,7 +41,7 @@
     zip
     zoxide
 
-    # デバッガ(旧 rust.nix から移動 — 汎用ツールのため)
+    # デバッガ
     gdb
     lldb
 
