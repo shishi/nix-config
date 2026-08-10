@@ -38,7 +38,7 @@ install_docker() {
 
   # Add Docker's official GPG key:
   sudo apt-get update
-  sudo apt-get install ca-certificates curl
+  sudo apt-get install -yqq --no-install-recommends ca-certificates curl
   sudo install -m 0755 -d /etc/apt/keyrings
   sudo curl -fsSL https://download.docker.com/linux/ubuntu/gpg -o /etc/apt/keyrings/docker.asc
   sudo chmod a+r /etc/apt/keyrings/docker.asc
@@ -54,10 +54,10 @@ install_docker() {
 
   sudo usermod -aG docker "${USER}"
   sudo systemctl enable --now docker
-  sudo systemctl stop docker
 
   # #38 裁定: TCP 公開(tcp://0.0.0.0:2375 無認証)は廃止。過去の override も除去する
   if [ -f /etc/systemd/system/docker.service.d/override.conf ]; then
+    sudo systemctl stop docker
     sudo rm -f /etc/systemd/system/docker.service.d/override.conf
     sudo systemctl daemon-reload
     sudo systemctl restart docker

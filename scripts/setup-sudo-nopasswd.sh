@@ -16,10 +16,13 @@ fi
 echo "Setting up passwordless sudo for user: $CURRENT_USER"
 echo
 
-# 既存の設定を確認
-if [[ -f "/etc/sudoers.d/50-$CURRENT_USER-nopasswd" ]]; then
-  echo "⚠️  Passwordless sudo is already configured for $CURRENT_USER"
-  echo "To remove it, run: sudo rm /etc/sudoers.d/50-$CURRENT_USER-nopasswd"
+EXPECTED="$CURRENT_USER ALL=(ALL) NOPASSWD: ALL"
+TARGET="/etc/sudoers.d/50-$CURRENT_USER-nopasswd"
+
+# 望む内容と一致していれば何もしない。内容が違う場合は下で検証つきで書き直す
+if [[ -f "$TARGET" ]] && [[ "$(sudo cat "$TARGET")" == "$EXPECTED" ]]; then
+  echo "✓ Passwordless sudo is already configured for $CURRENT_USER"
+  echo "To remove it, run: sudo rm $TARGET"
   exit 0
 fi
 
@@ -29,13 +32,13 @@ sudo mkdir -p /etc/sudoers.d
 # ユーザー用のsudoersファイルを作成
 # 一時ファイルを作成して、visudoで検証してから設置
 TEMP_FILE=$(mktemp)
-echo "$CURRENT_USER ALL=(ALL) NOPASSWD: ALL" >"$TEMP_FILE"
+echo "$EXPECTED" >"$TEMP_FILE"
 
 # visudoで構文チェック
 if sudo visudo -c -f "$TEMP_FILE" >/dev/null 2>&1; then
   # 検証が成功したら、正式な場所にコピー
-  sudo cp "$TEMP_FILE" "/etc/sudoers.d/50-$CURRENT_USER-nopasswd"
-  sudo chmod 0440 "/etc/sudoers.d/50-$CURRENT_USER-nopasswd"
+  sudo cp "$TEMP_FILE" "$TARGET"
+  sudo chmod 0440 "$TARGET"
 
   # 一時ファイルを削除
   rm -f "$TEMP_FILE"
@@ -48,10 +51,9 @@ if sudo visudo -c -f "$TEMP_FILE" >/dev/null 2>&1; then
   echo "   Only use this in development environments!"
   echo
   echo "To remove this configuration later, run:"
-  echo "   sudo rm /etc/sudoers.d/50-$CURRENT_USER-nopasswd"
+  echo "   sudo rm $TARGET"
 else
   echo "❌ Failed to validate sudoers syntax"
   rm -f "$TEMP_FILE"
   exit 1
 fi
-

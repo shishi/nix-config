@@ -29,17 +29,20 @@ fi
 # 現在のtrusted-users設定を確認
 CURRENT_TRUSTED_USERS=$(grep -E "^trusted-users" /etc/nix/nix.conf 2>/dev/null || echo "")
 
+CHANGED=0
 if [[ -z "$CURRENT_TRUSTED_USERS" ]]; then
     # trusted-users行が存在しない場合
     echo "Adding trusted-users configuration..."
     echo "trusted-users = root $CURRENT_USER" | sudo tee -a /etc/nix/nix.conf > /dev/null
-elif echo "$CURRENT_TRUSTED_USERS" | grep -q "$CURRENT_USER"; then
-    # すでに設定されている場合
+    CHANGED=1
+elif echo "$CURRENT_TRUSTED_USERS" | tr ' \t' '\n' | grep -qxF "$CURRENT_USER"; then
+    # すでに設定されている場合(トークン全一致: 別ユーザー名への部分一致や正規表現解釈を防ぐ)
     echo "✓ User '$CURRENT_USER' is already a trusted user"
 else
     # trusted-users行は存在するが、現在のユーザーが含まれていない場合
     echo "Adding '$CURRENT_USER' to trusted-users..."
     sudo sed -i.bak "s/^trusted-users.*/& $CURRENT_USER/" /etc/nix/nix.conf
+    CHANGED=1
 fi
 
 echo
@@ -49,9 +52,13 @@ sudo cat /etc/nix/nix.conf
 echo "=========================="
 echo
 
-# Nixデーモンを再起動
-echo "Restarting Nix daemon..."
-eval "$RESTART_CMD"
+# 変更したときだけNixデーモンを再起動(実行中のビルドを不要に巻き込まない)
+if [[ "$CHANGED" == 1 ]]; then
+    echo "Restarting Nix daemon..."
+    eval "$RESTART_CMD"
+else
+    echo "No changes; skipping Nix daemon restart."
+fi
 
 echo
 echo "✓ Setup complete!"
