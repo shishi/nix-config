@@ -55,3 +55,10 @@ toolchain は rustup 委譲(stable + nightly)。ツールは cargo-binstall で�
 nix run .#rust-bootstrap              # 状態確認 + 不足の導入
 nix run .#rust-bootstrap -- --repair  # 破壊的修復(壊れたバイナリの再導入・撤去)
 ```
+
+## テンプレート
+
+```bash
+nix flake new -t .#basic my-project
+nix flake new -t .#rust my-rust-project
+```

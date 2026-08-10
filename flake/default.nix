@@ -8,6 +8,7 @@
     ./hosts.nix
     ./checks.nix
     ./apps.nix
+    ./templates.nix
   ];
 
   perSystem =
