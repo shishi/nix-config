@@ -32,6 +32,11 @@ in
     # 一時ファイルへ DL → サイズ検証 → rename。変換も一時出力 → 成功時 rename。
     # 失敗時は不完全な生成物を残さない(「存在するから取得済み」の誤認で
     # 自動回復が永久に走らない状態を作らない)。ネットワーク不達は警告のみ(非致命)。
+    #
+    # ダウンロードは短いバックオフでリトライする。統合ホストでは
+    # nixos/home-manager.nix が network-online.target の後に順序付けするため、
+    # ここで想定するのは一時的な DNS / CDN の失敗のみ。総予算 90 秒で打ち切る
+    # (activation のタイムアウトを食い潰さないため)。
     home.activation.setupSkkDictionary = lib.hm.dag.entryAfter [ "writeBoundary" ] ''
       (
         set -eu
@@ -42,19 +47,46 @@ in
           exit 0
         fi
         if [ ! -f ${skkDictL} ]; then
-          tmp="$(${pkgs.coreutils}/bin/mktemp ${skkDictDir}/.jisyo.XXXXXX)"
-          if ${pkgs.curl}/bin/curl -fL --max-time 300 -o "$tmp" \
-            https://raw.githubusercontent.com/skk-dev/dict/master/SKK-JISYO.L; then
-            # 実物は 10MB 超。1MB 未満は失敗とみなす
-            if [ "$(${pkgs.coreutils}/bin/stat -c %s "$tmp")" -gt 1000000 ]; then
-              ${pkgs.coreutils}/bin/mv "$tmp" ${skkDictL}
+          # 総予算 90 秒で打ち切る。activation は Type=oneshot の
+          # home-manager-<user>.service 上で走り TimeoutStartUSec=5min、かつ
+          # Before=systemd-user-sessions.service なので、ここで粘るとログインが遅れ、
+          # タイムアウトすれば後続の DAG エントリが実行されず世代が半端に適用される。
+          # 取れなければ諦めて手順を出すほうが安全(辞書は起動に必須ではない)。
+          attempts=3
+          n=1
+          got=0
+          deadline=$(($(${pkgs.coreutils}/bin/date +%s) + 90))
+          while [ "$n" -le "$attempts" ] && [ "$(${pkgs.coreutils}/bin/date +%s)" -lt "$deadline" ]; do
+            tmp="$(${pkgs.coreutils}/bin/mktemp ${skkDictDir}/.jisyo.XXXXXX)"
+            # --speed-limit/--speed-time: 接続後にストールした転送を 15 秒で切る
+            # (--connect-timeout だけでは接続確立後のストールを検出できない)
+            if ${pkgs.curl}/bin/curl -fL --connect-timeout 10 --max-time 60 \
+              --speed-limit 10000 --speed-time 15 -o "$tmp" \
+              https://raw.githubusercontent.com/skk-dev/dict/master/SKK-JISYO.L; then
+              # 実物は 10MB 超。1MB 未満は失敗とみなす
+              if [ "$(${pkgs.coreutils}/bin/stat -c %s "$tmp")" -gt 1000000 ]; then
+                ${pkgs.coreutils}/bin/mv "$tmp" ${skkDictL}
+                got=1
+                break
+              fi
+              ${pkgs.coreutils}/bin/rm -f "$tmp"
+              echo "skk: downloaded dictionary too small (attempt $n/$attempts)" >&2
             else
               ${pkgs.coreutils}/bin/rm -f "$tmp"
-              echo "skk: downloaded dictionary too small; will retry on next switch" >&2
+              echo "skk: dictionary download failed (attempt $n/$attempts)" >&2
             fi
-          else
-            ${pkgs.coreutils}/bin/rm -f "$tmp"
-            echo "skk: dictionary download failed (offline?); will retry on next switch" >&2
+            n=$((n + 1))
+            if [ "$n" -le "$attempts" ]; then
+              ${pkgs.coreutils}/bin/sleep $(((n - 1) * 5))
+            fi
+          done
+          if [ "$got" != 1 ]; then
+            # 「次の switch で再試行」とは書かない: 構成に変化がないと systemd は
+            # home-manager-<user>.service を再起動せず activation 自体が走らないため
+            # (VM リハーサルで実測)。手で再実行する経路を示す。
+            # 統合ホストの当該ユニットは system 側なので sudo が要る。
+            echo "skk: could not fetch dictionary within budget." >&2
+            echo "skk: retry with 'sudo systemctl restart home-manager-${config.home.username}.service' (NixOS) or 'nix run .#switch' (standalone)" >&2
           fi
         fi
         if [ -f ${skkDictL} ] && { [ ! -f ${yaskkservDict} ] || [ ${skkDictL} -nt ${yaskkservDict} ]; }; then
@@ -67,8 +99,10 @@ in
             # 再 switch でも condition failed のまま起動しない — 2 巡目レビュー実測)
             ${pkgs.systemd}/bin/systemctl --user start yaskkserv2.service 2>/dev/null || true
           else
+            # 変換は決定的な処理なのでリトライしない(同じ入力なら同じ結果)。
+            # 壊れた SKK-JISYO.L を疑う場合は削除して activation をやり直す。
             ${pkgs.coreutils}/bin/rm -f "$tmp"
-            echo "skk: dictionary conversion failed; will retry on next switch" >&2
+            echo "skk: dictionary conversion failed; remove ${skkDictL} and re-run activation to refetch" >&2
           fi
         fi
       ) || echo "skk: setup encountered an error (non-fatal)" >&2
