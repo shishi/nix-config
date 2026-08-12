@@ -9,6 +9,7 @@ let
   skkDictL = "${skkDictDir}/SKK-JISYO.L";
   yaskkservDict = "${skkDictDir}/yaskkserv2.dictionary";
   yaskkservCache = "${skkDictDir}/yaskkserv2.cache";
+  skkUserDict = "${skkDictDir}/user.dict";
 in
 {
   config = lib.mkIf config.my.skk.enable {
@@ -28,6 +29,20 @@ in
       define.keymap.";" = "start-preedit-no-delete";
     };
 
+    # fcitx5-skk が引く辞書の一覧。fcitx5 は PkgData(~/.local/share/fcitx5)から
+    # skk/dictionary_list を読む。この "ファイルが無ければ既定値" ではなく
+    # 「無ければ辞書ゼロ」なので、宣言しないと変換自体が成立しない
+    # (VM リハーサルで実測: dictionary_list もシステム辞書も存在しなかった)。
+    # 並び順が引き当ての優先順位。
+    #   1. ユーザー辞書(readwrite): 変換の学習と単語登録の保存先
+    #   2. yaskkserv2(server): Google 日本語入力連携を含む主辞書
+    #   3. SKK-JISYO.L(readonly): server 不在時でも変換できるための退避
+    xdg.dataFile."fcitx5/skk/dictionary_list".text = ''
+      type=file,file=${skkUserDict},mode=readwrite
+      type=server,host=localhost,port=1178
+      type=file,file=${skkDictL},mode=readonly,encoding=EUC-JP
+    '';
+
     # 辞書の取得・変換はアトミックに行う:
     # 一時ファイルへ DL → サイズ検証 → rename。変換も一時出力 → 成功時 rename。
     # 失敗時は不完全な生成物を残さない(「存在するから取得済み」の誤認で
@@ -41,6 +56,7 @@ in
       (
         set -eu
         mkdir -p ${skkDictDir}
+        ${pkgs.coreutils}/bin/touch ${skkUserDict}
         exec 9>"${skkDictDir}/.setup.lock"
         if ! ${pkgs.util-linux}/bin/flock -n 9; then
           echo "skk: another setup is running; skipping" >&2
@@ -117,7 +133,7 @@ in
       };
       Service = {
         Type = "simple";
-        ExecStart = "${pkgs.yaskkserv2}/bin/yaskkserv2 --port 1178 --google-japanese-input=last --google-suggest --google-cache-filename=${yaskkservCache} ${yaskkservDict}";
+        ExecStart = "${pkgs.yaskkserv2}/bin/yaskkserv2 --no-daemonize --port 1178 --google-japanese-input=last --google-suggest --google-cache-filename=${yaskkservCache} ${yaskkservDict}";
         Restart = "always";
         RestartSec = 3;
       };
