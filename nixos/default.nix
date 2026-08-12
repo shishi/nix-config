@@ -5,5 +5,7 @@
     ./locale.nix
     ./docker.nix
     ./home-manager.nix
+    ./sudo.nix
+    ./ssh.nix
   ];
 }
