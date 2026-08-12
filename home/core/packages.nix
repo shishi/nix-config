@@ -1,4 +1,4 @@
-{ pkgs, ... }:
+{ pkgs, inputs, ... }:
 {
   home.packages = with pkgs; [
     _1password-cli
@@ -54,7 +54,9 @@
     udev-gothic-nf
 
     # 言語ランタイム
-    ruby_3_4
+    # ruby はプロジェクト側(.ruby-version 追従)と供給元を揃えるため nixpkgs-ruby から。
+    # "ruby-3.4" は 3.4 系の最新パッチを指す(旧 pkgs.ruby_3_4 と同じ粒度)
+    inputs.nixpkgs-ruby.packages.${pkgs.stdenv.hostPlatform.system}."ruby-3.4"
     nodejs_24
     python314
     go
