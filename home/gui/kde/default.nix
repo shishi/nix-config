@@ -44,7 +44,28 @@
             "org.kde.plasma.marginsseparator"
             "org.kde.plasma.kimpanel"
             "org.kde.plasma.systemtray"
-            "org.kde.plasma.digitalclock"
+            {
+              # LC_TIME=en_DK は glibc では %Y-%m-%d を返すが、Qt の en_DK は
+              # CLDR 由来で dd/MM/y になる。Plasma のウィジェットは glibc ではなく
+              # Qt のロケールを見るので、書式をロケール任せにすると時計だけ
+              # 13/08/2026 と出てしまう。LC_TIME 自体はシェル・ログ側で意図どおり
+              # 効いているので変えず、ウィジェットの書式だけ明示して打ち消す。
+              #
+              # 日付は isoDate ではなくカスタム指定にした。isoDate も yyyy-MM-dd を
+              # 出すが、Qt の ISO 表現に委ねる分だけ「何が出るか」が上流依存になる。
+              # 書式そのものを書けば読んだとおりの文字列が出る。
+              digitalClock = {
+                date.enable = true;
+                date.format = {
+                  custom = "yyyy-MM-dd";
+                };
+                # 24 時制であること自体はロケールに任せず固定する。ただし
+                # 区切り文字までは直せない。Plasma のデジタル時計に時刻書式の
+                # カスタム指定は無く、区切りはロケール由来のものが残るので、
+                # 表示は en_DK の 11.33 のままになる(11:33 にはならない)。
+                time.format = "24h";
+              };
+            }
           ];
         }
       ];
