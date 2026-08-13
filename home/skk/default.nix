@@ -23,6 +23,14 @@ in
     xdg.configFile."libskk/rules/StickyShift/keymap/katakana.json".text =
       builtins.toJSON skkRules.keymapKatakana;
 
+    # 数字の直後の記号を半角のまま出す(日付 2026-08-12・時刻 12:30・小数 3.14 など)。
+    # 生成規則と背景は home/skk/rules.nix を参照。
+    # 挙動は flake/checks.nix の skk-rom-kana が libskk 同梱の CLI で検証する。
+    xdg.configFile."libskk/rules/StickyShift/rom-kana/default.json".text = builtins.toJSON {
+      include = [ "default/default" ];
+      define.rom-kana = skkRules.romKana;
+    };
+
     # fcitx5-skk が引く辞書の一覧。fcitx5 は PkgData(~/.local/share/fcitx5)から
     # skk/dictionary_list を読む。この "ファイルが無ければ既定値" ではなく
     # 「無ければ辞書ゼロ」なので、宣言しないと変換自体が成立しない

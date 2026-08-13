@@ -12,6 +12,27 @@
           builtins.unsafeDiscardStringContext cfg.config.system.build.toplevel.drvPath
         );
       caches = import ../shared/nix-caches.nix;
+
+      skkRules = import ../home/skk/rules.nix { inherit (pkgs) lib; };
+      # libskk はルールを ~/.config/libskk/rules から読む。
+      # home/skk/rules.nix と同じ定義でルールディレクトリを組み立てる。
+      skkRuleDir = pkgs.runCommand "skk-test-rules" { } ''
+        mkdir -p $out/StickyShift/rom-kana $out/StickyShift/keymap
+        cp ${pkgs.writeText "metadata.json" (builtins.toJSON skkRules.metadata)} \
+          $out/StickyShift/metadata.json
+        cp ${pkgs.writeText "hiragana.json" (builtins.toJSON skkRules.keymapHiragana)} \
+          $out/StickyShift/keymap/hiragana.json
+        cp ${pkgs.writeText "katakana.json" (builtins.toJSON skkRules.keymapKatakana)} \
+          $out/StickyShift/keymap/katakana.json
+        cp ${
+          pkgs.writeText "rom-kana.json" (
+            builtins.toJSON {
+              include = [ "default/default" ];
+              define.rom-kana = skkRules.romKana;
+            }
+          )
+        } $out/StickyShift/rom-kana/default.json
+      '';
     in
     {
       checks = {
@@ -48,6 +69,55 @@
             [ "$ok" = 1 ] || exit 1
             touch $out
           '';
+
+        # SKK の打鍵挙動の契約。libskk 同梱の CLI エミュレータ(bin/skk)に
+        # キーイベント列を流し、確定出力と preedit を照合する。
+        # GUI もセッションも要らないので nix flake check に乗る。
+        #
+        # 期待値の空文字は "" で書く。Nix のインデント文字列では '' が終端記号なので、
+        # シェルの空文字を '' と書くとここで文字列が切れる。
+        skk-rom-kana = pkgs.runCommand "skk-rom-kana" { nativeBuildInputs = [ pkgs.libskk ]; } ''
+          export HOME=$TMPDIR
+          export XDG_CONFIG_HOME=$TMPDIR/.config
+          mkdir -p "$XDG_CONFIG_HOME/libskk"
+          cp -r ${skkRuleDir} "$XDG_CONFIG_HOME/libskk/rules"
+          chmod -R u+w "$XDG_CONFIG_HOME/libskk/rules"
+
+          ok=1
+          # 引数: 説明, キー列, 期待 output, 期待 preedit
+          # 変数名に out を使わないこと: runCommand の $out(出力 store path)を
+          # 上書きしてしまい、全ケースが通っても最後の touch $out が落ちる。
+          case_() {
+            got=$(printf '%s\n' "$2" | skk -r StickyShift 2>/dev/null | tail -1)
+            gotOut=$(printf '%s' "$got" | ${pkgs.jq}/bin/jq -r '.output')
+            gotPre=$(printf '%s' "$got" | ${pkgs.jq}/bin/jq -r '.preedit')
+            if [ "$gotOut" != "$3" ] || [ "$gotPre" != "$4" ]; then
+              echo "FAIL $1: keys=[$2]"
+              echo "  expected output=[$3] preedit=[$4]"
+              echo "  actual   output=[$gotOut] preedit=[$gotPre]"
+              ok=0
+            fi
+          }
+
+          # 目標: 数字の直後の記号を半角のまま出す
+          case_ date    '2 0 2 6 minus 0 8 minus 1 2' '2026-08-1' '2'
+          case_ decimal '3 period 1 4'                '3.1'       '4'
+          case_ comma   '1 comma 0 0 0'               '1,00'      '0'
+          case_ colon   '1 2 colon 3 0'               '12:3'      '0'
+          case_ slash   '0 slash 5'                   '0/'        '5'
+
+          # 回帰: 既存の入力を壊していない
+          case_ digits  '1 2 3'         '12'     '3'
+          case_ mixed   '1 a'           '1あ'    ""
+          case_ kana    'a i u'         'あいう' ""
+          case_ chouon  'k a minus'     'かー'   ""
+          case_ plus    '1 plus 2'      '1+'     '2'
+          case_ abbrev  'slash a'       ""       '▽a'
+          case_ sticky  'semicolon a i' ""       '▽あい'
+
+          [ "$ok" = 1 ] || exit 1
+          touch $out
+        '';
 
         # flake.nix の nixConfig(リテラル)と shared/nix-caches.nix の同期検証
         nix-caches-sync =
