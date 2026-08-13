@@ -10,24 +10,18 @@ let
   yaskkservDict = "${skkDictDir}/yaskkserv2.dictionary";
   yaskkservCache = "${skkDictDir}/yaskkserv2.cache";
   skkUserDict = "${skkDictDir}/user.dict";
+  skkRules = import ./rules.nix { inherit lib; };
 in
 {
   config = lib.mkIf config.my.skk.enable {
     home.packages = [ pkgs.yaskkserv2 ];
 
-    # libskk StickyShift ルール(旧 install-system-packages.sh の heredoc から移管 — 宣言化)
-    xdg.configFile."libskk/rules/StickyShift/metadata.json".text = builtins.toJSON {
-      name = "Sticky Shift";
-      description = "Enable Sticky Shift";
-    };
-    xdg.configFile."libskk/rules/StickyShift/keymap/hiragana.json".text = builtins.toJSON {
-      include = [ "default/hiragana" ];
-      define.keymap.";" = "start-preedit-no-delete";
-    };
-    xdg.configFile."libskk/rules/StickyShift/keymap/katakana.json".text = builtins.toJSON {
-      include = [ "default/katakana" ];
-      define.keymap.";" = "start-preedit-no-delete";
-    };
+    # libskk StickyShift ルール(定義は home/skk/rules.nix)
+    xdg.configFile."libskk/rules/StickyShift/metadata.json".text = builtins.toJSON skkRules.metadata;
+    xdg.configFile."libskk/rules/StickyShift/keymap/hiragana.json".text =
+      builtins.toJSON skkRules.keymapHiragana;
+    xdg.configFile."libskk/rules/StickyShift/keymap/katakana.json".text =
+      builtins.toJSON skkRules.keymapKatakana;
 
     # fcitx5-skk が引く辞書の一覧。fcitx5 は PkgData(~/.local/share/fcitx5)から
     # skk/dictionary_list を読む。この "ファイルが無ければ既定値" ではなく
