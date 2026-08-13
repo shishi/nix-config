@@ -23,6 +23,8 @@
           self.overlays.default
           inputs.neovim-nightly-overlay.overlays.default
           inputs.llm-agents.overlays.default
+          # nightly overlay が neovim-unwrapped を定義したあとに被せる必要がある
+          (import ../overlays/neovim-desktop.nix)
         ];
       };
     };
