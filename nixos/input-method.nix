@@ -39,6 +39,34 @@
         "Groups/0/Items/1".Name = "skk";
         GroupOrder."0" = "Default";
       };
+
+      # 現行の ~/.config/fcitx5/conf/skk.conf(GUI 由来)を既定値として宣言する。
+      # 唯一の挙動変更は InitialInputMode で、Hiragana から Latin へ。
+      # 起動直後は英数で始めたい(日本語を打つときだけ切り替える)ため。
+      # 有効値は Hiragana と Latin の 2 つ(fcitx5-skk のバイナリシンボルで確認)。
+      #
+      # 書き出し先は /etc/xdg/fcitx5/conf/skk.conf なので、ユーザーが GUI で
+      # 変えれば ~/.config 側が勝つ。裏返しとして、既存機ではユーザー側ファイルが
+      # 既にあるためここの変更は届かない(効かせるには一度消す)。
+      settings.addons.skk = {
+        globalSection = {
+          Rule = "StickyShift";
+          PunctuationStyle = "Japanese";
+          InitialInputMode = "Latin";
+          PageSize = 7;
+          "Candidate Layout" = "Vertical";
+          EggLikeNewLine = "True";
+          ShowAnnotation = "True";
+          CandidateChooseKey = "ABC (a,b,c,...)";
+          NTriggersToShowCandWin = 2;
+        };
+        sections = {
+          CandidatesPageUpKey."0" = "Page_Up";
+          CandidatesPageDownKey."0" = "Next";
+          CursorUp."0" = "Up";
+          CursorDown."0" = "Down";
+        };
+      };
     };
   };
 }
