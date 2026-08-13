@@ -26,6 +26,26 @@
         Translations.LANGUAGE = "en_US";
       };
 
+      # パネルを右へ。plasma-manager は panels が宣言されると
+      # plasma-org.kde.plasma.desktop-appletsrc を削除してから作り直すので、
+      # 使うウィジェットはすべてここに並べる必要がある(GUI での追加は次の switch で消える)。
+      # kimpanel は fcitx5 の入力モード表示なので落とさない。
+      panels = [
+        {
+          location = "right";
+          widgets = [
+            "org.kde.plasma.showdesktop"
+            "org.kde.plasma.kickoff"
+            "org.kde.plasma.pager"
+            "org.kde.plasma.icontasks"
+            "org.kde.plasma.marginsseparator"
+            "org.kde.plasma.kimpanel"
+            "org.kde.plasma.systemtray"
+            "org.kde.plasma.digitalclock"
+          ];
+        }
+      ];
+
       # クロス DE 契約(確定不変): Caps→Ctrl、キーリピート
       input.keyboard = {
         options = [ "ctrl:nocaps" ];
