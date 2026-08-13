@@ -9,7 +9,10 @@
   imports = [ inputs.plasma-manager.homeModules.plasma-manager ];
 
   config = lib.mkIf (config.my.desktopSession == "kde") {
-    home.packages = [ pkgs.kdePackages.yakuake ];
+    home.packages = with pkgs; [
+      kdePackages.yakuake
+      kdePackages.kzones
+    ];
 
     programs.plasma = {
       enable = true;
@@ -46,6 +49,29 @@
         }
       ];
 
+      # KZones: FancyZones 相当のゾーンタイリング。
+      # KWin 組み込みのカスタムタイリングは Shift をハードコードしていて
+      # 修飾キーを変えられない(KDE Bug 466269)。KZones は
+      # zoneOverlayShowWhen=0(= ウィンドウを動かし始めたとき)なので
+      # 修飾キー無しでドラッグするだけでゾーンが出る。
+      #
+      # ゾーンはパーセント指定(layoutsJson)なので画面 UUID に依存しない。
+      # KWin 組み込みは Tiling/<仮想デスクトップ UUID>/<画面 UUID> に持つため
+      # 機体をまたげないが、こちらは VM で決めたものを実機へ持ち込める。
+      #
+      # 組み込みのカスタムタイリング(Meta+T のゾーンエディタと Shift ドラッグ)は
+      # 無効化しない。KZones が期待どおりでなかったときの退避経路として残す。
+      configFile."kwinrc" = {
+        Plugins.kzonesEnabled = true;
+        "Script-kzones" = {
+          # 上流の既定と同じ値だが、意図を宣言として残す
+          # (既定が変わってもドラッグ即表示を維持するため)。
+          zoneOverlayShowWhen = 0;
+          enableZoneSelector = true;
+          rememberWindowGeometries = true;
+        };
+      };
+
       # クロス DE 契約(確定不変): Caps→Ctrl、キーリピート
       input.keyboard = {
         options = [ "ctrl:nocaps" ];
@@ -65,6 +91,14 @@
           "Switch to Desktop 3" = "Ctrl+3";
           "Switch to Desktop 4" = "Ctrl+4";
           "Window Maximize" = "Ctrl+Alt+Return";
+
+          # Meta+矢印 は KZones に持たせる。KWin 側の Quick Tile(画面半分への
+          # スナップ)と衝突するので、空リストを渡して none にする。
+          # plasma-manager は [] を "none" として書き出す。
+          "Window Quick Tile Left" = [ ];
+          "Window Quick Tile Right" = [ ];
+          "Window Quick Tile Top" = [ ];
+          "Window Quick Tile Bottom" = [ ];
         };
         "yakuake"."toggle-window-state" = "Alt+I";
         "services/org.wezfurlong.wezterm.desktop"._launch = "Ctrl+Alt+T";
