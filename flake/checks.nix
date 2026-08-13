@@ -27,6 +27,28 @@
         # 実 hardware-configuration.nix の commit 後に jupiter-toplevel として既定編入する
         jupiter-stub-eval = evalOnly "jupiter-stub" self.nixosConfigurations.jupiter;
 
+        # ロケール契約: 表示は英語、書式は日本の慣習。
+        locale-contract =
+          let
+            i18n = self.nixosConfigurations.jupiter.config.i18n;
+          in
+          pkgs.runCommand "locale-contract" { } ''
+            ok=1
+            check() {
+              if [ "$2" != "$3" ]; then
+                echo "$1: expected '$3' but got '$2'"
+                ok=0
+              fi
+            }
+            check defaultLocale "${i18n.defaultLocale}" "en_US.UTF-8"
+            check LC_TIME "${i18n.extraLocaleSettings.LC_TIME or ""}" "en_DK.UTF-8"
+            check LC_MONETARY "${i18n.extraLocaleSettings.LC_MONETARY or ""}" "ja_JP.UTF-8"
+            check LC_PAPER "${i18n.extraLocaleSettings.LC_PAPER or ""}" "ja_JP.UTF-8"
+            check LC_MEASUREMENT "${i18n.extraLocaleSettings.LC_MEASUREMENT or ""}" "ja_JP.UTF-8"
+            [ "$ok" = 1 ] || exit 1
+            touch $out
+          '';
+
         # flake.nix の nixConfig(リテラル)と shared/nix-caches.nix の同期検証
         nix-caches-sync =
           pkgs.runCommand "nix-caches-sync"
