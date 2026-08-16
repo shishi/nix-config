@@ -12,6 +12,7 @@ in
   imports = [
     inputs.disko.nixosModules.disko
     inputs.home-manager.nixosModules.home-manager
+    inputs.lanzaboote.nixosModules.lanzaboote
     ../../nixos
     (../../nixos/desktop + "/${desktop}.nix")
     ../../nixos/input-method.nix
@@ -22,7 +23,15 @@ in
   networking.hostName = "jupiter";
   system.stateVersion = "25.05"; # ★Task 17 Gate 0: インストール直前にその時点の NixOS リリースへ確定(#6)
 
-  boot.loader.systemd-boot.enable = true;
+  # lanzaboote が UKI を署名して systemd-boot を置き換える。
+  # 鍵の生成と Setup Mode での enroll は宣言できないので runbook 側で行う
+  # (docs/jupiter-secure-boot-runbook.md)。
+  boot.loader.systemd-boot.enable = lib.mkForce false;
+  boot.lanzaboote = {
+    enable = true;
+    # v1.0.0 以降 externalPath 型。Nix store パスを受け付けない。
+    pkiBundle = "/var/lib/sbctl";
+  };
   boot.loader.efi.canTouchEfiVariables = true;
 
   # TPM2 自動解錠(systemd-cryptenroll)は systemd initrd が前提(High-5。

@@ -103,6 +103,29 @@
             touch $out
           '';
 
+        # ブート契約: lanzaboote が systemd-boot を置き換えていること。
+        # bootloader の取り違えは起動して初めて分かるので、eval で固定する。
+        boot-contract =
+          let
+            cfg = self.nixosConfigurations.jupiter.config;
+            b = if cfg.boot.lanzaboote.enable then "true" else "false";
+            sdb = if cfg.boot.loader.systemd-boot.enable then "true" else "false";
+          in
+          pkgs.runCommand "boot-contract" { } ''
+            ok=1
+            check() {
+              if [ "$2" != "$3" ]; then
+                echo "$1: expected '$3' but got '$2'"
+                ok=0
+              fi
+            }
+            check lanzaboote.enable "${b}" "true"
+            check systemd-boot.enable "${sdb}" "false"
+            check pkiBundle "${toString cfg.boot.lanzaboote.pkiBundle}" "/var/lib/sbctl"
+            [ "$ok" = 1 ] || exit 1
+            touch $out
+          '';
+
         # SKK の打鍵挙動の契約。libskk 同梱の CLI エミュレータ(bin/skk)に
         # キーイベント列を流し、確定出力と preedit を照合する。
         # GUI もセッションも要らないので nix flake check に乗る。
