@@ -107,9 +107,20 @@
         # bootloader の取り違えは起動して初めて分かるので、eval で固定する。
         boot-contract =
           let
+            inherit (pkgs) lib;
             cfg = self.nixosConfigurations.jupiter.config;
             b = if cfg.boot.lanzaboote.enable then "true" else "false";
             sdb = if cfg.boot.loader.systemd-boot.enable then "true" else "false";
+            # hosts/jupiter/default.nix の authorizedKeys 生成と文字どおり一致させる。
+            # ここだけの都合でずらすと、以下の 2 check がどちらも無意味な値どうしの
+            # 比較になり気づけない。
+            initrdKeyPrefix = ''command="systemctl default" '';
+            initrdKeys = cfg.boot.initrd.network.ssh.authorizedKeys;
+            bodyKeys = cfg.users.users.shishi.openssh.authorizedKeys.keys;
+            # 区切りに改行を使う。authorizedKeys の 1 エントリは 1 行の文字列
+            # (type + base64 + comment)なので改行は値の内部に現れず、
+            # 連結しても「本数がずれた 2 つの列」が同じ文字列に化けることはない。
+            joinKeys = lib.concatStringsSep "\n";
           in
           pkgs.runCommand "boot-contract" { } ''
             ok=1
@@ -122,6 +133,43 @@
             check lanzaboote.enable "${b}" "true"
             check systemd-boot.enable "${sdb}" "false"
             check pkiBundle "${toString cfg.boot.lanzaboote.pkiBundle}" "/var/lib/sbctl"
+            # 復旧経路。initrd.network.enable が無いと ssh.enable は no-op になる。
+            check initrd.network.enable "${if cfg.boot.initrd.network.enable then "true" else "false"}" "true"
+            check initrd.ssh.enable "${if cfg.boot.initrd.network.ssh.enable then "true" else "false"}" "true"
+            check initrd.ssh.port "${toString cfg.boot.initrd.network.ssh.port}" "2222"
+            # これが無いと SSH で入る前に root デバイスの unit がタイムアウトする。
+            check root.deviceTimeout "${
+              if builtins.elem "x-systemd.device-timeout=infinity" cfg.fileSystems."/".options then
+                "present"
+              else
+                "missing"
+            }" "present"
+            # authorizedKeys は本体(nixos/users.nix)の宣言から command= だけ足して
+            # 生成する参照方式(リテラル 2 重化を避けるため)。この契約を守る check は
+            # 本数の一致 1 本では書けない。実装が `map` である限り
+            # length (map f xs) == length xs は恒等式で必ず真になり、本数だけを見る
+            # check は絶対に落ちない。同時に、authorizedKeys を本体と同数の
+            # リテラル(例: 差し替え忘れの古い鍵)へ書き戻す退行も本数は変わらないため
+            # 素通りする。
+            #
+            # かといって「prefix を剥がしたら本体と一致する」の 1 本にもできない。
+            # lib.removePrefix は prefix が無いとき文字列をそのまま返すので、
+            # command= を落とした実装でも「剥がした結果 == 本体」が成立してしまい、
+            # prefix の脱落そのものは検出できない。
+            #
+            # そこで次の 2 つを別々に検査する。
+            # 1) initrd の全鍵が command= prefix を持つこと。
+            # 2) prefix を剥がした結果が、本体の鍵列と順序込みで完全一致すること
+            #    (本数も暗黙に一致する。列の長さが違えば連結結果も一致しない)。
+            # 綴り(公開鍵の中身)は本体の値をそのまま使って比較するだけで、
+            # ここへ鍵文字列を書き写す 2 重化にはならない。
+            #
+            # 検出できないもの: initrd と本体が「たまたま」偶然一致する形で
+            # 両方とも独立に書き換えられた場合(その場合そもそも参照方式ですらない)。
+            check initrd.ssh.authorizedKeys.prefixed "${
+              if lib.all (lib.hasPrefix initrdKeyPrefix) initrdKeys then "true" else "false"
+            }" "true"
+            check initrd.ssh.authorizedKeys.match "${joinKeys (map (lib.removePrefix initrdKeyPrefix) initrdKeys)}" "${joinKeys bodyKeys}"
             [ "$ok" = 1 ] || exit 1
             touch $out
           '';

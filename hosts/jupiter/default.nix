@@ -38,6 +38,32 @@ in
   # 無いと enroll しても起動時に解錠されず、遠隔無人再起動が不達)
   boot.initrd.systemd.enable = true;
 
+  # TPM 自動解錠が失敗したときの遠隔復旧。これが無いと、systemd initrd を
+  # 入れた理由(遠隔無人再起動)が TPM の失敗でそのまま失われる。
+  #
+  # initrd.network.enable が無いと ssh.enable は no-op になる(nixpkgs の
+  # initrd-ssh.nix が両方を要求する)。
+  boot.initrd.network.enable = true;
+  boot.initrd.network.ssh = {
+    enable = true;
+    # 本体 sshd と区別する。initrd 側だと分かった上で繋ぐため。
+    port = 2222;
+    # 鍵はマシン上で生成する。public repo なので実体をコミットしない。
+    hostKeys = [ "/var/lib/initrd-ssh/ssh_host_ed25519_key" ];
+    # cryptsetup-askpass は systemd initrd に存在せず、指定するとアサーションで
+    # 失敗する。systemctl default が systemd-tty-ask-password-agent を fork する。
+    #
+    # 本体の authorizedKeys を流用して command= だけ足す。鍵をここに書き写すと、
+    # 差し替えたとき片方だけ直して initrd から締め出される。
+    authorizedKeys = map (
+      k: ''command="systemctl default" ${k}''
+    ) config.users.users.shishi.openssh.authorizedKeys.keys;
+  };
+
+  # これが無いと SSH で入る前に root デバイスの unit がタイムアウトし、
+  # 復旧経路が「間に合わない」形で死ぬ。
+  fileSystems."/".options = [ "x-systemd.device-timeout=infinity" ];
+
   # 自宅サーバー運用: SSH 常時 + Docker(unix socket のみ)
   services.openssh.enable = true;
   virtualisation.docker.enable = true; # ヒアリング #36
