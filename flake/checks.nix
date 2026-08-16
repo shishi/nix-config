@@ -144,6 +144,43 @@
               else
                 "missing"
             }" "present"
+            # TPM の取得口。これが無いと enroll しても initrd が TPM を見に行かない。
+            check luks.tpm2 "${
+              if builtins.elem "tpm2-device=auto" cfg.boot.initrd.luks.devices.cryptroot.crypttabExtraOpts then
+                "present"
+              else
+                "missing"
+            }" "present"
+            # settings.keyFile が復活すると、この値がそのまま
+            # boot.initrd.luks.devices.cryptroot.keyFile へ伝播し、
+            # systemd-cryptsetup の attach_luks_or_plain_or_bitlk_by_tpm2 が
+            # key_file 非 null を見て LUKS2 ヘッダ内のトークン探索
+            # (attach_luks2_by_tpm2_via_plugin / find_tpm2_auto_data)を一切試さなく
+            # なる。実機の initrd に /tmp/secret.key は存在しないため、これが起きると
+            # 起動時は毎回失敗して対話パスフレーズにフォールバックし、TPM 自動解錠が
+            # 黙って壊れる。インストール時の非対話鍵は settings ではなくトップレベルの
+            # passwordFile(hosts/jupiter/disko.nix)で渡す契約なので、ここでは
+            # keyFile が null のままであることだけを固定する。
+            check luks.keyFile.null "${
+              if cfg.boot.initrd.luks.devices.cryptroot.keyFile == null then "null" else "non-null"
+            }" "null"
+            # 上の keyFile.null は起動時の契約(非対話 TPM 解錠)だけを固定していて、
+            # インストール時の契約は別に固定しないと守れない。disko の
+            # lib/types/luks.nix (askPassword のデフォルト式) を見ると、
+            # settings.keyFile も passwordFile も設定しなければ askPassword は
+            # 既定で true に戻り、nixos-anywhere 実行中に disko が
+            # `IFS= read -r -s password` で対話プロンプトを出して非対話インストールが
+            # 壊れる。hosts/jupiter/disko.nix の passwordFile を消す/null化する変更は
+            # settings.keyFile に触れないので上の keyFile.null 側は green のまま
+            # 通ってしまい、この askPassword 側でしか壊れたことが見えない。
+            check disko.askPassword "${
+              if
+                self.nixosConfigurations.jupiter.config.disko.devices.disk.main.content.partitions.luks.content.askPassword
+              then
+                "true"
+              else
+                "false"
+            }" "false"
             # authorizedKeys は本体(nixos/users.nix)の宣言から command= だけ足して
             # 生成する参照方式(リテラル 2 重化を避けるため)。この契約を守る check は
             # 本数の一致 1 本では書けない。実装が `map` である限り
