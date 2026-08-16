@@ -112,6 +112,7 @@
           case_ kana    'a i u'         'あいう' ""
           case_ chouon  'k a minus'     'かー'   ""
           case_ plus    '1 plus 2'      '1+'     '2'
+          case_ grave   '1 grave 2'     '1`'     '2'
           case_ abbrev  'slash a'       ""       '▽a'
           case_ sticky  'semicolon a i' ""       '▽あい'
 
