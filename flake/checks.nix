@@ -53,9 +53,19 @@
         # display-manager.service の environment へ i18n を写しているが、
         # その写しが消えても system 側の宣言だけは通ってしまうので、
         # 宣言が実際に unit へ届いているかをここで突き合わせる。
-        # 別 check に分けず相乗りさせたのは、期待値のリテラルを 1 箇所に保つため。
-        # 分けると同じ 5 つの値が 2 箇所に並び、locale.nix を変えたときに
-        # 片方だけ直して「greeter は system と同じ」の意味が壊れる余地が残る。
+        #
+        # 契約は 2 層に分かれている。system 側はリテラルと突き合わせて
+        # ロケール方針そのものを固定し、greeter 側は期待値を i18n から導出して
+        # 「写しが system と一致していること」だけを固定する。
+        # こうすると方針のリテラルはこのファイルの 1 箇所にしか無いので、
+        # locale.nix を変えたときに落ちるのは system 側の行だけになり、
+        # 失敗メッセージが「方針を変えた」のか「写しがずれた」のかを区別できる。
+        # 両側をリテラルで書くと同じ 5 つの値が 2 箇所に並び、片方だけ直して
+        # 「greeter は system と同じ」の意味が壊れる余地が残る。
+        #
+        # 導出の副作用: extraLocaleSettings から例えば LC_TIME が消えると
+        # greeter 側の期待値も "" になり、その行は空同士の比較で素通りする。
+        # ただし同じ消失で system 側の LC_TIME が落ちるので、契約としては検出できる。
         locale-contract =
           let
             i18n = self.nixosConfigurations.jupiter.config.i18n;
@@ -71,19 +81,24 @@
                 ok=0
               fi
             }
+            # 方針の固定: 期待値はここにしか無いリテラル。
             check defaultLocale "${i18n.defaultLocale}" "en_US.UTF-8"
             check LC_TIME "${i18n.extraLocaleSettings.LC_TIME or ""}" "en_DK.UTF-8"
             check LC_MONETARY "${i18n.extraLocaleSettings.LC_MONETARY or ""}" "ja_JP.UTF-8"
             check LC_PAPER "${i18n.extraLocaleSettings.LC_PAPER or ""}" "ja_JP.UTF-8"
             check LC_MEASUREMENT "${i18n.extraLocaleSettings.LC_MEASUREMENT or ""}" "ja_JP.UTF-8"
 
-            # greeter は system と同じ値であること。environment には PATH も入るが
-            # 契約はロケールだけなので、キーを名指しで見る。
-            check greeter.LANG "${greeter.LANG or ""}" "en_US.UTF-8"
-            check greeter.LC_TIME "${greeter.LC_TIME or ""}" "en_DK.UTF-8"
-            check greeter.LC_MONETARY "${greeter.LC_MONETARY or ""}" "ja_JP.UTF-8"
-            check greeter.LC_PAPER "${greeter.LC_PAPER or ""}" "ja_JP.UTF-8"
-            check greeter.LC_MEASUREMENT "${greeter.LC_MEASUREMENT or ""}" "ja_JP.UTF-8"
+            # 写しの一致の固定: 期待値は system 側の i18n から導出する。
+            # environment には PATH も入るが契約はロケールだけなので、キーを名指しで見る。
+            check greeter.LANG "${greeter.LANG or ""}" "${i18n.defaultLocale}"
+            check greeter.LC_TIME "${greeter.LC_TIME or ""}" "${i18n.extraLocaleSettings.LC_TIME or ""}"
+            check greeter.LC_MONETARY "${greeter.LC_MONETARY or ""}" "${
+              i18n.extraLocaleSettings.LC_MONETARY or ""
+            }"
+            check greeter.LC_PAPER "${greeter.LC_PAPER or ""}" "${i18n.extraLocaleSettings.LC_PAPER or ""}"
+            check greeter.LC_MEASUREMENT "${greeter.LC_MEASUREMENT or ""}" "${
+              i18n.extraLocaleSettings.LC_MEASUREMENT or ""
+            }"
             [ "$ok" = 1 ] || exit 1
             touch $out
           '';
