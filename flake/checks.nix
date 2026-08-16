@@ -49,9 +49,19 @@
         jupiter-stub-eval = evalOnly "jupiter-stub" self.nixosConfigurations.jupiter;
 
         # ロケール契約: 表示は英語、書式は日本の慣習。
+        # SDDM の greeter も同じ値で固定する。nixos/desktop/kde.nix が
+        # display-manager.service の environment へ i18n を写しているが、
+        # その写しが消えても system 側の宣言だけは通ってしまうので、
+        # 宣言が実際に unit へ届いているかをここで突き合わせる。
+        # 別 check に分けず相乗りさせたのは、期待値のリテラルを 1 箇所に保つため。
+        # 分けると同じ 5 つの値が 2 箇所に並び、locale.nix を変えたときに
+        # 片方だけ直して「greeter は system と同じ」の意味が壊れる余地が残る。
         locale-contract =
           let
             i18n = self.nixosConfigurations.jupiter.config.i18n;
+            # unit ごと消えた場合も eval エラーではなく check の失敗として出したいので or {}。
+            greeter =
+              self.nixosConfigurations.jupiter.config.systemd.services.display-manager.environment or { };
           in
           pkgs.runCommand "locale-contract" { } ''
             ok=1
@@ -66,6 +76,14 @@
             check LC_MONETARY "${i18n.extraLocaleSettings.LC_MONETARY or ""}" "ja_JP.UTF-8"
             check LC_PAPER "${i18n.extraLocaleSettings.LC_PAPER or ""}" "ja_JP.UTF-8"
             check LC_MEASUREMENT "${i18n.extraLocaleSettings.LC_MEASUREMENT or ""}" "ja_JP.UTF-8"
+
+            # greeter は system と同じ値であること。environment には PATH も入るが
+            # 契約はロケールだけなので、キーを名指しで見る。
+            check greeter.LANG "${greeter.LANG or ""}" "en_US.UTF-8"
+            check greeter.LC_TIME "${greeter.LC_TIME or ""}" "en_DK.UTF-8"
+            check greeter.LC_MONETARY "${greeter.LC_MONETARY or ""}" "ja_JP.UTF-8"
+            check greeter.LC_PAPER "${greeter.LC_PAPER or ""}" "ja_JP.UTF-8"
+            check greeter.LC_MEASUREMENT "${greeter.LC_MEASUREMENT or ""}" "ja_JP.UTF-8"
             [ "$ok" = 1 ] || exit 1
             touch $out
           '';
