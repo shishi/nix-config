@@ -15,6 +15,7 @@
     home.packages = with pkgs; [
       _1password-gui
       brave
+      chatgpt-desktop-app
       discord
       firefox
       flameshot

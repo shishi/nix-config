@@ -33,6 +33,27 @@
         "type": "github"
       }
     },
+    "chatgpt-desktop-app": {
+      "inputs": {
+        "nixpkgs": [
+          "nixpkgs"
+        ]
+      },
+      "locked": {
+        "lastModified": 1787265961,
+        "narHash": "sha256-dWBxSTbMKeSXgg7gw+BiGtO2bHfFGusFIMuuo2ZmDzo=",
+        "owner": "poeck",
+        "repo": "chatgpt-desktop-app-nix-flake",
+        "rev": "7082b0873ce050bf5ed2439d54da3e4aa83ba297",
+        "type": "github"
+      },
+      "original": {
+        "owner": "poeck",
+        "ref": "main",
+        "repo": "chatgpt-desktop-app-nix-flake",
+        "type": "github"
+      }
+    },
     "crane": {
       "locked": {
         "lastModified": 1781825982,
@@ -601,6 +622,7 @@
     },
     "root": {
       "inputs": {
+        "chatgpt-desktop-app": "chatgpt-desktop-app",
         "disko": "disko",
         "flake-parts": "flake-parts",
         "home-manager": "home-manager",

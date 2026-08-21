@@ -111,6 +111,27 @@ in
   # 自宅サーバー運用: SSH 常時 + Docker(unix socket のみ)
   services.openssh.enable = true;
   virtualisation.docker.enable = true; # ヒアリング #36
+
+  # FHS 非互換の prebuilt バイナリへの備え。x86_64 glibc の prebuilt ELF は
+  # /lib64/ld-linux-x86-64.so.2 を interpreter に持ち、NixOS にはそれが無いため
+  # 「存在するのに No such file or directory」で落ちる。nix-ld はその位置に
+  # 自身を置いて解決する。特定の消費者に紐づけず入れる。
+  #
+  # **外している側**: NixOS の既定は「interpreter が無い」ことで Nix 管理外の
+  # 動的リンク ELF を事実上実行できなくしている。これを host 全体・全ユーザーに
+  # 対して恒久的に外す。この host は常時 sshd を上げ、docker group のユーザーが
+  # いる。攻撃面の評価をやり直すときはこの行から始める。
+  #
+  # **適用範囲は jupiter だけ**。standalone の home-manager 構成には効かない
+  # (NixOS の option なので)。
+  #
+  # 32bit (/lib/ld-linux.so.2) と musl (/lib/ld-musl-*.so.1) は対象外。
+  # environment.ldso32 は null のまま(実測)。同じ症状が出ても原因は別。
+  #
+  # 何が入るか (option 既定値・module 側の代入・listOf のマージ) は nixpkgs の版に
+  # 依存する。追加のライブラリが要る事態になったら、その時点の実物を測ってから
+  # programs.nix-ld.libraries を足す。
+  programs.nix-ld.enable = true;
   users.users.shishi.extraGroups = [ "docker" ]; # non-root で docker run(受け入れゲート)
 
   # 初回インストールで nixos-anywhere --extra-files に渡した鍵は、tar が

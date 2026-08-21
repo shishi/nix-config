@@ -48,6 +48,18 @@
       url = "github:nix-community/lanzaboote/v1.1.0";
       inputs.nixpkgs.follows = "nixpkgs";
     };
+    # ChatGPT Desktop。取ってくる .deb は OpenAI 配布の公式ビルドだが、
+    # **この flake 自体は第三者個人の wrapper** で、信頼の対象は別。
+    # nixpkgs の chatgpt は macOS 専用なので、nixpkgs からは入れられない
+    # (他の入手経路は未調査)。overlay は flake/default.nix で 1 attr に絞る。
+    # ref=main が捕まえるのは既定ブランチの改名だけ(消えれば update が失敗する)。
+    # owner/repo の transfer は GitHub の redirect で追随されるので検出できない。
+    # 実際に版を固定しているのは lock の rev + narHash であり、それが効くのは
+    # 次の nix flake update までである。update のたびに上流の diff を見ること。
+    chatgpt-desktop-app = {
+      url = "github:poeck/chatgpt-desktop-app-nix-flake?ref=main";
+      inputs.nixpkgs.follows = "nixpkgs";
+    };
   };
 
   # Nix の制約で nixConfig はリテラル必須。値は shared/nix-caches.nix と
