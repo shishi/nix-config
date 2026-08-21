@@ -60,6 +60,35 @@ in
     ) config.users.users.shishi.openssh.authorizedKeys.keys;
   };
 
+  # 実測(VM, 2026-08-21): TPM 解錠を失敗させて initrd SSH を試したところ、
+  # TCP は確立するのに banner が一切返らなかった。initrd の journal を見ると、
+  # 上げていたのは lo だけで実 NIC (VM では enp0s3) は一度も構成されず DHCP も
+  # 走っていなかった。sshd 自体は健全で 3 分間 listening していたが、ゲストに
+  # IP が無いため VirtualBox の NAT がホスト側で accept した TCP をゲストへ
+  # 届けられなかった。
+  #
+  # boot.initrd.network.enable は sshd を initrd で起動するだけで、systemd
+  # initrd 自身にリンクを上げさせるわけではない(networkd はもう動いている
+  # が、マッチする networks 定義が無ければ何もしない)。ここで実 NIC 向けの
+  # DHCP 定義を明示的に置く。
+  #
+  # インターフェース名は書かない: この定義は VM (enp0s3) と実機 jupiter
+  # (NIC 名は未確定) の両方で動く必要があり、かつ public repo なのでマシン
+  # 固有情報を残さない方針がある。有線イーサネット全般に当たる
+  # matchConfig.Type = "ether" を使う(nixpkgs 自身の
+  # networking.useDHCP 由来のデフォルト網定義 "99-ethernet-default-dhcp" も
+  # 同じ Type = "ether" で当てている)。
+  #
+  # networking.useDHCP (既定 true) が有効な間は、その nixpkgs デフォルトが
+  # 実は initrd 側にも同じ内容を自動生成している。しかし本体側の
+  # networking.useDHCP が将来(例: desktop 側で NetworkManager へ切替)
+  # false になると、そのデフォルトは initrd からも一緒に消え、この遠隔復旧
+  # 経路だけが誰も意図せず連動して死ぬ。ここで明示的に定義し、その依存を切る。
+  boot.initrd.systemd.network.networks."30-initrd-remote-recovery-ethernet-dhcp" = {
+    matchConfig.Type = "ether";
+    DHCP = "yes";
+  };
+
   # これが無いと SSH で入る前に root デバイスの unit がタイムアウトし、
   # 復旧経路が「間に合わない」形で死ぬ。
   fileSystems."/".options = [ "x-systemd.device-timeout=infinity" ];

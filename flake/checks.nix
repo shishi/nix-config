@@ -121,6 +121,24 @@
             # (type + base64 + comment)なので改行は値の内部に現れず、
             # 連結しても「本数がずれた 2 つの列」が同じ文字列に化けることはない。
             joinKeys = lib.concatStringsSep "\n";
+            # sshd の宣言だけでは復旧経路にならない: initrd で実 NIC のリンクが
+            # 上がっていなければ TCP は確立してもバナーが返らない(実測
+            # 2026-08-21、VM で TPM 解錠を失敗させて確認。initrd journal は
+            # lo の Link UP のみを記録し、実 NIC は一度も構成されず、sshd は
+            # 3 分 listening しただけで誰にも接続されず終わった)。
+            #
+            # hosts/jupiter/default.nix が明示的に置いた実 NIC 向け DHCP 定義を
+            # キー名で直接見る。networking.useDHCP(既定 true)が有効な間は
+            # nixpkgs 自身も同種の定義(systemd.network.networks の
+            # "99-ethernet-default-dhcp", matchConfig.Type = "ether")を initrd に
+            # 自動生成するため、「networks に何か存在するか」だけを見る check は
+            # networking.useDHCP を落とすまで絶対に落ちず、hosts/jupiter 側の
+            # 定義そのものが消える regression を検出できない
+            # (実測: この定義を一時的に削除しても、networking.useDHCP が既定の
+            # true のままなら nixpkgs 側のデフォルトだけで存在は保たれる)。
+            # そのため自前で置いたキーを名指しで参照する。
+            initrdRecoveryNic =
+              cfg.boot.initrd.systemd.network.networks."30-initrd-remote-recovery-ethernet-dhcp" or null;
           in
           pkgs.runCommand "boot-contract" { } ''
             ok=1
@@ -137,6 +155,30 @@
             check initrd.network.enable "${if cfg.boot.initrd.network.enable then "true" else "false"}" "true"
             check initrd.ssh.enable "${if cfg.boot.initrd.network.ssh.enable then "true" else "false"}" "true"
             check initrd.ssh.port "${toString cfg.boot.initrd.network.ssh.port}" "2222"
+            # 実 NIC 向けのネットワーク定義(上の initrdRecoveryNic を参照)。
+            # sshd が listen していてもリンクが上がらなければ復旧経路として
+            # 機能しない、という組み合わせの穴をここで固定する。
+            check initrd.network.nic.present "${
+              if initrdRecoveryNic != null then "present" else "missing"
+            }" "present"
+            # インターフェース名を直書きしない契約。VM (enp0s3) と実機 jupiter
+            # (NIC 名未確定)の両方に当たる必要があり、かつ public repo なので
+            # マシン固有情報を残さない。matchConfig.Name が set されていたら
+            # 退行(名前を直書きした)とみなす。
+            check initrd.network.nic.matchConfig.name.unset "${
+              if initrdRecoveryNic == null then
+                "n/a"
+              else if (initrdRecoveryNic.matchConfig.Name or null) == null then
+                "unset"
+              else
+                "set"
+            }" "unset"
+            check initrd.network.nic.matchConfig.type "${
+              if initrdRecoveryNic != null then (initrdRecoveryNic.matchConfig.Type or "") else ""
+            }" "ether"
+            check initrd.network.nic.dhcp "${
+              if initrdRecoveryNic != null then (initrdRecoveryNic.DHCP or "") else ""
+            }" "yes"
             # これが無いと SSH で入る前に root デバイスの unit がタイムアウトする。
             check root.deviceTimeout "${
               if builtins.elem "x-systemd.device-timeout=infinity" cfg.fileSystems."/".options then
