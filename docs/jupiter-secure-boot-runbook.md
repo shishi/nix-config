@@ -14,7 +14,8 @@ VM で成立している。カーネル更新に追従させる `systemd-pcrlock
 ## 1. 何が宣言済みで、何を手で打つのか
 
 `hosts/jupiter/default.nix` と `hosts/jupiter/disko.nix` に宣言済み。**既に
-インストール済みのホストでは** `nixos-rebuild` を実行するだけで反映される。
+インストール済みのホストでは**、§3.1・§3.2 の鍵生成を先に済ませたうえで
+`nixos-rebuild` を実行すれば反映される。
 **初回インストール(まだ NixOS が入っていない実機)にはこの前提は当てはま
 らない** — `boot.lanzaboote.enable` と `hostKeys` は `/var/lib/sbctl` /
 `/var/lib/initrd-ssh/...` の実在を前提にしており、無いとインストールが
@@ -35,6 +36,9 @@ VM で成立している。カーネル更新に追従させる `systemd-pcrlock
   nixpkgs が `99-ethernet-default-dhcp`(`matchConfig.Type = "ether"`)を
   initrd 側にも生成するので、それに任せる。リンクが上がらないときに疑うのは
   この定義ではなく、上の `availableKernelModules`(NIC ドライバ)の方。
+  **`networking.useDHCP` を false にすると(NetworkManager へ切り替える等)、
+  initrd 側の DHCP 定義も生成されなくなり、§6 の遠隔復旧経路が連動して
+  死ぬ。**
 - `fileSystems."/".options = [ "x-systemd.device-timeout=infinity" ];`
 - `hosts/jupiter/disko.nix` の
   `disko.devices.disk.main.content.partitions.luks.content.settings.crypttabExtraOpts`
@@ -482,7 +486,7 @@ ssh -tt -p <port> root@<host>
 ### 6.3 パスフレーズ投入
 
 ```
-( printf '<現在のLUKSパスフレーズ>\n'; sleep 90 ) | timeout 150 ssh -tt -p <port> root@<host>
+( printf '%s\n' '<現在のLUKSパスフレーズ>'; sleep 90 ) | timeout 150 ssh -tt -p <port> root@<host>
 ```
 
 次のプロンプトが出力される。
@@ -528,8 +532,9 @@ Operation not permitted` が出る)。
 ## 8. フェーズ B(`systemd-pcrlock`)— 現在は未対応
 
 VM の仮想 TPM + OVMF では `systemd-pcrlock` が機能する前提を満たせず、
-`hosts/jupiter/default.nix` に `measuredBoot` 相当の宣言はコミットしていない
-(`flake/checks.nix` の契約 check も同様に未追加)。
+`hosts/jupiter/default.nix` にフェーズ B を有効化する宣言はコミットして
+いない(属性パスは実機で有効化する際に確定する。`flake/checks.nix` の
+契約 check も同様に未追加)。
 
 ### 8.1 実機で試すときに最初に確認すること
 
@@ -583,8 +588,8 @@ PIN はユーザー本人がオフラインの秘密管理手段に控える。�
 想定している順序:
 
 1. `sudo systemd-cryptenroll --wipe-slot=tpm2 /dev/disk/by-partlabel/disk-main-luks`
-2. `hosts/jupiter/default.nix` で `measuredBoot.enable = false;` にして
-   `nixos-rebuild switch`
+2. フェーズ B を有効化した際に `hosts/jupiter/default.nix` に追加した宣言を
+   戻して `nixos-rebuild switch`(属性パスは有効化した時点で記録すること)
 3. `sudo <systemd-pcrlockのフルパス> remove-policy`
 
 逆順(特に 3 を先に実行する場合)の挙動は未確認。pcrlock ポリシーを先に

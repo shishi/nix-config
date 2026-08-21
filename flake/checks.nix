@@ -225,6 +225,16 @@
               if lib.all (lib.hasPrefix initrdKeyPrefix) initrdKeys then "true" else "false"
             }" "true"
             check initrd.ssh.authorizedKeys.match "${joinKeys (map (lib.removePrefix initrdKeyPrefix) initrdKeys)}" "${joinKeys bodyKeys}"
+            # 上の 2 本は initrdKeys が空リストのとき vacuous に通る。lib.all は
+            # 空リストに対して true を返し、joinKeys [] は両辺とも "" になって
+            # 一致するので、鍵がゼロ本でも prefixed / match は両方 green になる。
+            # authorizedKeys ゼロ本の initrd は「見た目は健全だが誰も入れない」
+            # 遠隔復旧経路そのものであり、この 2 本はまさにその締め出しを検出する
+            # ために置かれている。non-empty をここで別途固定しないと締め出しが
+            # 素通りする。
+            check initrd.ssh.authorizedKeys.nonEmpty "${
+              if initrdKeys != [ ] then "nonempty" else "empty"
+            }" "nonempty"
             [ "$ok" = 1 ] || exit 1
             touch $out
           '';
