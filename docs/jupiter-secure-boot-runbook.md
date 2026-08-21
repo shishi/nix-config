@@ -99,63 +99,236 @@ VM(NIC `enp0s3`)の値は `e1000`。**実機 jupiter のドライバ名は未確
 リンクが上がらず、§6 の復旧経路が機能しない。
 
 **ゲート 4(初回インストール専用。対象マシンにまだ NixOS がインストール
-されていない場合のみ適用。手順は未確立)**
+されていない場合のみ適用)**
 
-> **停止条件(実機投入前に必ず満たすこと): この節が扱う経路(ディスク消去
-> から `nixos-anywhere` 完走まで)は VM で一度も通しで実行していない。
-> 実機へ適用する前に、最初から lanzaboote 有効でインストールする新規の
-> 検証用 VM で、ディスク消去から `nixos-anywhere` 完走までを一度リハーサル
-> し、手順を確立すること。** 現行の検証用 VM(`jupiter-anywhere-test`)は
-> lanzaboote を導入する前から動いており、この初回インストール経路その
-> ものを一度も通っていない。
+**2026-08-21 に検証用 VM で通しリハーサル済み。** 以下は実際に実行して
+結果を確認した手順である(確認できていない箇所はその旨を明記する)。
+
+### なぜ素直に流すと失敗するか
 
 `boot.lanzaboote.enable = true;` と
 `hostKeys = [ "/var/lib/initrd-ssh/ssh_host_ed25519_key" ];` はどちらも、
 対象マシンに既に `/var/lib/sbctl`(sbctl の鍵)と
 `/var/lib/initrd-ssh/ssh_host_ed25519_key`(initrd SSH のホストキー)が
-存在することを前提にしている。
+存在することを前提にしている。lanzaboote の `lzbt install` は
+`--public-key` / `--private-key`(既定値 `/var/lib/sbctl/keys/db/db.{pem,key}`)を
+渡され、nixpkgs の `initrd-ssh.nix` は `boot.initrd.secrets` 経由で
+`append-initrd-secrets` に `cp -a` させる。新規インストール先にはどちらも
+無い。しかも **disko がディスクを消去・暗号化し rootfs を展開した後**の
+ブートローダ設置段で落ちるため、ブート不能な中途半端な状態で止まる。
 
-**未インストールの実機にこの宣言のまま初回インストールすると、
-ブートローダ設置段で失敗する。** lanzaboote のソース(`nix/modules/lanzaboote.nix`)
-で確認したところ、`lzbt install` は `--public-key=${cfg.publicKeyFile}` /
-`--private-key=${cfg.privateKeyFile}`(既定値 `${pkiBundle}/keys/db/db.{pem,key}`、
-つまり `/var/lib/sbctl/keys/db/db.{pem,key}`)を渡される。新規インストール先には
-これが存在しない。同じ段で、initrd SSH のホストキーを写す nixpkgs の
-`initrd-ssh.nix`(`boot.initrd.secrets` 経由で `append-initrd-secrets` が
-`cp -a` する)も `/var/lib/initrd-ssh/...` が無くて失敗する。しかも disko が
-ディスクを消去・暗号化して rootfs を展開した**後**にこれが起きるので、
-ブート不能な中途半端な状態で止まる。
+稼働中の jupiter に sudo で入って鍵を生成する通常の経路(§3.1・§3.2)は、
+初回インストールでは前提が崩れる。鍵が無いと起動できず、鍵を作るには
+そのマシンに到達している必要がある、という循環になるため。
 
-稼働中の jupiter に sudo で入って鍵を生成する通常の経路(§3.1)は、初回
-インストールの場面では前提そのものが崩れる。鍵が無いと起動できず、鍵を
-作るにはその稼働中のマシンに到達している必要がある、という循環になる
-ため。
+### 採る方法と、採らなかった方法
 
-**対処の方向性: `nixos-anywhere --extra-files <dir>` で、インストール前に
-両ディレクトリ(`/var/lib/sbctl` と `/var/lib/initrd-ssh`)の内容を先置き
-する。** 宣言(`hostKeys`・`lanzaboote.enable`)を初回インストールのためだけ
-に無効化するのは設計が間違っているサインなので、宣言をそのまま成立させる
-方を採る。この repo は既に `--disk-encryption-keys` を使っているので、同じ
-仕組みの延長になる。
+**`nixos-anywhere` を `--phases` で 2 回に分け、その間に鍵を `/mnt` へ作る。**
 
-**この方向性を実行する具体的なコマンド列は、ここには書かない。** 検証して
-いない手順を検証済みの手順と同じ体裁で並べておくと、インストール当日に
-読む側がその違いを区別できず、誤った手順のまま実行してしまう害の方が
-大きい。実機投入前のリハーサルで手順を確立し、実際に動作を確認できた
-コマンド列だけを、このゲート 4 に書き直すこと。
+- **`--extra-files` は使わない。** 先置き自体はこれでも間に合う(コピーは
+  disko の後・`nixos-install` の前に行われる)。採らないのは、sbctl の
+  ディスク上レイアウトをワークステーション側で手作りすることになり、
+  Secure Boot の秘密鍵もワークステーションを経由するため。
+  `sbctl create-keys` に自分の既定パスへ書かせれば、どちらも起きない。
+- **任意コマンドを実行するフックは無い**(nixos-anywhere 1.13.0)。target 上で
+  処理を挟むには phase を分割するしかない。
+- **`boot.lanzaboote.enable` や `hostKeys` を初回だけ外す案は採らない。**
+  宣言を成立させられないのは設計が間違っているサインなので、宣言の方を
+  そのまま通す。
+
+### 手順
+
+**手順 0: installer に SSH 鍵を置く**
+
+対象マシンを NixOS の installer から起動し、**コンソールで一度だけ**次を
+実行する。
+
+```
+sudo mkdir -p /root/.ssh
+echo '<自分の SSH 公開鍵>' | sudo tee /root/.ssh/authorized_keys
+sudo chmod 600 /root/.ssh/authorized_keys
+```
+
+installer の `root` と `nixos` は**空パスワード**で、空パスワードでの SSH
+ログインは sshd 側で許可されていない。鍵を置かないと `nixos-anywhere` が
+接続できない。`nixos-anywhere` は disko と install の実行時には必ず
+`root@` へ接続するので、鍵は `root` に置く。
+
+以降のコマンドの `<port>` は対象機の sshd のポート。既定の 22 なら
+`--ssh-port` / `-p` は省いてよい。リハーサルでは VM の NAT ポート転送を
+挟んだため明示した。
+
+手順 2 は target 上で `nix run` を使う。**`nix-command` と `flakes` が有効な
+nix を持つ installer を使うこと。** リハーサルに使ったのは
+`nixos-minimal-26.05` の ISO で、有効かどうかに依存しないよう手順 2 では
+`--extra-experimental-features` を明示している。
+
+**手順 1: ディスクを作る(disko phase だけ)**
+
+ワークステーション側(nix-config のチェックアウト内)で実行する。
+
+```
+printf '%s' '<LUKSパスフレーズ>' > /tmp/luks.key
+chmod 600 /tmp/luks.key
+nix run .#nixos-anywhere -- --flake .#jupiter \
+  --target-host root@<target> --ssh-port <port> \
+  --disk-encryption-keys /tmp/secret.key /tmp/luks.key \
+  --phases disko
+```
+
+`--disk-encryption-keys <remote> <local>` の remote 側は
+`hosts/jupiter/disko.nix` の `passwordFile` と一字一句一致させる
+(`/tmp/secret.key`)。ずれると disko が対話パスワードを聞きに行く。
+
+`### Done! ###` で終わり、`/mnt` に ESP と btrfs subvolume がマウントされた
+状態で止まる。確認:
+
+```
+ssh -p <port> root@<target> 'findmnt -R /mnt -o TARGET,SOURCE,FSTYPE'
+```
+
+期待: `/mnt`(`@root`)・`/mnt/boot`(vfat)・`/mnt/home`・`/mnt/nix`・`/mnt/.swap`。
+
+**手順 2: 鍵を `/mnt` に作る**
+
+`ssh -p <port> root@<target>` で入り、target 上で実行する。
+
+```
+rm -rf /var/lib/sbctl   # 手順 2 を 2 回目以降に実行するときだけ必要
+nix --extra-experimental-features "nix-command flakes" run nixpkgs#sbctl -- create-keys
+mkdir -p /mnt/var/lib
+cp -a /var/lib/sbctl /mnt/var/lib/
+mkdir -p /mnt/var/lib/initrd-ssh
+ssh-keygen -t ed25519 -N "" -f /mnt/var/lib/initrd-ssh/ssh_host_ed25519_key
+chmod 600 /mnt/var/lib/initrd-ssh/ssh_host_ed25519_key
+ssh-keygen -lf /mnt/var/lib/initrd-ssh/ssh_host_ed25519_key.pub
+```
+
+`sbctl create-keys` は installer 自身の `/var/lib/sbctl` に書く(出力先は
+変えない)。生成されるのは `GUID` と `keys/{PK,KEK,db}/*.{key,pem}`。
+`cp -a` で所有者と mode がそのまま `/mnt` 側へ移る。
+
+最後の `ssh-keygen -lf` が出すフィンガープリントは §6.2 の照合に使うので
+控える(`/var/lib` は暗号化された `/` の上にあり、initrd で足止めされて
+いる状況では未マウントのため、そのときには取りに行けない)。
+
+確認:
+
+```
+find /mnt/var/lib/sbctl /mnt/var/lib/initrd-ssh -printf '%M %u:%g %p\n'
+```
+
+期待: sbctl の鍵 6 本が `-r-------- root:root`、
+`ssh_host_ed25519_key` が `-rw------- root:root`。
+
+**手順 3: インストール(install phase)**
+
+**先に手順 1 の `findmnt -R /mnt` をもう一度実行し、`/mnt` と `cryptroot` が
+生きていることを確かめる。** 手順 1〜3 の間に対象機が再起動・電源断していると
+マウントも `cryptroot` も失われる。**そのときは手順 1 ではなく手順 0 から
+やり直す。** installer は RAM 上で動いているので、再起動すると手順 0 で置いた
+`/root/.ssh/authorized_keys` も一緒に消えており、手順 1 だけの再実行は
+そもそも SSH が通らない。`findmnt` の再確認自体が接続エラーになった場合も、
+まず再起動を疑うこと。
+
+ワークステーション側で実行する。
+
+```
+nix run .#nixos-anywhere -- --flake .#jupiter \
+  --target-host root@<target> --ssh-port <port> --phases install
+```
+
+`Successfully installed Lanzaboote.` と `installation finished!` が出れば、
+ゲート 4 が問題にしていた失敗点は通過している。
+
+**この手順が失敗して手順 1 をやり直した場合は、必ず手順 2 も実行し直すこと。**
+`--phases disko` は再フォーマットなので、`/mnt` 上に作った鍵は消えている。
+気づかずに手順 3 だけ再実行すると、このゲートが防いでいる失敗がそのまま再発する。
+
+**手順 4: 停止して installer メディアを外す**
+
+```
+ssh -p <port> root@<target> 'swapoff -a; umount -R /mnt && cryptsetup close cryptroot'
+```
+
+`umount` と `cryptsetup close` が成功したことを確認してから電源を落とし、
+installer の ISO / USB を外してディスクから起動する。**`--phases reboot` は
+使わない**(メディアを外す前に再起動すると installer が再び立ち上がる)。
+
+初回起動では TPM2 がまだ未 enroll なので、コンソールで LUKS パスフレーズを
+聞かれる。手順 1 で使ったものを入力する。
+
+**手順 5: 後始末**
+
+ワークステーション側の `/tmp/luks.key` を消す。
+
+### この後どこへ進むか
+
+**§3.1(`sbctl create-keys`)と §3.2(`ssh-keygen`)は実行しない。**
+鍵は手順 2 で既に作られている。**§3.3(`nixos-rebuild switch`)も不要**で、
+lanzaboote は `nixos-install` の時点で既に適用されている。
+
+**次は §3.5 だが、無条件に実行しないこと。** まず §3.5 末尾の
+`sbctl status` で Setup Mode を確認する。`Setup Mode: Enabled` なら §3.5 の
+NVRAM 操作(VM の `modifynvram <vm> enrollorclpk` / 実機の firmware メニューでの
+PK クリア)は**行わず** §3.6 へ進む。`Disabled` のときだけ §3.5 の操作を行う。
+§3.5 自身が書いているとおり `enrollorclpk` は Setup Mode を**抜ける**操作である
+可能性が未確認のまま残っており、不要に実行すると §3.6 の `enroll-keys` が
+通らなくなる。
+
+§3.4 以降の VM 用コマンドには、前ラウンドの検証用 VM 名 `jupiter-anywhere-test`
+がそのまま書かれている。**自分の VM 名へ読み替えること。** 別の VM を対象に
+`modifynvram` を打っても、その VM が VirtualBox に登録されたまま残っていれば
+エラーにならず黙って成功し、手元の VM の状態は変わらないまま先へ進んでしまう。
+
+### リハーサルで確認した終状態
+
+新規作成した検証用 VM で手順 0〜4 を実行し、続けて §3.6 → §3.7 →
+§4.1〜§4.4 → §5.1 を通した結果(**§4.5 の wipe → 再 enroll は通していない**。
+§4.5 自身の未確認注記はそのまま残る):
+
+- `bootctl status` が §3.7 の「期待:」ブロックと一致
+- LUKS token JSON が §4.4 の「期待(該当部分)」と一致
+- 稼働中の `/var/lib/initrd-ssh/ssh_host_ed25519_key.pub` のフィンガープリントが、
+  手順 2 で `/mnt` に作った鍵のものと一致
+- ハードリセット後、キー入力ゼロで自動解錠(§5.1)
+
+**§3.5(Setup Mode に入る)は通していない。** VM が新規作成で NVRAM が空
+だったため、初回起動の時点で既に `Setup Mode: Enabled` だった。§3.5 が自分で
+付けている未確認の注記(`modifynvram <vm> enrollorclpk` が Setup Mode へ入る
+操作かどうか)は、このリハーサルでも解消していない。
+
+つまり、**インストール時に署名に使った鍵と、後から UEFI へ enroll する鍵が
+同一である**ことまで確認できている。ここがゲート 4 の要点で、鍵を作り直すと
+`nixos-install` が作った最初の世代(NixOS の generation 1)の UKI が
+検証できなくなる。
+
+### 実機で違うところ
+
+- **手順 0 の直後、手順 1 に入る前に、ゲート 2 と ゲート 3 を済ませる。**
+  ゲート 2 の `nixos-generate-config` は手順 0 の SSH 経路で実行できるはず
+  (**実機で未確認**。リハーサルではスタブのまま通した)。
+- **§3.5 の PK クリアは、実機では実際に必要になることが多い。** 判定基準は
+  VM と同じく「この後どこへ進むか」に書いた `sbctl status` の結果であって、
+  実機かどうかではない。リハーサル VM が初回起動時点で
+  `Setup Mode: Enabled` だったのは新規 NVRAM の性質で、PK が enroll 済みの
+  実機は通常 `Disabled` を返す。そのとき firmware のメニューで PK をクリアする
+  (**メニュー操作はベンダー依存で未確認**)。
+- **`<target>` と `<port>`** は実機の値にする。
 
 ## 3. フェーズ A: 鍵の生成 → Secure Boot 有効化 → TPM2 enroll
 
-**ゲート 4(§2)の手順が確立され、初回インストール時に鍵を先置きした
-場合は、§3.1 の `sbctl create-keys` と §3.2 の `ssh-keygen` は実行しない
-こと。** 鍵は既に存在するため、実行すると `sbctl create-keys` は既存鍵に
-対する挙動が未確認であり、`ssh-keygen -f` は既存ファイルに対して
-`Overwrite (y/n)?` と対話で聞いてくる(この runbook の他の手順は非対話実行
-を前提にしている)。この場合は §3.2 のフィンガープリント取得
-(`ssh-keygen -lf .../ssh_host_ed25519_key.pub`)だけを実行してから §3.3 へ
-進むこと。**この分岐が使われるのは、ゲート 4 の手順をリハーサルで確立し
-て実際に鍵を先置きした場合に限る。ゲート 4 の手順は現時点で未確立なので
-(§2 参照)、それまではこの分岐は発生しない。**
+**ゲート 4(§2)の手順で初回インストールした場合、§3.1・§3.2・§3.3 は
+実行しない。** §3.5 は条件付きで、既に Setup Mode に入っていれば飛ばす
+(条件はゲート 4 の「この後どこへ進むか」に書いた)。 鍵は既に存在し、lanzaboote も
+`nixos-install` の時点で適用済みである。この状態で §3.1 を実行すると
+`sbctl create-keys` が既存鍵に対してどう振る舞うかは未確認であり、§3.2 の
+`ssh-keygen -f` は既存ファイルに対して `Overwrite (y/n)?` と対話で聞いて
+くる(この runbook の他の手順は非対話実行を前提にしている)。§6.2 の照合に
+使うフィンガープリントは、ゲート 4 の手順 2 で控えたものを使う。
+
+以下の §3.1〜§3.3 は、**既に NixOS が動いているマシンに後から lanzaboote を
+導入する場合**の手順である。
 
 ### 3.1 鍵の生成
 
@@ -479,8 +652,9 @@ ssh -tt -p <port> root@<host>
   繋がっているか」を判別できる。**`/var/lib/initrd-ssh/ssh_host_ed25519_key.pub`
   は暗号化された `/`(btrfs `@root`)の上にあり、initrd で足止めされている
   状況ではまだマウントされていない。** そこへ読みに行くには、解錠したい
-  その当のマシンにログインする必要が生じてしまう(循環)。代わりに §3.2 で
-  控えたフィンガープリントを使い、`ssh-keyscan -p <port> <host> |
+  その当のマシンにログインする必要が生じてしまう(循環)。代わりに §3.2(ゲート 4 で
+  初回インストールした場合はゲート 4 の手順 2)で控えた
+  フィンガープリントを使い、`ssh-keyscan -p <port> <host> |
   ssh-keygen -lf -` の結果と比較する。
 
 ### 6.3 パスフレーズ投入
