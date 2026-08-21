@@ -145,6 +145,31 @@ in
   # 共有モジュール側に置かないのは、nixos-wsl も ../../nixos を読むため。
   users.users.shishi.uid = 1000;
 
+  # KRdp は動作中の KWin セッションに寄生するため、セッションが無い時間帯は
+  # 遠隔から入れない。この機体は常にモニタを持つノート PC 型なので、
+  # 画面を常時立ち上げたままにして遠隔の入口を確保する。
+  #
+  # **外している側**: LUKS が TPM で自動解錠される構成では、SDDM のログイン画面が
+  # 起動後に残る唯一の資格情報要求点である。autoLogin はそれを消すため、
+  # 持ち出された機体は電源を入れるだけでデスクトップが出ることになる。
+  # 消したぶんは home 側の krdp-lock-session.service が
+  # セッション開始直後にロックして戻す。**autoLogin をここで有効にする以上、
+  # あちらのロックは外せない。** 片方だけ消すと、起動もログインも RDP も
+  # 成功したまま、物理アクセスに対する認証だけが 0 個になる。
+  #
+  # pam_kwallet はログインパスワードから鍵を導出するため autoLogin とは
+  # 両立しない。KWallet はロック解除(kde PAM)のときに開く。
+  services.displayManager.autoLogin = {
+    enable = true;
+    user = "shishi";
+  };
+
+  # RDP から見えているのは autoLogin で上がったセッションであり、そこで
+  # ログアウトすると krdpserver も一緒に落ちる(PartOf=plasma-workspace.target)。
+  # relogin が偽だと SDDM はグリーターで止まり、遠隔からは二度と入れない。
+  # 「ログアウトしないこと」を手順で守らせる代わりに、構成で戻す。
+  services.displayManager.sddm.autoLogin.relogin = true;
+
   # nh の 2 層配線契約: 統合ホストは NixOS 側 programs.nh を使う
   # (HM 側 programs.nh は standalone 専用 — nh home の第 2 適用経路防止)
   programs.nh = {

@@ -48,6 +48,40 @@ nix run .#switch               # 適用(check-env-critical 内蔵。--force で�
 動くことを確認(post-install 成功基準)。
 以後の更新: `nh os switch`(NixOS 側 programs.nh が NH_FLAKE を設定)
 
+### リモートデスクトップ(RDP)
+
+KRdp が動作中の Plasma セッションに寄生して RDP を話す。**loopback にしか bind
+しない**ので、到達は SSH トンネル越しになる。firewall は 22 だけのまま。
+
+```bash
+ssh -N -L 13389:127.0.0.1:3389 shishi@<jupiter>
+```
+
+手元の RDP クライアントで `127.0.0.1:13389` へ繋ぐ。ユーザー名は `shishi`、
+パスワードは **shishi のシステムパスワード**。接続すると画面ロックが出るので、
+同じパスワードで解除する。
+
+**KWallet は自動では開かない。** `pam_kwallet` はログインパスワードから鍵を
+導出するので、autoLogin では鍵が渡らない(セッション開始直後の `kwalletd6` は
+バス上で activatable のまま)。KWallet を使うアプリは初回に開錠を求めてくる。
+
+手元側を 3389 ではなく 13389 にするのは、Windows が自身の RDP サーバーで 3389 を
+使うため。3389 のまま張ると bind に失敗するか、失敗に気づかないままクライアントが
+**手元の Windows 自身**へ繋がる。
+
+- セッションは autoLogin で常時上がっており、**ロックが降りてから RDP が
+  待ち受けを始める**(`krdpserver.service` が `krdp-lock-session.service` の後)。
+  物理アクセスにもロック解除のパスワードが要る
+- RDP 上でログアウトするとセッションごと krdpserver が落ちるが、SDDM が
+  autoLogin をやり直すので自動で戻る(`sddm.autoLogin.relogin`)。ただし
+  **セッションが異常終了した場合は戻らない** — SDDM はそこで止まるので、
+  SSH から `sudo systemctl restart display-manager` で戻す
+- 証明書は初回起動時に `~/.local/share/krdp/` へ自己署名で作られる。自己署名なので
+  クライアントは証明書の警告を出す
+- **`nixos/users.nix` の初期パスワードのままだと、それがそのまま RDP のパスワード
+  になる。** 初回ログイン後に `passwd` を実行しておくこと
+- 音声・クリップボード・マルチモニタの挙動は未確認
+
 ## 更新
 
 ```bash

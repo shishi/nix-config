@@ -5,6 +5,67 @@
   inputs,
   ...
 }:
+let
+  krdpDir = "${config.xdg.dataHome}/krdp";
+  krdpCert = "${krdpDir}/server.crt";
+  krdpCertKey = "${krdpDir}/server.key";
+
+  # krdpserver は TLS 証明書を生成せず、無ければ起動を拒む
+  # (src/Server.cpp が exists() を見て「required for the server to run!」)。
+  # KCM 経由で作らせると有効期限が 1 日になるので、生成も期限もこちらで持つ。
+  #
+  # 判定は「使える鍵対か」で行う。証明書と鍵をそれぞれ単体で parse できるかだけを
+  # 見ると、片方だけ差し替わった対応しないペアを「ある」と誤認する。両方 parse
+  # できてしまうので二度と作り直されず、krdpserver は起動はして TLS で毎回失敗する。
+  # 公開鍵の一致と有効期限まで見れば、その状態は次の起動で必ず作り直される。
+  #
+  # 生成は一時ファイルへ書いて mv で置く。途中で落ちても、残るのは判定に落ちる
+  # 組み合わせなので次の起動で作り直される。
+  #
+  # コマンドはすべて store のパスで呼ぶ。writeShellScript は PATH を固定しない。
+  krdpCertScript = pkgs.writeShellScript "krdp-certificate" ''
+    set -eu
+    cert="$1"
+    key="$2"
+    if certpub=$(${pkgs.openssl}/bin/openssl x509 -pubkey -noout -in "$cert" 2>/dev/null) \
+      && ${pkgs.openssl}/bin/openssl x509 -checkend 0 -noout -in "$cert" 2>/dev/null \
+      && keypub=$(${pkgs.openssl}/bin/openssl pkey -pubout -in "$key" 2>/dev/null) \
+      && [ "$certpub" = "$keypub" ]; then
+      exit 0
+    fi
+    ${pkgs.coreutils}/bin/mkdir -p -m 700 "$(${pkgs.coreutils}/bin/dirname "$cert")"
+    tmpc="$cert.tmp.$$"
+    tmpk="$key.tmp.$$"
+    trap '${pkgs.coreutils}/bin/rm -f "$tmpc" "$tmpk"' EXIT
+    (
+      umask 077
+      ${pkgs.openssl}/bin/openssl req -x509 -newkey rsa:4096 -nodes -days 3650 \
+        -subj "/CN=krdp" -keyout "$tmpk" -out "$tmpc"
+    )
+    ${pkgs.coreutils}/bin/mv "$tmpk" "$key"
+    ${pkgs.coreutils}/bin/mv "$tmpc" "$cert"
+  '';
+
+  # plasma-workspace.target の到達は「unit が起動した」ことしか保証せず、
+  # ksmserver が org.kde.screensaver をセッションバスに登録し終えたことは
+  # 意味しない。取りこぼすと autoLogin で上がったデスクトップが開いたまま残る。
+  # 名前が出るまで待つ。上限は反復回数ではなく経過時刻で取る — 1 回あたりの
+  # 所要時間は busctl の待ちに左右されるので、回数では上限が定まらず
+  # unit 側の TimeoutStartSec を先に踏みうる。
+  krdpLockScript = pkgs.writeShellScript "krdp-lock-session" ''
+    set -eu
+    deadline=$(( $(${pkgs.coreutils}/bin/date +%s) + 30 ))
+    while [ "$(${pkgs.coreutils}/bin/date +%s)" -lt "$deadline" ]; do
+      if ${pkgs.systemd}/bin/busctl --user call \
+        org.kde.screensaver /ScreenSaver org.freedesktop.ScreenSaver Lock; then
+        exit 0
+      fi
+      ${pkgs.coreutils}/bin/sleep 1
+    done
+    echo "krdp-lock-session: org.kde.screensaver が 30 秒現れなかった" >&2
+    exit 1
+  '';
+in
 {
   imports = [ inputs.plasma-manager.homeModules.plasma-manager ];
 
@@ -16,6 +77,19 @@
 
     programs.plasma = {
       enable = true;
+
+      # KRdp の設定。--address だけは krdpserverrc に対応キーが無いので
+      # unit 側のコマンドラインで渡す。
+      #
+      # SystemUserEnabled は「krdpserver を走らせている本人のシステムパスワードで
+      # 認証する」の意味で、repo に秘密を置かないための選択。無効にすると
+      # 資格情報が 1 つも無くなり krdpserver は起動に失敗する。
+      configFile."krdpserverrc" = {
+        General.ListenPort = 3389;
+        General.Certificate = krdpCert;
+        General.CertificateKey = krdpCertKey;
+        General.SystemUserEnabled = true;
+      };
 
       # Plasma は /etc/locale.conf とは別に plasma-localerc を見る。
       # NixOS 側(nixos/locale.nix)だけ変えても Plasma 配下のアプリに届かない
@@ -139,6 +213,74 @@
         autoSuspend.action = "sleep";
         autoSuspend.idleTimeout = 3600;
       };
+    };
+
+    # KRdp は動作中の KWin セッションに寄生する。同梱の
+    # share/systemd/user/app-org.kde.krdpserver.service は NixOS の generateUnits が
+    # etc/ と lib/ しか走査しないため拾われず、拾えたとしても引数を一切渡さないので
+    # Portal 経路・0.0.0.0 bind・証明書パス空になり起動しない。自分で書く。
+    #
+    # NixOS 側の systemd.user.* にしないのは、そちらだと SDDM greeter を含む
+    # 全ユーザーに unit が配られるため。
+    #
+    # 証明書の用意を別 unit にせず ExecStartPre に置くのは、別 unit だと
+    # Type=oneshot + RemainAfterExit が一度 active になったきり再実行されず、
+    # 稼働中に証明書が失われたときに krdpserver だけが再起動を繰り返して
+    # 復帰しないため。ExecStartPre なら再起動のたびに検証が走る。
+    # 妥当なら即 exit 0 なので、繰り返しても安い。
+    #
+    # --address を落とすと既定の 0.0.0.0 になり、PAM 認証が LAN へ出る。
+    # --username を渡すと krdpserverrc の SystemUserEnabled が読まれなくなる。
+    # --plasma を落とすと Portal 経路になり、初回接続時に画面上での許可が要る。
+    systemd.user.services.krdpserver = {
+      Unit = {
+        Description = "KRDP server for the running Plasma session";
+        After = [
+          "plasma-core.target"
+          "krdp-lock-session.service"
+        ];
+        PartOf = [ "plasma-workspace.target" ];
+      };
+      Service = {
+        Type = "exec";
+        ExecStartPre = "${krdpCertScript} ${krdpCert} ${krdpCertKey}";
+        ExecStart = "${pkgs.kdePackages.krdp}/bin/krdpserver --plasma --address 127.0.0.1";
+        Restart = "on-failure";
+        RestartSec = 3;
+      };
+      Install.WantedBy = [ "plasma-workspace.target" ];
+    };
+
+    # autoLogin は起動時のパスワード入力を消す。LUKS が TPM で自動解錠される構成では
+    # それが物理アクセスに対する最後の資格情報要求点なので、セッションが上がった
+    # 直後にロックして戻す。ロック解除は kde PAM 経由なので KWallet もそこで開く。
+    #
+    # loginctl lock-session は呼び出し元の session を必要とするが、user manager は
+    # session の cgroup の外に居るため使えない。セッションバス経由で叩く。
+    #
+    # krdpserver の側に After= を張ってあるので、RDP が待ち受けを始めるのは
+    # ロックが降りた後になる。順序だけで Requires ではないため、ロックに失敗しても
+    # RDP は上がる(遠隔からの入口を失わないほうを採る)。
+    systemd.user.services.krdp-lock-session = {
+      Unit = {
+        Description = "Lock the session immediately after it starts";
+        # After=plasma-workspace.target は張らない。target は自分が Wants する
+        # unit の後に順序づけられるので、krdpserver 側の After= と合わせると
+        # lock -> target -> krdpserver -> lock で循環し、systemd が
+        # krdpserver のジョブを削除して RDP が上がらなくなる。
+        # ロックの準備完了はスクリプト側が DBus 名を待って引き受ける。
+        PartOf = [ "plasma-workspace.target" ];
+      };
+      Service = {
+        Type = "oneshot";
+        ExecStart = "${krdpLockScript}";
+        # スクリプト側の上限 30 秒より確実に長くしておく。短いと systemd が
+        # 先に SIGTERM で打ち切り、診断行が journal に出ないまま終わる。
+        TimeoutStartSec = 60;
+        Restart = "on-failure";
+        RestartSec = 10;
+      };
+      Install.WantedBy = [ "plasma-workspace.target" ];
     };
   };
 }
