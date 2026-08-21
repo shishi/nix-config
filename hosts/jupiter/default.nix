@@ -86,6 +86,11 @@ in
   # 無く、initrd でリンクが上がっていなかったこと(NIC ドライバを追加した
   # 今回の修正で解消)。
   #
+  # この「TCP 確立・banner 無し」という見え方は、VirtualBox の NAT がホスト側
+  # で accept してからゲストへ転送する実装に起因する VM 固有のもの。実機で
+  # NIC ドライバが欠けた場合はこの中間の accept が無いため、ARP 解決自体が
+  # 失敗して接続拒否かタイムアウトになると考えられる(未確認)。
+  #
   # boot.initrd.network.enable は sshd を initrd で起動するだけで、systemd
   # initrd 自身にリンクを上げさせるわけではない(networkd はもう動いている
   # が、マッチする networks 定義が無ければ何もしない)。ここで実 NIC 向けの

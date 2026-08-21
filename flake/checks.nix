@@ -122,10 +122,15 @@
             # 連結しても「本数がずれた 2 つの列」が同じ文字列に化けることはない。
             joinKeys = lib.concatStringsSep "\n";
             # sshd の宣言だけでは復旧経路にならない: initrd で実 NIC のリンクが
-            # 上がっていなければ TCP は確立してもバナーが返らない(実測
-            # 2026-08-21、VM で TPM 解錠を失敗させて確認。initrd journal は
-            # lo の Link UP のみを記録し、実 NIC は一度も構成されず、sshd は
-            # 3 分 listening しただけで誰にも接続されず終わった)。
+            # 上がっていなければ到達不能になる。この VM(VirtualBox NAT)では、
+            # ホスト側 NAT が TCP を accept してからゲストへ転送するため、
+            # ゲストに IP が無くても TCP は確立し、SSH バナーだけが返らない
+            # という形で症状が出る(実測 2026-08-21、VM で TPM 解錠を失敗させて
+            # 確認。initrd journal は lo の Link UP のみを記録し、実 NIC は
+            # 一度も構成されず、sshd は 3 分 listening しただけで誰にも接続
+            # されず終わった)。実機で NIC ドライバが欠けた場合はこの中間の
+            # accept が無いため、ARP 解決自体が失敗して接続拒否かタイムアウト
+            # になると考えられる(未確認)。
             #
             # hosts/jupiter/default.nix が明示的に置いた実 NIC 向け DHCP 定義を
             # キー名で直接見る。networking.useDHCP(既定 true)が有効な間は

@@ -13,26 +13,38 @@ VM で成立している。カーネル更新に追従させる `systemd-pcrlock
 
 ## 1. 何が宣言済みで、何を手で打つのか
 
-`hosts/jupiter/default.nix` に宣言済み(`nixos-rebuild` で自動的に反映される):
+`hosts/jupiter/default.nix` と `hosts/jupiter/disko.nix` に宣言済み。**既に
+インストール済みのホストでは** `nixos-rebuild` を実行するだけで反映される。
+**初回インストール(まだ NixOS が入っていない実機)にはこの前提は当てはま
+らない** — `boot.lanzaboote.enable` と `hostKeys` は `/var/lib/sbctl` /
+`/var/lib/initrd-ssh/...` の実在を前提にしており、無いとインストールが
+失敗する。詳細は §2 のゲート 4 を参照:
 
 - `boot.loader.systemd-boot.enable = false;` / `boot.lanzaboote.enable = true;`
   (`pkiBundle = "/var/lib/sbctl";`)
 - `boot.loader.efi.canTouchEfiVariables = true;`
 - `boot.initrd.systemd.enable = true;`(TPM2 自動解錠には systemd initrd が前提)
 - `boot.initrd.availableKernelModules = [ "e1000" ];`(VM の NIC ドライバ名。
-  実機は §2 で確認して書き換える)
+  実機は §2 で確認して置き換える)
 - `boot.initrd.network.enable = true;` と `boot.initrd.network.ssh`
-  (`port = 2222`、ホストキーは `/var/lib/initrd-ssh/` に手動生成、
-  `authorizedKeys` は本体ユーザーの鍵を流用)
+  (`port = 2222`、`hostKeys` は `/var/lib/initrd-ssh/ssh_host_ed25519_key`
+  を指す絶対パス指定。実体(鍵ファイル)は宣言できないので手で生成する
+  (§3.2)。`authorizedKeys` は本体ユーザーの鍵を流用)
 - `boot.initrd.systemd.network.networks."30-initrd-remote-recovery-ethernet-dhcp"`
   (`matchConfig.Type = "ether"; DHCP = "yes";`)
 - `fileSystems."/".options = [ "x-systemd.device-timeout=infinity" ];`
+- `hosts/jupiter/disko.nix` の
+  `disko.devices.disk.main.content.partitions.luks.content.settings.crypttabExtraOpts`
+  `= [ "tpm2-device=auto" ];`(TPM2 自動解錠の取得口。無いと enroll しても
+  起動時にパスフレーズを聞かれる)
 
 宣言できない(このマシン固有の秘密や、firmware/NVRAM の状態そのものに
 依存するため)ので手で打つ必要があるもの:
 
 - Secure Boot の鍵の生成(`sbctl create-keys`)。`/var/lib/sbctl` に生成され、
   この public repo にはコミットしない。
+- initrd SSH のホストキー生成(`ssh-keygen`。§3.2)。`hostKeys` の絶対パスと
+  ファイル名を一字一句一致させる必要がある。
 - Setup Mode への出入り(firmware/NVRAM の操作)。
 - 鍵の enroll(`sbctl enroll-keys --microsoft`)。
 - Secure Boot の有効化そのもの(firmware/NVRAM の操作)。
@@ -59,8 +71,8 @@ nixos-generate-config --no-filesystems --show-hardware-config
 (`nvme` / `xhci_pci` / `usb_storage` / `sd_mod` 相当)が中心で、NIC ドライバは
 含まれない。initrd でネットワークが要るのは §6 の遠隔復旧経路(initrd SSH)の
 ためであり、ゲート 2 だけでは自動的に得られない。実機で NIC ドライバ名を
-確認し、`hosts/jupiter/default.nix` の `boot.initrd.availableKernelModules` に
-追記する。
+確認し、`hosts/jupiter/default.nix` の `boot.initrd.availableKernelModules` を
+実機の値に置き換える。
 
 ```
 basename $(readlink /sys/class/net/<iface>/device/driver)
@@ -70,6 +82,96 @@ VM(NIC `enp0s3`)の値は `e1000`。**実機 jupiter のドライバ名は未確
 インストール時に上記コマンドで確認し、`boot.initrd.availableKernelModules` を
 実機の値に置き換えること。置き換えないと、実機の NIC がそのドライバに
 対応していない限り initrd でリンクが上がらず、§6 の復旧経路が機能しない。
+
+**ゲート 4(初回インストール専用。対象マシンにまだ NixOS がインストール
+されていない場合のみ適用)**: `boot.lanzaboote.enable = true;` と
+`hostKeys = [ "/var/lib/initrd-ssh/ssh_host_ed25519_key" ];` はどちらも、
+対象マシンに既に `/var/lib/sbctl`(sbctl の鍵)と
+`/var/lib/initrd-ssh/ssh_host_ed25519_key`(initrd SSH のホストキー)が
+存在することを前提にしている。
+
+**未インストールの実機にこの宣言のまま初回インストールすると、
+ブートローダ設置段で失敗する。** lanzaboote のソースで確認したところ、
+`lzbt install` は `--public-key=${cfg.publicKeyFile}` /
+`--private-key=${cfg.privateKeyFile}`(既定値 `${pkiBundle}/keys/db/db.{pem,key}`、
+つまり `/var/lib/sbctl/keys/db/db.{pem,key}`)を渡される。新規インストール先には
+これが存在しない。同じ段で、§3.2 の `append-initrd-secrets`(initrd SSH の
+ホストキーを `cp -a` するコマンド)も `/var/lib/initrd-ssh/...` が無くて失敗する。
+しかも disko がディスクを消去・暗号化して rootfs を展開した**後**にこれが
+起きるので、ブート不能な中途半端な状態で止まる。
+
+さらに §3.1 の `sbctl create-keys` は「稼働中の jupiter で sudo が使える」ことを
+前提に書かれているが、初回インストールの場面ではその稼働中の jupiter に到達する
+手段そのものが無い(鍵が無いと起動しない→鍵を作るには起動している必要がある、
+という循環)。
+
+**採用する方針: `nixos-anywhere --extra-files <dir>` で、インストール前に
+鍵を先置きする。** 宣言(`hostKeys`・`lanzaboote.enable`)を初回インストールの
+ためだけに無効化するのは設計が間違っているサインなので、宣言をそのまま成立
+させる方を採る。この repo は既に `--disk-encryption-keys` を使っているので、
+同じ仕組みの延長になる。
+
+手順:
+
+1. インストールを実行する手元のマシンで一時ディレクトリを作り、その中に
+   `var/lib/sbctl/` と `var/lib/initrd-ssh/` を用意する(`nixos-anywhere
+   --extra-files` は指定したディレクトリの中身をそのままインストール先の
+   `/` へコピーする)。
+
+   ```
+   mkdir -p /tmp/jupiter-extra-files/var/lib/sbctl
+   mkdir -p /tmp/jupiter-extra-files/var/lib/initrd-ssh
+   ```
+
+2. `sbctl create-keys` の出力先を直接そこへ向ける公式オプションは確認して
+   いないため、生成後にコピーする。
+
+   ```
+   sudo nix run nixpkgs#sbctl -- create-keys
+   sudo cp -a /var/lib/sbctl/. /tmp/jupiter-extra-files/var/lib/sbctl/
+   ```
+
+3. initrd 用ホストキーを §3.2 と同じ手順で、直接このディレクトリの下に作る。
+
+   ```
+   sudo ssh-keygen -t ed25519 -N "" \
+     -f /tmp/jupiter-extra-files/var/lib/initrd-ssh/ssh_host_ed25519_key
+   sudo chmod 600 /tmp/jupiter-extra-files/var/lib/initrd-ssh/ssh_host_ed25519_key
+   ```
+
+4. **パーミッションが保たれるかは未確認。** `--extra-files` が所有者・モード
+   (特に秘密鍵の 600)を保持してコピーするのかは、この runbook では実測して
+   いない。インストール後、実機側で次のコマンドで実際の所有者・モードを
+   確認すること。
+
+   ```
+   ls -l /var/lib/sbctl/keys/db/ /var/lib/initrd-ssh/
+   ```
+
+   `root:root` かつ秘密鍵が `600` になっていなければ、保持されなかった
+   ということなので次で矯正する。
+
+   ```
+   sudo chown -R root:root /var/lib/sbctl /var/lib/initrd-ssh
+   sudo chmod 600 /var/lib/initrd-ssh/ssh_host_ed25519_key
+   sudo find /var/lib/sbctl/keys -name "*.key" -exec chmod 600 {} +
+   ```
+
+5. `nixos-anywhere` 実行時に `--extra-files` を追加する(既存の
+   `--disk-encryption-keys` と併用)。
+
+   ```
+   nixos-anywhere --extra-files /tmp/jupiter-extra-files \
+     --disk-encryption-keys /tmp/secret.key <local-secret-path> \
+     --flake <flake-path>#jupiter root@<target-ip>
+   ```
+
+**この経路(ゲート 4 全体)は VM で実測していない。** 検証用 VM
+(`jupiter-anywhere-test`)は lanzaboote を導入する前に既にインストール
+済みだったため、初回インストール経路(disko によるディスク消去から
+`nixos-anywhere` 完走まで)を一度も通っていない。実機で初めて実行する前に、
+可能なら別の検証用 VM でこのゲート 4 の手順そのものを一度リハーサルする
+ことを推奨する。
 
 ## 3. フェーズ A: 鍵の生成 → Secure Boot 有効化 → TPM2 enroll
 
@@ -85,7 +187,32 @@ sudo nix run nixpkgs#sbctl -- status
 `/var/lib/sbctl/keys/{PK,KEK,db}/*.{key,pem}` が生成され、`status` は
 `Setup Mode: Disabled`(まだ Setup Mode ではない)と出る。
 
-### 3.2 `nixos-rebuild switch` で lanzaboote を適用する
+### 3.2 initrd SSH host key の生成
+
+`hosts/jupiter/default.nix` の `boot.initrd.network.ssh.hostKeys` が参照する
+鍵は、宣言だけでは生成されない。生成しないと `nixos-rebuild switch`
+(nixpkgs の `initrd-ssh.nix` が `boot.initrd.secrets` 経由で
+`append-initrd-secrets` に `cp -a` させる)がソース不在で非 0 終了し、
+rebuild 全体が失敗する。
+
+```
+sudo mkdir -p /var/lib/initrd-ssh
+sudo ssh-keygen -t ed25519 -N "" -f /var/lib/initrd-ssh/ssh_host_ed25519_key
+sudo chmod 600 /var/lib/initrd-ssh/ssh_host_ed25519_key
+```
+
+ファイル名は `hostKeys` の宣言(絶対パス)と一字一句一致させること。ずれて
+いると同じ非 0 終了で rebuild が失敗する。
+
+後で §6.2 の照合に使うため、公開鍵のフィンガープリントをここで控えておく。
+(`/var/lib` は暗号化された `/` の上にあり、initrd で足止めされている状況
+では未マウントのため、そのときに取りに行くことはできない。)
+
+```
+ssh-keygen -lf /var/lib/initrd-ssh/ssh_host_ed25519_key.pub
+```
+
+### 3.3 `nixos-rebuild switch` で lanzaboote を適用する
 
 ```
 sudo nixos-rebuild switch --flake <flake-path>#jupiter
@@ -101,9 +228,42 @@ sudo nix run nixpkgs#sbctl -- verify
 signed になる。`/boot/EFI/nixos/kernel-*.efi`(lanzaboote の署名対象外の
 旧来イメージ)が unsigned のまま残るのは正常。
 
-### 3.3 Setup Mode に入る
+### 3.4 headless VM でパスフレーズを入力する方法
+
+以降の節(§3.5, §5.1 など)で `startvm --type headless` で起動した VM に
+LUKS パスフレーズを入力する必要が複数回出てくる。ヘッドレスなので通常の
+コンソール入力はできず、`VBoxManage controlvm <vm> keyboardputscancode` で
+スキャンコード列を直接送る。
+
+```
+VBoxManage controlvm jupiter-anywhere-test keyboardputscancode <hex...>
+```
+
+スキャンコードは PS/2 keyboard scan code set 1 で、1 キーにつき「押す
+(make code)」と「離す(break code。make code に `0x80` を加えた値)」の
+2 バイトを送る。実測で使ったパスフレーズ `rehearsal` + Enter に対応する列
+(r e h e a r s a l + Enter とデコードして確認済み):
+
+```
+13 93 12 92 23 a3 12 92 1e 9e 13 93 1f 9f 1e 9e 26 a6 1c 9c
+```
+
+実機や別のパスフレーズを使う場合は、US 配列の PS/2 scan code set 1 の表で
+文字ごとの make code を調べ、対応する break code(make code + `0x80`)と
+ペアにして並べる。
+
+### 3.5 Setup Mode に入る
 
 **ここだけ VM と実機で手順が違う。**
+
+**`modifynvram <vm> enrollorclpk` が実際に Setup Mode へ入る操作かは
+未確認。** このコマンドはこのラウンドで一度も実行していない(検証時点で
+VM は前回セッションから既に Setup Mode に入っていたため、実行せず確認
+だけで先へ進んだ)。コマンド名は「Oracle の PK を enroll する」と読め、
+字面からは Setup Mode を**抜ける**操作に見える。Setup Mode に**入る**なら、
+UEFI 変数ストアを初期化する `inituefivarstore` の方が筋が通る。**断定は
+しない**: どちらが正しいか未確定という前提で実行し、直後に必ず結果を
+確認すること。
 
 VM:
 
@@ -112,10 +272,12 @@ VB="/c/Program Files/Oracle/VirtualBox/VBoxManage.exe"
 "$VB" controlvm jupiter-anywhere-test acpipowerbutton
 # showvminfo --machinereadable の VMState="poweroff" を確認してから次へ
 "$VB" modifynvram jupiter-anywhere-test enrollorclpk
+# 未確認。上記のとおり inituefivarstore の可能性がある
 "$VB" startvm jupiter-anywhere-test --type headless
 ```
 
-起動後、LUKS のパスフレーズを入力してログインできる状態にする。
+起動後、§3.4 の方法で LUKS のパスフレーズを入力してログインできる状態に
+する。
 
 実機: firmware(UEFI)のセットアップメニューから Secure Boot の設定に入り、
 既存の PK をクリアして Setup Mode に切り替える。**具体的なメニュー操作は
@@ -129,9 +291,10 @@ sudo nix run nixpkgs#sbctl -- status
 
 `Setup Mode: Enabled` を確認してから次に進む。`sbctl` の `✗`/`✓` 記号は
 見た目が反転して見えることがあるので、記号ではなく後続の文字列
-(`Enabled`/`Disabled`)を読むこと。
+(`Enabled`/`Disabled`)を読むこと。**想定と違ったら、先に進まずに止まる
+こと。**
 
-### 3.4 鍵を enroll する
+### 3.6 鍵を enroll する
 
 ```
 sudo nix run nixpkgs#sbctl -- enroll-keys --microsoft
@@ -143,7 +306,7 @@ sudo nix run nixpkgs#sbctl -- enroll-keys --microsoft
 確認: `sudo nix run nixpkgs#sbctl -- status` で `Setup Mode: Disabled` /
 `Vendor Keys: microsoft` を確認する。
 
-### 3.5 Secure Boot を有効化する
+### 3.7 Secure Boot を有効化する
 
 **enroll してから有効化する。** 有効化すると PCR 7(secure-boot-policy)の値が
 変わるため、§4 の TPM2 enroll は必ずこの後に行う。
@@ -197,7 +360,7 @@ systemd 258 で `systemd-cryptenroll` の既定 PCR 集合が「PCR なし」に
 
 ### 4.2 実行順序
 
-§3.5 のとおり Secure Boot の有効化で PCR 7 の値が変わる。enroll を先に
+§3.7 のとおり Secure Boot の有効化で PCR 7 の値が変わる。enroll を先に
 行うと、その後の有効化で enroll した内容が無効(解錠できない)ポリシーに
 なる。**Secure Boot 有効化 → enroll の順を守る。**
 
@@ -227,8 +390,19 @@ LUKS パスフレーズへ読み替えること。）
 `cryptsetup luksDump` は `cryptsetup 2.8.6` では `Keyslot: N` の 1 行しか
 出さず、`tpm2-pcrs` 等の詳細を表示しない。生の token JSON を見る。
 
+まず `luksDump` でトークン一覧を確認し、`systemd-tpm2` token の ID を確定
+する(§4.5 の wipe → 再 enroll を経るとトークン番号がずれることがあるため、
+`0` を決め打ちしない)。
+
 ```
-sudo cryptsetup token export --token-id=0 /dev/disk/by-partlabel/disk-main-luks
+sudo cryptsetup luksDump /dev/disk/by-partlabel/disk-main-luks
+```
+
+`Tokens:` セクションに出ている ID(以下 `<N>`)を使って、生の token JSON を
+見る。
+
+```
+sudo cryptsetup token export --token-id=<N> /dev/disk/by-partlabel/disk-main-luks
 ```
 
 期待(該当部分): `"tpm2-pcrs":[7],"tpm2-pcr-bank":"sha256","tpm2-primary-alg":"ecc"`。
@@ -258,6 +432,9 @@ printf '%s' '<現在のLUKSパスフレーズ>' | sudo systemd-cryptenroll \
 
 電源断相当のリセット後、スキャンコードを一切送らずに SSH をポーリングして
 到達すれば、自動解錠が成立している。パスフレーズの入力は不要。
+(「スキャンコード」は §3.4 で説明する、`VBoxManage controlvm ...
+keyboardputscancode` で送るキー入力のこと。ここで送らずに到達する、
+という意味。)
 
 ### 5.2 カーネル更新後も自動解錠が維持されるか
 
@@ -277,9 +454,24 @@ enrollment 自体の問題ではない)。原因は特定できていない。�
 
 initrd でネットワークが使えるには、NIC ドライバが initrd に含まれている
 必要がある。無いと NIC が検出されず `systemd-networkd` は loopback しか
-上げないため、initrd の sshd は listening していても外部から到達不能になる
-(TCP は確立するのに SSH バナーが一切返らない)。§2 のゲート 3 で NIC
-ドライバを確認・宣言することが、この節の手順全体の前提になる。
+上げない。
+
+**「到達不能」の見え方は環境によって違う。**
+
+- **VM(VirtualBox NAT)では、TCP は確立するのに SSH バナーが一切返ら
+  ない。** VirtualBox の NAT はホスト側で TCP を accept してからゲストへ
+  転送する実装のため、ゲストに IP が無く誰も listen していなくても、
+  host 側からの接続自体は成立して見える。実測(2026-08-21、VM でこの
+  状態を再現)では 75〜90 秒程度で `Connection reset by peer` になった。
+- **実機で NIC ドライバが欠けている場合はこれと異なる。** NAT のような
+  中間の accept が無いため、リンクが上がっていない NIC への到達は ARP
+  解決自体が失敗し、接続拒否かタイムアウトになると考えられる(**未確認**。
+  実機でこの状態を実測してはいない)。
+
+読むのは TPM 解錠に失敗して遠隔から入れない最中であることが多い。VM の
+症状(TCP 確立・バナー無し)を実機でも同じものだと思って切り分けを進めると
+誤る。§2 のゲート 3 で NIC ドライバを確認・宣言することが、この節の手順
+全体の前提になる。
 
 ### 6.2 接続方法
 
@@ -300,8 +492,12 @@ ssh -tt -p <port> root@<host>
   `host:2223 → guest:2222` の NAT 規則を使った。**実機でこのポートに
   どう到達するかは環境依存であり未確認。**
 - host key のフィンガープリントで「本体 sshd ではなく initrd sshd に
-  繋がっているか」を判別できる。`/var/lib/initrd-ssh/ssh_host_ed25519_key.pub`
-  のフィンガープリントと `ssh-keyscan` の結果を比較する。
+  繋がっているか」を判別できる。**`/var/lib/initrd-ssh/ssh_host_ed25519_key.pub`
+  は暗号化された `/`(btrfs `@root`)の上にあり、initrd で足止めされている
+  状況ではまだマウントされていない。** そこへ読みに行くには、解錠したい
+  その当のマシンにログインする必要が生じてしまう(循環)。代わりに §3.2 で
+  控えたフィンガープリントを使い、`ssh-keyscan -p <port> <host> |
+  ssh-keygen -lf -` の結果と比較する。
 
 ### 6.3 パスフレーズ投入
 
