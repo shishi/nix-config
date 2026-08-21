@@ -45,14 +45,17 @@ in
   # 想定外: nixos-generate-config が生成する availableKernelModules は
   # ストレージ・入力系が中心で、NIC ドライバは通常入らない。したがって実機で
   # hardware-configuration.nix を実物に置き換えても(インストール前ゲート 2)、
-  # この宣言は自動的には得られず、実機の値にここを置き換える必要がある
+  # この宣言は自動的には得られず、実機のドライバ名をここへ追記する必要がある
   # (hardware-configuration.nix のインストール前ゲート 3 参照)。
   #
   # 実測(VM jupiter-anywhere-test, 2026-08-21):
   #   basename $(readlink /sys/class/net/enp0s3/device/driver)  # => e1000
   # この e1000 は VM の NIC のドライバであり、実機 jupiter の NIC ドライバ名は
-  # 未確定。インストール時に同じ方法で確認し、実機のドライバ名にここを置き換える
-  # こと。
+  # 未確定。インストール時に同じ方法で確認し、実機のドライバ名をここへ追記
+  # すること(既存の e1000 は消さない — availableKernelModules は「含まれて
+  # いれば適用される」意味論で、余分なモジュールが含まれていても実機に害は
+  # 無い。e1000 を消すと VM での検証経路(flake/checks.nix の e1000 check)が
+  # 壊れる)。
   boot.initrd.availableKernelModules = [ "e1000" ];
 
   # TPM 自動解錠が失敗したときの遠隔復旧。これが無いと、systemd initrd を

@@ -25,7 +25,8 @@ VM で成立している。カーネル更新に追従させる `systemd-pcrlock
 - `boot.loader.efi.canTouchEfiVariables = true;`
 - `boot.initrd.systemd.enable = true;`(TPM2 自動解錠には systemd initrd が前提)
 - `boot.initrd.availableKernelModules = [ "e1000" ];`(VM の NIC ドライバ名。
-  実機は §2 で確認して置き換える)
+  実機のドライバ名は §2 で確認して追記する。`e1000` は VM リハーサル用として
+  残し、消さない)
 - `boot.initrd.network.enable = true;` と `boot.initrd.network.ssh`
   (`port = 2222`、`hostKeys` は `/var/lib/initrd-ssh/ssh_host_ed25519_key`
   を指す絶対パス指定。実体(鍵ファイル)は宣言できないので手で生成する
@@ -71,17 +72,20 @@ nixos-generate-config --no-filesystems --show-hardware-config
 (`nvme` / `xhci_pci` / `usb_storage` / `sd_mod` 相当)が中心で、NIC ドライバは
 含まれない。initrd でネットワークが要るのは §6 の遠隔復旧経路(initrd SSH)の
 ためであり、ゲート 2 だけでは自動的に得られない。実機で NIC ドライバ名を
-確認し、`hosts/jupiter/default.nix` の `boot.initrd.availableKernelModules` を
-実機の値に置き換える。
+確認し、`hosts/jupiter/default.nix` の `boot.initrd.availableKernelModules` へ
+実機の値を追記する。
 
 ```
 basename $(readlink /sys/class/net/<iface>/device/driver)
 ```
 
 VM(NIC `enp0s3`)の値は `e1000`。**実機 jupiter のドライバ名は未確認。**
-インストール時に上記コマンドで確認し、`boot.initrd.availableKernelModules` を
-実機の値に置き換えること。置き換えないと、実機の NIC がそのドライバに
-対応していない限り initrd でリンクが上がらず、§6 の復旧経路が機能しない。
+インストール時に上記コマンドで確認し、`boot.initrd.availableKernelModules` へ
+実機の値を追記すること。`availableKernelModules` は「含まれていれば適用
+される」意味論なので、既存の `e1000` は消さない(残しても実機に害は無く、
+消すと `flake/checks.nix` の `e1000` check が落ちて VM での検証経路が壊れる)。
+追記しないと、実機の NIC がそのドライバに対応していない限り initrd で
+リンクが上がらず、§6 の復旧経路が機能しない。
 
 **ゲート 4(初回インストール専用。対象マシンにまだ NixOS がインストール
 されていない場合のみ適用)**
@@ -132,13 +136,35 @@ VM(NIC `enp0s3`)の値は `e1000`。**実機 jupiter のドライバ名は未確
    mkdir -p /tmp/jupiter-extra-files/var/lib/initrd-ssh
    ```
 
-2. `sbctl create-keys` の出力先を直接そこへ向ける公式オプションは確認して
-   いないため、生成後にコピーする。
+2. **作業マシンに既に `/var/lib/sbctl` がある場合は先に進まない。** ある
+   ということは作業マシン自身の Secure Boot 鍵が既に存在する可能性があり、
+   `sbctl create-keys` が既存鍵に対して no-op なのか上書きするのかはこの
+   runbook では確認していない。上書きなら作業マシン自身の鍵を失い、
+   no-op ならこの後 `cp -a` で jupiter へ**作業マシン自身の**鍵をコピーして
+   しまう(2 台が同一の PK/KEK/db を共有し、片方の鍵を破棄・再生成した
+   瞬間にもう片方が起動不能になる)。
+
+   ```
+   test ! -e /var/lib/sbctl || { echo "STOP: /var/lib/sbctl already exists on this machine" >&2; false; }
+   ```
+
+   既に存在する場合は先に進まず、既存の `/var/lib/sbctl` を(この作業マシン
+   自身の Secure Boot 用として)別の場所へ退避してから改めてこの手順を
+   実行すること。
+
+   `sbctl create-keys` の出力先を `/tmp/jupiter-extra-files/...` へ直接向ける
+   公式オプションは確認していないため、以下は「上のチェックを通過した
+   (= 生成前は存在しなかった)」前提で、通常どおり `/var/lib/sbctl` に
+   生成してからコピーする。
 
    ```
    sudo nix run nixpkgs#sbctl -- create-keys
+   test -e /var/lib/sbctl/keys/db/db.key || { echo "STOP: create-keys did not produce db.key" >&2; false; }
    sudo cp -a /var/lib/sbctl/. /tmp/jupiter-extra-files/var/lib/sbctl/
    ```
+
+   直前のチェックで生成前の不在を確認済みのため、ここで存在すれば
+   jupiter 専用の新規鍵であることが確定する。
 
 3. initrd 用ホストキーを §3.2 と同じ手順で、直接このディレクトリの下に作る。
 
@@ -148,7 +174,36 @@ VM(NIC `enp0s3`)の値は `e1000`。**実機 jupiter のドライバ名は未確
    sudo chmod 600 /tmp/jupiter-extra-files/var/lib/initrd-ssh/ssh_host_ed25519_key
    ```
 
-4. **パーミッションが保たれるかは未確認。** `--extra-files` が所有者・モード
+   後で §6.2 の照合に使うため、公開鍵のフィンガープリントをここで控えて
+   おく(§3.2 と同じ理由 — インストール後は暗号化された `/` の上にあり、
+   initrd で足止めされている状況では取りに行けない)。
+
+   ```
+   sudo ssh-keygen -lf /tmp/jupiter-extra-files/var/lib/initrd-ssh/ssh_host_ed25519_key.pub
+   ```
+
+4. ここまでの手順 2・3 は `sudo` で実行しているため、`/tmp/jupiter-extra-files`
+   配下は root 所有・(秘密鍵は)0600 になっている。手順 6 の `nixos-anywhere`
+   は `sudo` を付けずに実行するコマンドなので、このままでは呼び出しユーザーが
+   これらのファイルを読めず、`--extra-files` が空相当のまま進んでしまう —
+   ちょうどこのゲート 4 が防ごうとしている「鍵が届かないまま disko がディスク
+   を消去・暗号化した後にブートローダ設置段で失敗する」状態に落ちる。
+
+   ```
+   sudo chown -R "$USER" /tmp/jupiter-extra-files
+   chmod 600 /tmp/jupiter-extra-files/var/lib/initrd-ssh/ssh_host_ed25519_key
+   find /tmp/jupiter-extra-files/var/lib/sbctl -name '*.key' -exec chmod 600 {} +
+   ```
+
+   インストール先での所有者は次の手順 5(`chown -R root:root`)が矯正する
+   契約になっているので、ローカル側をここで root 所有のままにしておく
+   必要は無い。
+
+   **`nixos-anywhere` 自体を `sudo` で実行する案は採らない。** SSH の鍵・
+   agent が root のものに切り替わり、`root@<target-ip>` への認証が別の
+   理由で壊れるため。
+
+5. **パーミッションが保たれるかは未確認。** `--extra-files` が所有者・モード
    (特に秘密鍵の 600)を保持してコピーするのかは、この runbook では実測して
    いない。インストール後、実機側で次のコマンドで実際の所有者・モードを
    確認すること。
@@ -166,7 +221,7 @@ VM(NIC `enp0s3`)の値は `e1000`。**実機 jupiter のドライバ名は未確
    sudo find /var/lib/sbctl/keys -name "*.key" -exec chmod 600 {} +
    ```
 
-5. `nixos-anywhere` 実行時に `--extra-files` を追加する(既存の
+6. `nixos-anywhere` 実行時に `--extra-files` を追加する(既存の
    `--disk-encryption-keys` と併用)。
 
    ```
@@ -174,6 +229,25 @@ VM(NIC `enp0s3`)の値は `e1000`。**実機 jupiter のドライバ名は未確
      --disk-encryption-keys /tmp/secret.key <local-secret-path> \
      --flake <flake-path>#jupiter root@<target-ip>
    ```
+
+**完了後の後片付け**: `/tmp/jupiter-extra-files` にはインストール先へコピー
+済みの秘密鍵(sbctl の PK/KEK/db 秘密鍵、initrd SSH のホストキー)がそのまま
+残っている。削除する。
+
+```
+rm -rf /tmp/jupiter-extra-files
+```
+
+作業マシン自身の `/var/lib/sbctl`(手順 2 で `create-keys` が作ったもの)も、
+jupiter 専用として生成したのであれば作業マシンに残す理由が無いので退避して
+から削除する。作業マシン自身にも Secure Boot を有効化していて、その鍵として
+引き続き使う場合は削除しないこと(手順 2 の停止条件はこの判断のためにある)。
+
+```
+sudo mkdir -p ~/jupiter-sbctl-backup
+sudo cp -a /var/lib/sbctl/. ~/jupiter-sbctl-backup/
+sudo rm -rf /var/lib/sbctl
+```
 
 **この経路(ゲート 4 全体)は VM で実測していない。** 検証用 VM
 (`jupiter-anywhere-test`)は lanzaboote を導入する前に既にインストール
@@ -183,6 +257,15 @@ VM(NIC `enp0s3`)の値は `e1000`。**実機 jupiter のドライバ名は未確
 ことを推奨する。
 
 ## 3. フェーズ A: 鍵の生成 → Secure Boot 有効化 → TPM2 enroll
+
+**ゲート 4(§2)で初回インストール時に鍵を先置きした場合は、§3.1 の
+`sbctl create-keys` と §3.2 の `ssh-keygen` は実行しないこと。** 鍵は既に
+存在するため、実行すると `sbctl create-keys` は既存鍵に対する挙動が未確認
+(§2 ゲート 4 手順 2 参照)であり、`ssh-keygen -f` は既存ファイルに対して
+`Overwrite (y/n)?` と対話で聞いてくる(この runbook の他の手順は非対話実行
+を前提にしている)。この場合は §3.2 のフィンガープリント取得
+(`ssh-keygen -lf .../ssh_host_ed25519_key.pub`)だけを実行してから §3.3 へ
+進むこと。
 
 ### 3.1 鍵の生成
 
@@ -239,6 +322,9 @@ signed になる。`/boot/EFI/nixos/kernel-*.efi`(lanzaboote の署名対象外�
 
 ### 3.4 headless VM でパスフレーズを入力する方法
 
+**この節は VM 専用の手順。実機ではコンソールから直接パスフレーズを打てば
+よく、この節のスキャンコード操作は使わない。**
+
 以降の節(§3.5, §5.1 など)で `startvm --type headless` で起動した VM に
 LUKS パスフレーズを入力する必要が複数回出てくる。ヘッドレスなので通常の
 コンソール入力はできず、`VBoxManage controlvm <vm> keyboardputscancode` で
@@ -257,9 +343,21 @@ VBoxManage controlvm jupiter-anywhere-test keyboardputscancode <hex...>
 13 93 12 92 23 a3 12 92 1e 9e 13 93 1f 9f 1e 9e 26 a6 1c 9c
 ```
 
-実機や別のパスフレーズを使う場合は、US 配列の PS/2 scan code set 1 の表で
-文字ごとの make code を調べ、対応する break code(make code + `0x80`)と
-ペアにして並べる。
+この実測列は `rehearsal` が Shift 不要な文字だけで構成されているため、
+Shift が要る文字の扱いはこの例からは分からない。別のパスフレーズを VM で
+使う場合は次に注意する。
+
+- 通常の英小文字・数字は、US 配列の PS/2 scan code set 1 の表で文字ごとの
+  make code を調べ、対応する break code(make code + `0x80`)とペアにして
+  並べる。
+- **大文字・記号など Shift が要る文字は、make の前に左 Shift の make code
+  `2a` を、break の後に左 Shift の break code `aa` を挟む。** 例えば `A` は
+  `2a 1e 9e aa`(Shift 押す → `a` の make/break → Shift 離す)。Shift を
+  挟まず `a` の make/break だけを送ると小文字の `a` が送られてしまい、LUKS
+  は「パスフレーズが違う」としか言わないため、送信列の誤りなのか VM 側の
+  問題なのか切り分けられない。
+- 矢印キーなどの拡張キーは `e0` 前置になるが、LUKS パスフレーズの入力では
+  使わない。
 
 ### 3.5 Setup Mode に入る
 

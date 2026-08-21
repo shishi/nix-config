@@ -146,9 +146,12 @@
             check initrd.ssh.port "${toString cfg.boot.initrd.network.ssh.port}" "2222"
             # 実際に復旧経路を壊した箇所(実測 2026-08-21): initrd に NIC
             # ドライバが無いと、sshd が listen していてもリンクが上がらず
-            # 到達不能になる。VM のドライバ名は e1000。実機のドライバ名が
-            # 確定したら hosts/jupiter/default.nix 側の値と合わせてここも
-            # 更新すること。
+            # 到達不能になる。VM のドライバ名は e1000。availableKernelModules
+            # は「含まれていれば適用される」意味論なので、実機のドライバ名が
+            # 確定しても hosts/jupiter/default.nix 側の e1000 は消さず追記する
+            # (この check は e1000 が引き続き present であることを要求する。
+            # e1000 は VM リハーサル用のドライバで、これを消すと VM での
+            # 検証経路が壊れるため残す)。
             check initrd.availableKernelModules.e1000 "${
               if builtins.elem "e1000" cfg.boot.initrd.availableKernelModules then "present" else "missing"
             }" "present"
