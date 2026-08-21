@@ -29,15 +29,23 @@ nix run .#switch               # 適用(check-env-critical 内蔵。--force で�
 
 ## NixOS 実機(jupiter)
 
-インストールは nixos-anywhere + disko。インストール前ゲート(スペック参照)を
-全部通してから:
+インストールは nixos-anywhere + disko。手順は
+[docs/jupiter-secure-boot-runbook.md](docs/jupiter-secure-boot-runbook.md) に
+一本化してある。**ここにコマンドを写さない**(片方だけ古くなる)。
 
-```bash
-nix run .#nixos-anywhere -- --flake .#jupiter root@<target-ip>
-```
+- **未インストールの実機への初回インストールは runbook §2 のゲート 4 に従う。**
+  `nix run .#nixos-anywhere -- --flake .#jupiter root@<target>` を素で打つと、
+  disko がディスクを消去・暗号化した後のブートローダ設置段で失敗する
+  (`boot.lanzaboote` と initrd SSH の host key が、まだ存在しない鍵を要求するため)
+- SSH 秘密鍵と GPG 秘密鍵は、インストール時に `--extra-files` で置く(ゲート 4 手順 0b)
+- TPM2 自動解錠は runbook §4。**`--tpm2-pcrs=7` を省略しない。** systemd 258 以降
+  `--tpm2-device=auto` の既定 PCR 集合は空で、省略すると何にも縛られない鍵が入る。
+  解錠は成功し続けるので気づけない
+- インストール前に firmware で Secure Boot を無効にする。installer の ISO は
+  署名されていないため、有効なままだと起動しない
 
-初回起動後: 標準パスへ clone → `nh os switch` が動くことを確認(post-install 成功基準)。
-TPM2 自動解錠: `sudo systemd-cryptenroll --tpm2-device=auto /dev/nvme0n1p2`
+初回起動後: 標準パスへ clone → dotfiles の `setup.sh` を実行 → `nh os switch` が
+動くことを確認(post-install 成功基準)。
 以後の更新: `nh os switch`(NixOS 側 programs.nh が NH_FLAKE を設定)
 
 ## 更新

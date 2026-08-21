@@ -125,10 +125,11 @@ VM(NIC `enp0s3`)の値は `e1000`。**実機 jupiter のドライバ名は未確
 
 **`nixos-anywhere` を `--phases` で 2 回に分け、その間に鍵を `/mnt` へ作る。**
 
-- **`--extra-files` は使わない。** 先置き自体はこれでも間に合う(コピーは
-  disko の後・`nixos-install` の前に行われる)。採らないのは、sbctl の
-  ディスク上レイアウトをワークステーション側で手作りすることになり、
-  Secure Boot の秘密鍵もワークステーションを経由するため。
+- **sbctl の鍵と initrd host key の先置きには `--extra-files` を使わない**
+  (ユーザーの SSH / GPG 秘密鍵には手順 0b・手順 3 で使う)。先置き自体は
+  これでも間に合う(コピーは disko の後・`nixos-install` の前に行われる)。
+  sbctl に使わないのは、そのディスク上レイアウトをワークステーション側で
+  手作りすることになり、Secure Boot の秘密鍵もワークステーションを経由するため。
   `sbctl create-keys` に自分の既定パスへ書かせれば、どちらも起きない。
 - **任意コマンドを実行するフックは無い**(nixos-anywhere 1.13.0)。target 上で
   処理を挟むには phase を分割するしかない。
@@ -162,6 +163,39 @@ installer の `root` と `nixos` は**空パスワード**で、空パスワー�
 nix を持つ installer を使うこと。** リハーサルに使ったのは
 `nixos-minimal-26.05` の ISO で、有効かどうかに依存しないよう手順 2 では
 `--extra-experimental-features` を明示している。
+
+**手順 0b: 鍵を用意する(ワークステーション側)**
+
+dotfiles の `setup.sh` は private repo(`agent-memory`)を clone し、
+`.gitconfig.linux` は `commit.gpgsign = true` を宣言する。初回起動後の作業には
+SSH 秘密鍵と GPG 秘密鍵が要るので、手順 3 で一緒に置く。
+
+受け渡し用のディレクトリを作る。中の構成は**インストール先の `/` からの相対パス**で、
+先頭に `/` を付けない。
+
+```
+<keys-dir>/home/shishi/.ssh/id_ed25519       (0600)
+<keys-dir>/home/shishi/.ssh/id_ed25519.pub   (0644)
+<keys-dir>/home/shishi/gpg-secret.asc        (0600)
+```
+
+**mode はそのまま保存されるので、ここで正しくしておく**(所有者は保存されない。
+手順 3 参照)。**`<keys-dir>` 全体に `chmod -R 700` をかけないこと。**
+`<keys-dir>/home` の mode はインストール後の `/home` の mode になるため、
+0700 にすると shishi が自分の home へ辿れずログインが壊れる。
+
+```
+chmod 755 <keys-dir> <keys-dir>/home
+chmod 700 <keys-dir>/home/shishi <keys-dir>/home/shishi/.ssh
+```
+
+GPG は keyring を丸ごと運ばず、armored のエクスポートを 1 ファイル置いて初回起動後に
+import する。
+
+```
+gpg --export-secret-keys --armor <signingkey> > <keys-dir>/home/shishi/gpg-secret.asc
+chmod 600 <keys-dir>/home/shishi/gpg-secret.asc
+```
 
 **手順 1: ディスクを作る(disko phase だけ)**
 
@@ -235,11 +269,37 @@ find /mnt/var/lib/sbctl /mnt/var/lib/initrd-ssh -printf '%M %u:%g %p\n'
 
 ```
 nix run .#nixos-anywhere -- --flake .#jupiter \
-  --target-host root@<target> --ssh-port <port> --phases install
+  --target-host root@<target> --ssh-port <port> \
+  --extra-files <keys-dir> --chown home/shishi 1000:100 \
+  --phases install
 ```
 
 `Successfully installed Lanzaboote.` と `installation finished!` が出れば、
 ゲート 4 が問題にしていた失敗点は通過している。
+
+`--extra-files` の中身は `nixos-install` の**直前**にコピーされる
+(`### Copying extra files ###` が `### Installing NixOS ###` より前に出る)。
+tar は `--no-same-owner` で展開されるため、**mode は保存されるが所有者は root に
+なる**。`--chown <path> <uid>:<gid>` が `/mnt/<path>` を再帰的に chown して直す。
+
+**ユーザー名ではなく数値を渡すこと。** chown は installer 環境の名前解決で動くため、
+installer 上で uid 1000 を持つ `nixos` ユーザーの名前が使われてしまう。
+`--chown home/shishi shishi:users` は別人を指す。
+
+`1000:100` は `hosts/jupiter/default.nix` の `users.users.shishi.uid` と
+`users.users.shishi.group`(= `users`、gid 100)に対応する。この対応は
+`flake/checks.nix` の `install-keys-contract` が**この runbook を grep して**固定する。
+config 側だけを見る check では、この行を書き換えたときに落ちない。
+
+確認(手順 4 の停止前に):
+
+```
+ssh -p <port> root@<target> 'find /mnt/home -printf "%M %U:%G %p\n" | sort'
+```
+
+期待: `/mnt/home` は `drwxr-xr-x` の `0:0`(**ここが `drwx------` ならログインが
+壊れる**)、その下の `home/shishi` 以下がすべて `1000:100` で、
+`.ssh` が `drwx------`、秘密鍵が `-rw-------`。
 
 **この手順が失敗して手順 1 をやり直した場合は、必ず手順 2 も実行し直すこと。**
 `--phases disko` は再フォーマットなので、`/mnt` 上に作った鍵は消えている。
@@ -260,7 +320,13 @@ installer の ISO / USB を外してディスクから起動する。**`--phases
 
 **手順 5: 後始末**
 
-ワークステーション側の `/tmp/luks.key` を消す。
+ワークステーション側の `/tmp/luks.key` と `<keys-dir>` を消す。
+
+初回起動後、対象機で GPG 秘密鍵を import して置いたファイルを消す。
+
+```
+gpg --import ~/gpg-secret.asc && shred -u ~/gpg-secret.asc
+```
 
 ### この後どこへ進むか
 
@@ -270,11 +336,10 @@ lanzaboote は `nixos-install` の時点で既に適用されている。
 
 **次は §3.5 だが、無条件に実行しないこと。** まず §3.5 末尾の
 `sbctl status` で Setup Mode を確認する。`Setup Mode: Enabled` なら §3.5 の
-NVRAM 操作(VM の `modifynvram <vm> enrollorclpk` / 実機の firmware メニューでの
+NVRAM 操作(VM の `modifynvram <vm> inituefivarstore` / 実機の firmware メニューでの
 PK クリア)は**行わず** §3.6 へ進む。`Disabled` のときだけ §3.5 の操作を行う。
-§3.5 自身が書いているとおり `enrollorclpk` は Setup Mode を**抜ける**操作である
-可能性が未確認のまま残っており、不要に実行すると §3.6 の `enroll-keys` が
-通らなくなる。
+`inituefivarstore` は UEFI 変数ストアを初期化するので、既に enroll 済みの
+PK / KEK / db もまとめて消える。不要に実行すると §3.6 からやり直しになる。
 
 §3.4 以降の VM 用コマンドには、前ラウンドの検証用 VM 名 `jupiter-anywhere-test`
 がそのまま書かれている。**自分の VM 名へ読み替えること。** 別の VM を対象に
@@ -293,10 +358,10 @@ PK クリア)は**行わず** §3.6 へ進む。`Disabled` のときだけ §3.5
   手順 2 で `/mnt` に作った鍵のものと一致
 - ハードリセット後、キー入力ゼロで自動解錠(§5.1)
 
-**§3.5(Setup Mode に入る)は通していない。** VM が新規作成で NVRAM が空
-だったため、初回起動の時点で既に `Setup Mode: Enabled` だった。§3.5 が自分で
-付けている未確認の注記(`modifynvram <vm> enrollorclpk` が Setup Mode へ入る
-操作かどうか)は、このリハーサルでも解消していない。
+**§3.5(Setup Mode に入る)は初回のリハーサルでは通していない。** VM が新規作成で
+NVRAM が空だったため、初回起動の時点で既に `Setup Mode: Enabled` だった。
+`inituefivarstore` の方は、鍵の先置きを実測する再インストールの前段で実行して
+確認している(§3.5)。
 
 つまり、**インストール時に署名に使った鍵と、後から UEFI へ enroll する鍵が
 同一である**ことまで確認できている。ここがゲート 4 の要点で、鍵を作り直すと
@@ -315,6 +380,10 @@ PK クリア)は**行わず** §3.6 へ進む。`Disabled` のときだけ §3.5
   実機は通常 `Disabled` を返す。そのとき firmware のメニューで PK をクリアする
   (**メニュー操作はベンダー依存で未確認**)。
 - **`<target>` と `<port>`** は実機の値にする。
+- **インストール前に firmware で Secure Boot を無効にする。** NixOS の installer ISO は
+  Microsoft の鍵でも自前の db 鍵でも署名されていないため、Secure Boot が有効なままだと
+  起動せず、既存のディスクへフォールバックする(VM で実測)。有効化は §3.7 で
+  自分の鍵を enroll した後に行う。
 
 ## 3. フェーズ A: 鍵の生成 → Secure Boot 有効化 → TPM2 enroll
 
@@ -413,14 +482,18 @@ VBoxManage controlvm jupiter-anywhere-test keyboardputscancode <hex...>
 
 **ここだけ VM と実機で手順が違う。**
 
-**`modifynvram <vm> enrollorclpk` が実際に Setup Mode へ入る操作かは
-未確認。** このコマンドはこのラウンドで一度も実行していない(検証時点で
-VM は前回セッションから既に Setup Mode に入っていたため、実行せず確認
-だけで先へ進んだ)。コマンド名は「Oracle の PK を enroll する」と読め、
-字面からは Setup Mode を**抜ける**操作に見える。Setup Mode に**入る**なら、
-UEFI 変数ストアを初期化する `inituefivarstore` の方が筋が通る。**断定は
-しない**: どちらが正しいか未確定という前提で実行し、直後に必ず結果を
-確認すること。
+VM では `modifynvram <vm> inituefivarstore` を使う。UEFI 変数ストアを初期化する
+操作で、実行後に `sbctl status` が `Setup Mode: Enabled` を返すことを確認した。
+**enroll 済みの PK / KEK / db もこれで消える。**
+
+副次的に、既にインストール済みの VM で実行した直後は installer の ISO から
+起動した(それ以前は ISO を入れても既存ディスクへフォールバックしていた)。
+**EFI のブートエントリが消えたことが理由かどうかは未確認。** ISO から起動させたい
+だけなら `modifyvm <vm> --boot1 dvd` を先に試すこと。
+
+`modifynvram <vm> enrollorclpk` は使わない。コマンド名は「Oracle の PK を
+enroll する」と読め、字面からは Setup Mode を**抜ける**操作に見える。
+**実行して確かめていない。**
 
 VM:
 
@@ -428,8 +501,7 @@ VM:
 VB="/c/Program Files/Oracle/VirtualBox/VBoxManage.exe"
 "$VB" controlvm jupiter-anywhere-test acpipowerbutton
 # showvminfo --machinereadable の VMState="poweroff" を確認してから次へ
-"$VB" modifynvram jupiter-anywhere-test enrollorclpk
-# 未確認。上記のとおり inituefivarstore の可能性がある
+"$VB" modifynvram jupiter-anywhere-test inituefivarstore
 "$VB" startvm jupiter-anywhere-test --type headless
 ```
 

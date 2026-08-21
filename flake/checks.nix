@@ -394,6 +394,63 @@
               touch $out
             '';
 
+        # 初回インストールで nixos-anywhere --extra-files に渡す鍵の宛先と所有者を、
+        # 手順書と config の双方向で固定する。--extra-files の展開は
+        # tar --no-same-owner なので所有者は root になり mode だけが保存される。
+        # したがって手順書は --chown で所有者を直すが、その uid / gid / パスは
+        # config 由来でなければならない。
+        #
+        # 期待値のリテラルをここに書いて config と突き合わせるだけでは足りない。
+        # それだと手順書の側を書き換えたときに落ちず、守っているつもりで
+        # 守れていない状態になる(1000:100 は手順書・config・このコメントの
+        # 3 箇所に写っており、固定されていないのは手順書の側)。そこで
+        # nix-caches-sync と同じく、相手のファイルを実際に読んで grep する。
+        #
+        # --chown のパスは /mnt へ展開した tar からの相対なので先頭の / を落とす。
+        # ユーザー名ではなく数値を使うのは、chown が installer 環境の名前解決で
+        # 動くため。installer 上では uid 1000 は nixos ユーザーであり、
+        # `--chown home/shishi shishi:users` は別人を指す。
+        # 固定できるのは「手順書にこの 2 つの文字列が現れること」までである。
+        # 手順が実行されるコマンド塊にあるか、散文の中かは区別できない。
+        # 手順ごと消す変更は検出しない。
+        install-keys-contract =
+          let
+            inherit (pkgs) lib;
+            cfg = self.nixosConfigurations.jupiter.config;
+            u = cfg.users.users.shishi;
+            gid = cfg.users.groups.${u.group}.gid;
+            rel = lib.removePrefix "/" u.home;
+            # --extra-files まで含めて 1 つの塊で見る。--chown だけを見ると、
+            # --extra-files を落として鍵が一切コピーされない変更が素通りする。
+            chownArgs = "--extra-files <keys-dir> --chown ${rel} ${toString u.uid}:${toString gid}";
+            # 固定文字列の部分一致では、gid を 100 から 1000 へ書き換えた誤りを
+            # 検出できない(1000:1000 は 1000:100 を部分文字列として含む)。
+            # ユーザー私用グループを使う流儀からコピーすると実際に起きる形なので、
+            # 右端に数字が続かないことまで見る。左端は直前の空白で確定している。
+            chownPattern = "${chownArgs}([^0-9]|$)";
+            # 手順 0b のディレクトリ構成。home を変えたとき --chown 側だけ直して
+            # ここが古いままだと、chown が存在しないパスを指して鍵は root 所有で残る。
+            layoutPattern = "<keys-dir>/${rel}/\\.ssh/id_ed25519([^.]|$)";
+          in
+          pkgs.runCommand "install-keys-contract"
+            {
+              runbook = builtins.readFile ../docs/jupiter-secure-boot-runbook.md;
+              passAsFile = [ "runbook" ];
+            }
+            ''
+              ok=1
+              grep -qE -- '${chownPattern}' "$runbookPath" || {
+                echo "runbook の手順 3 が config と食い違っている。期待: ${chownArgs}"
+                ok=0
+              }
+              grep -qE -- '${layoutPattern}' "$runbookPath" || {
+                echo "runbook の手順 0b の構成が config と食い違っている。期待: <keys-dir>/${rel}/.ssh/id_ed25519"
+                ok=0
+              }
+              [ "$ok" = 1 ] || exit 1
+              touch $out
+            '';
+
         # flake.nix の nixConfig(リテラル)と shared/nix-caches.nix の同期検証
         nix-caches-sync =
           pkgs.runCommand "nix-caches-sync"
