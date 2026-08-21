@@ -113,6 +113,17 @@ in
   virtualisation.docker.enable = true; # ヒアリング #36
   users.users.shishi.extraGroups = [ "docker" ]; # non-root で docker run(受け入れゲート)
 
+  # 初回インストールで nixos-anywhere --extra-files に渡した鍵は、tar が
+  # --no-same-owner で展開されるため所有者が root になる(mode だけが保存される)。
+  # ユーザーの存在有無とは無関係で、--chown home/shishi <uid>:<gid> で直すしかない。
+  # その <uid> を宣言しないと activation が動的に割り当てるため、手順に書く数字を
+  # 構成の側から裏付けられない。ずれた場合の症状は 2 通りで紛らわしい:
+  # uid がずれると鍵は「uid 1000」(= shishi ではない id)の所有になり shishi から
+  # 読めない。home がずれると chown が宛先を外し、鍵は root 所有のまま別の場所に
+  # 残る。どちらかを確かめるには ls -ln で数値 id を見る。
+  # 共有モジュール側に置かないのは、nixos-wsl も ../../nixos を読むため。
+  users.users.shishi.uid = 1000;
+
   # nh の 2 層配線契約: 統合ホストは NixOS 側 programs.nh を使う
   # (HM 側 programs.nh は standalone 専用 — nh home の第 2 適用経路防止)
   programs.nh = {
