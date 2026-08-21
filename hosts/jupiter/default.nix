@@ -38,6 +38,23 @@ in
   # 無いと enroll しても起動時に解錠されず、遠隔無人再起動が不達)
   boot.initrd.systemd.enable = true;
 
+  # initrd で NIC を認識させるためのドライバ。hardware-configuration.nix の
+  # boot.initrd.availableKernelModules (nvme/xhci_pci/usb_storage/sd_mod) は
+  # ストレージ・入力系のみで、NIC ドライバは含まれない。initrd でネットワーク
+  # が要るのは下記の遠隔復旧(initrd SSH)のためで、これは NixOS の既定の
+  # 想定外: nixos-generate-config が生成する availableKernelModules は
+  # ストレージ・入力系が中心で、NIC ドライバは通常入らない。したがって実機で
+  # hardware-configuration.nix を実物に置き換えても(インストール前ゲート 2)、
+  # この宣言は自動的には得られず、別途ここに追記する必要がある
+  # (hardware-configuration.nix のインストール前ゲート 3 参照)。
+  #
+  # 実測(VM jupiter-anywhere-test, 2026-08-21):
+  #   basename $(readlink /sys/class/net/enp0s3/device/driver)  # => e1000
+  # この e1000 は VM の NIC のドライバであり、実機 jupiter の NIC ドライバ名は
+  # 未確定。インストール時に同じ方法で確認し、実機のドライバ名をここへ追記
+  # すること。
+  boot.initrd.availableKernelModules = [ "e1000" ];
+
   # TPM 自動解錠が失敗したときの遠隔復旧。これが無いと、systemd initrd を
   # 入れた理由(遠隔無人再起動)が TPM の失敗でそのまま失われる。
   #
@@ -65,7 +82,9 @@ in
   # 上げていたのは lo だけで実 NIC (VM では enp0s3) は一度も構成されず DHCP も
   # 走っていなかった。sshd 自体は健全で 3 分間 listening していたが、ゲストに
   # IP が無いため VirtualBox の NAT がホスト側で accept した TCP をゲストへ
-  # 届けられなかった。
+  # 届けられなかった。根本原因は上記 availableKernelModules に NIC ドライバが
+  # 無く、initrd でリンクが上がっていなかったこと(NIC ドライバを追加した
+  # 今回の修正で解消)。
   #
   # boot.initrd.network.enable は sshd を initrd で起動するだけで、systemd
   # initrd 自身にリンクを上げさせるわけではない(networkd はもう動いている
