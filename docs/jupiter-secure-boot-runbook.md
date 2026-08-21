@@ -31,13 +31,20 @@ VM で成立している。カーネル更新に追従させる `systemd-pcrlock
   (`port = 2222`、`hostKeys` は `/var/lib/initrd-ssh/ssh_host_ed25519_key`
   を指す絶対パス指定。実体(鍵ファイル)は宣言できないので手で生成する
   (§3.2)。`authorizedKeys` は本体ユーザーの鍵を流用)
-- `boot.initrd.systemd.network.networks."30-initrd-remote-recovery-ethernet-dhcp"`
-  (`matchConfig.Type = "ether"; DHCP = "yes";`)
+- initrd の DHCP は**自前で宣言しない**。`networking.useDHCP`(既定 true)から
+  nixpkgs が `99-ethernet-default-dhcp`(`matchConfig.Type = "ether"`)を
+  initrd 側にも生成するので、それに任せる。リンクが上がらないときに疑うのは
+  この定義ではなく、上の `availableKernelModules`(NIC ドライバ)の方。
 - `fileSystems."/".options = [ "x-systemd.device-timeout=infinity" ];`
 - `hosts/jupiter/disko.nix` の
   `disko.devices.disk.main.content.partitions.luks.content.settings.crypttabExtraOpts`
   `= [ "tpm2-device=auto" ];`(TPM2 自動解錠の取得口。無いと enroll しても
   起動時にパスフレーズを聞かれる)
+- `hosts/jupiter/disko.nix` の `passwordFile = "/tmp/secret.key";`
+  (インストール時の非対話暗号化。`nixos-anywhere --disk-encryption-keys
+  /tmp/secret.key <src>` とペア。**`settings` の配下に置かないこと** —
+  置くと `boot.initrd.luks.devices.cryptroot.keyFile` へ伝播し、
+  systemd が LUKS2 ヘッダのトークン探索に到達せず TPM 自動解錠が死ぬ)
 
 宣言できない(このマシン固有の秘密や、firmware/NVRAM の状態そのものに
 依存するため)ので手で打つ必要があるもの:
