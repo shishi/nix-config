@@ -88,14 +88,15 @@ VM(NIC `enp0s3`)の値は `e1000`。**実機 jupiter のドライバ名は未確
 リンクが上がらず、§6 の復旧経路が機能しない。
 
 **ゲート 4(初回インストール専用。対象マシンにまだ NixOS がインストール
-されていない場合のみ適用)**
+されていない場合のみ適用。手順は未確立)**
 
-> **停止条件(実機投入前に必ず満たすこと): この手順一式は VM で一度も
-> 通しで実行していない(未リハーサル)。実機へ適用する前に、別の検証用
-> VM でディスク消去から `nixos-anywhere` 完走までを一度リハーサルして
-> 手順が成立することを確認すること。** 未確認のまま実機で初回インストール
-> すると、disko がディスクを消去・暗号化した後にブートローダ設置段で
-> 失敗し、ブート不能な中途半端な状態で止まるリスクがある(詳細下記)。
+> **停止条件(実機投入前に必ず満たすこと): この節が扱う経路(ディスク消去
+> から `nixos-anywhere` 完走まで)は VM で一度も通しで実行していない。
+> 実機へ適用する前に、最初から lanzaboote 有効でインストールする新規の
+> 検証用 VM で、ディスク消去から `nixos-anywhere` 完走までを一度リハーサル
+> し、手順を確立すること。** 現行の検証用 VM(`jupiter-anywhere-test`)は
+> lanzaboote を導入する前から動いており、この初回インストール経路その
+> ものを一度も通っていない。
 
 `boot.lanzaboote.enable = true;` と
 `hostKeys = [ "/var/lib/initrd-ssh/ssh_host_ed25519_key" ];` はどちらも、
@@ -104,168 +105,46 @@ VM(NIC `enp0s3`)の値は `e1000`。**実機 jupiter のドライバ名は未確
 存在することを前提にしている。
 
 **未インストールの実機にこの宣言のまま初回インストールすると、
-ブートローダ設置段で失敗する。** lanzaboote のソースで確認したところ、
-`lzbt install` は `--public-key=${cfg.publicKeyFile}` /
+ブートローダ設置段で失敗する。** lanzaboote のソース(`nix/modules/lanzaboote.nix`)
+で確認したところ、`lzbt install` は `--public-key=${cfg.publicKeyFile}` /
 `--private-key=${cfg.privateKeyFile}`(既定値 `${pkiBundle}/keys/db/db.{pem,key}`、
 つまり `/var/lib/sbctl/keys/db/db.{pem,key}`)を渡される。新規インストール先には
-これが存在しない。同じ段で、§3.2 の `append-initrd-secrets`(initrd SSH の
-ホストキーを `cp -a` するコマンド)も `/var/lib/initrd-ssh/...` が無くて失敗する。
-しかも disko がディスクを消去・暗号化して rootfs を展開した**後**にこれが
-起きるので、ブート不能な中途半端な状態で止まる。
+これが存在しない。同じ段で、initrd SSH のホストキーを写す nixpkgs の
+`initrd-ssh.nix`(`boot.initrd.secrets` 経由で `append-initrd-secrets` が
+`cp -a` する)も `/var/lib/initrd-ssh/...` が無くて失敗する。しかも disko が
+ディスクを消去・暗号化して rootfs を展開した**後**にこれが起きるので、
+ブート不能な中途半端な状態で止まる。
 
-さらに §3.1 の `sbctl create-keys` は「稼働中の jupiter で sudo が使える」ことを
-前提に書かれているが、初回インストールの場面ではその稼働中の jupiter に到達する
-手段そのものが無い(鍵が無いと起動しない→鍵を作るには起動している必要がある、
-という循環)。
+稼働中の jupiter に sudo で入って鍵を生成する通常の経路(§3.1)は、初回
+インストールの場面では前提そのものが崩れる。鍵が無いと起動できず、鍵を
+作るにはその稼働中のマシンに到達している必要がある、という循環になる
+ため。
 
-**採用する方針: `nixos-anywhere --extra-files <dir>` で、インストール前に
-鍵を先置きする。** 宣言(`hostKeys`・`lanzaboote.enable`)を初回インストールの
-ためだけに無効化するのは設計が間違っているサインなので、宣言をそのまま成立
-させる方を採る。この repo は既に `--disk-encryption-keys` を使っているので、
-同じ仕組みの延長になる。
+**対処の方向性: `nixos-anywhere --extra-files <dir>` で、インストール前に
+両ディレクトリ(`/var/lib/sbctl` と `/var/lib/initrd-ssh`)の内容を先置き
+する。** 宣言(`hostKeys`・`lanzaboote.enable`)を初回インストールのためだけ
+に無効化するのは設計が間違っているサインなので、宣言をそのまま成立させる
+方を採る。この repo は既に `--disk-encryption-keys` を使っているので、同じ
+仕組みの延長になる。
 
-手順:
-
-1. インストールを実行する手元のマシンで一時ディレクトリを作り、その中に
-   `var/lib/sbctl/` と `var/lib/initrd-ssh/` を用意する(`nixos-anywhere
-   --extra-files` は指定したディレクトリの中身をそのままインストール先の
-   `/` へコピーする)。
-
-   ```
-   mkdir -p /tmp/jupiter-extra-files/var/lib/sbctl
-   mkdir -p /tmp/jupiter-extra-files/var/lib/initrd-ssh
-   ```
-
-2. **作業マシンに既に `/var/lib/sbctl` がある場合は先に進まない。** ある
-   ということは作業マシン自身の Secure Boot 鍵が既に存在する可能性があり、
-   `sbctl create-keys` が既存鍵に対して no-op なのか上書きするのかはこの
-   runbook では確認していない。上書きなら作業マシン自身の鍵を失い、
-   no-op ならこの後 `cp -a` で jupiter へ**作業マシン自身の**鍵をコピーして
-   しまう(2 台が同一の PK/KEK/db を共有し、片方の鍵を破棄・再生成した
-   瞬間にもう片方が起動不能になる)。
-
-   ```
-   test ! -e /var/lib/sbctl || { echo "STOP: /var/lib/sbctl already exists on this machine" >&2; false; }
-   ```
-
-   既に存在する場合は先に進まず、既存の `/var/lib/sbctl` を(この作業マシン
-   自身の Secure Boot 用として)別の場所へ退避してから改めてこの手順を
-   実行すること。
-
-   `sbctl create-keys` の出力先を `/tmp/jupiter-extra-files/...` へ直接向ける
-   公式オプションは確認していないため、以下は「上のチェックを通過した
-   (= 生成前は存在しなかった)」前提で、通常どおり `/var/lib/sbctl` に
-   生成してからコピーする。
-
-   ```
-   sudo nix run nixpkgs#sbctl -- create-keys
-   test -e /var/lib/sbctl/keys/db/db.key || { echo "STOP: create-keys did not produce db.key" >&2; false; }
-   sudo cp -a /var/lib/sbctl/. /tmp/jupiter-extra-files/var/lib/sbctl/
-   ```
-
-   直前のチェックで生成前の不在を確認済みのため、ここで存在すれば
-   jupiter 専用の新規鍵であることが確定する。
-
-3. initrd 用ホストキーを §3.2 と同じ手順で、直接このディレクトリの下に作る。
-
-   ```
-   sudo ssh-keygen -t ed25519 -N "" \
-     -f /tmp/jupiter-extra-files/var/lib/initrd-ssh/ssh_host_ed25519_key
-   sudo chmod 600 /tmp/jupiter-extra-files/var/lib/initrd-ssh/ssh_host_ed25519_key
-   ```
-
-   後で §6.2 の照合に使うため、公開鍵のフィンガープリントをここで控えて
-   おく(§3.2 と同じ理由 — インストール後は暗号化された `/` の上にあり、
-   initrd で足止めされている状況では取りに行けない)。
-
-   ```
-   sudo ssh-keygen -lf /tmp/jupiter-extra-files/var/lib/initrd-ssh/ssh_host_ed25519_key.pub
-   ```
-
-4. ここまでの手順 2・3 は `sudo` で実行しているため、`/tmp/jupiter-extra-files`
-   配下は root 所有・(秘密鍵は)0600 になっている。手順 6 の `nixos-anywhere`
-   は `sudo` を付けずに実行するコマンドなので、このままでは呼び出しユーザーが
-   これらのファイルを読めず、`--extra-files` が空相当のまま進んでしまう —
-   ちょうどこのゲート 4 が防ごうとしている「鍵が届かないまま disko がディスク
-   を消去・暗号化した後にブートローダ設置段で失敗する」状態に落ちる。
-
-   ```
-   sudo chown -R "$USER" /tmp/jupiter-extra-files
-   chmod 600 /tmp/jupiter-extra-files/var/lib/initrd-ssh/ssh_host_ed25519_key
-   find /tmp/jupiter-extra-files/var/lib/sbctl -name '*.key' -exec chmod 600 {} +
-   ```
-
-   インストール先での所有者は次の手順 5(`chown -R root:root`)が矯正する
-   契約になっているので、ローカル側をここで root 所有のままにしておく
-   必要は無い。
-
-   **`nixos-anywhere` 自体を `sudo` で実行する案は採らない。** SSH の鍵・
-   agent が root のものに切り替わり、`root@<target-ip>` への認証が別の
-   理由で壊れるため。
-
-5. **パーミッションが保たれるかは未確認。** `--extra-files` が所有者・モード
-   (特に秘密鍵の 600)を保持してコピーするのかは、この runbook では実測して
-   いない。インストール後、実機側で次のコマンドで実際の所有者・モードを
-   確認すること。
-
-   ```
-   ls -l /var/lib/sbctl/keys/db/ /var/lib/initrd-ssh/
-   ```
-
-   `root:root` かつ秘密鍵が `600` になっていなければ、保持されなかった
-   ということなので次で矯正する。
-
-   ```
-   sudo chown -R root:root /var/lib/sbctl /var/lib/initrd-ssh
-   sudo chmod 600 /var/lib/initrd-ssh/ssh_host_ed25519_key
-   sudo find /var/lib/sbctl/keys -name "*.key" -exec chmod 600 {} +
-   ```
-
-6. `nixos-anywhere` 実行時に `--extra-files` を追加する(既存の
-   `--disk-encryption-keys` と併用)。
-
-   ```
-   nixos-anywhere --extra-files /tmp/jupiter-extra-files \
-     --disk-encryption-keys /tmp/secret.key <local-secret-path> \
-     --flake <flake-path>#jupiter root@<target-ip>
-   ```
-
-**完了後の後片付け**: `/tmp/jupiter-extra-files` にはインストール先へコピー
-済みの秘密鍵(sbctl の PK/KEK/db 秘密鍵、initrd SSH のホストキー)がそのまま
-残っている。削除する。
-
-```
-rm -rf /tmp/jupiter-extra-files
-```
-
-作業マシン自身の `/var/lib/sbctl`(手順 2 で `create-keys` が作ったもの)も、
-jupiter 専用として生成したのであれば作業マシンに残す理由が無いので退避して
-から削除する。作業マシン自身にも Secure Boot を有効化していて、その鍵として
-引き続き使う場合は削除しないこと(手順 2 の停止条件はこの判断のためにある)。
-
-```
-sudo mkdir -p ~/jupiter-sbctl-backup
-sudo cp -a /var/lib/sbctl/. ~/jupiter-sbctl-backup/
-sudo rm -rf /var/lib/sbctl
-```
-
-**この経路(ゲート 4 全体)は VM で実測していない。** 検証用 VM
-(`jupiter-anywhere-test`)は lanzaboote を導入する前に既にインストール
-済みだったため、初回インストール経路(disko によるディスク消去から
-`nixos-anywhere` 完走まで)を一度も通っていない。実機で初めて実行する前に、
-可能なら別の検証用 VM でこのゲート 4 の手順そのものを一度リハーサルする
-ことを推奨する。
+**この方向性を実行する具体的なコマンド列は、ここには書かない。** 検証して
+いない手順を検証済みの手順と同じ体裁で並べておくと、インストール当日に
+読む側がその違いを区別できず、誤った手順のまま実行してしまう害の方が
+大きい。実機投入前のリハーサルで手順を確立し、実際に動作を確認できた
+コマンド列だけを、このゲート 4 に書き直すこと。
 
 ## 3. フェーズ A: 鍵の生成 → Secure Boot 有効化 → TPM2 enroll
 
-**ゲート 4(§2)で初回インストール時に鍵を先置きした場合は、§3.1 の
-`sbctl create-keys` と §3.2 の `ssh-keygen` は実行しないこと。** 鍵は既に
-存在するため、実行すると `sbctl create-keys` は既存鍵に対する挙動が未確認
-(§2 ゲート 4 手順 2 参照)であり、`ssh-keygen -f` は既存ファイルに対して
+**ゲート 4(§2)の手順が確立され、初回インストール時に鍵を先置きした
+場合は、§3.1 の `sbctl create-keys` と §3.2 の `ssh-keygen` は実行しない
+こと。** 鍵は既に存在するため、実行すると `sbctl create-keys` は既存鍵に
+対する挙動が未確認であり、`ssh-keygen -f` は既存ファイルに対して
 `Overwrite (y/n)?` と対話で聞いてくる(この runbook の他の手順は非対話実行
 を前提にしている)。この場合は §3.2 のフィンガープリント取得
 (`ssh-keygen -lf .../ssh_host_ed25519_key.pub`)だけを実行してから §3.3 へ
-進むこと。
+進むこと。**この分岐が使われるのは、ゲート 4 の手順をリハーサルで確立し
+て実際に鍵を先置きした場合に限る。ゲート 4 の手順は現時点で未確立なので
+(§2 参照)、それまではこの分岐は発生しない。**
 
 ### 3.1 鍵の生成
 
@@ -320,10 +199,13 @@ sudo nix run nixpkgs#sbctl -- verify
 signed になる。`/boot/EFI/nixos/kernel-*.efi`(lanzaboote の署名対象外の
 旧来イメージ)が unsigned のまま残るのは正常。
 
-### 3.4 headless VM でパスフレーズを入力する方法
+### 3.4 headless VM でパスフレーズを入力する方法(VM リハーサル専用の付録)
 
-**この節は VM 専用の手順。実機ではコンソールから直接パスフレーズを打てば
-よく、この節のスキャンコード操作は使わない。**
+**この節は VM リハーサル専用の手順。実機ではコンソールから直接パスフレーズ
+を打てばよく、この節のスキャンコード操作は使わない。** 別のパスフレーズを
+使う場合にスキャンコード列をどう組むかはここには書かない(実際に組んで
+動作を確かめていないため)。組む必要が生じたら、実際に動かして確認した
+上で書き足すこと。
 
 以降の節(§3.5, §5.1 など)で `startvm --type headless` で起動した VM に
 LUKS パスフレーズを入力する必要が複数回出てくる。ヘッドレスなので通常の
@@ -337,27 +219,11 @@ VBoxManage controlvm jupiter-anywhere-test keyboardputscancode <hex...>
 スキャンコードは PS/2 keyboard scan code set 1 で、1 キーにつき「押す
 (make code)」と「離す(break code。make code に `0x80` を加えた値)」の
 2 バイトを送る。実測で使ったパスフレーズ `rehearsal` + Enter に対応する列
-(r e h e a r s a l + Enter とデコードして確認済み):
+(r e h e a r s a l + Enter とデコードして確認済み、動作確認済み):
 
 ```
 13 93 12 92 23 a3 12 92 1e 9e 13 93 1f 9f 1e 9e 26 a6 1c 9c
 ```
-
-この実測列は `rehearsal` が Shift 不要な文字だけで構成されているため、
-Shift が要る文字の扱いはこの例からは分からない。別のパスフレーズを VM で
-使う場合は次に注意する。
-
-- 通常の英小文字・数字は、US 配列の PS/2 scan code set 1 の表で文字ごとの
-  make code を調べ、対応する break code(make code + `0x80`)とペアにして
-  並べる。
-- **大文字・記号など Shift が要る文字は、make の前に左 Shift の make code
-  `2a` を、break の後に左 Shift の break code `aa` を挟む。** 例えば `A` は
-  `2a 1e 9e aa`(Shift 押す → `a` の make/break → Shift 離す)。Shift を
-  挟まず `a` の make/break だけを送ると小文字の `a` が送られてしまい、LUKS
-  は「パスフレーズが違う」としか言わないため、送信列の誤りなのか VM 側の
-  問題なのか切り分けられない。
-- 矢印キーなどの拡張キーは `e0` 前置になるが、LUKS パスフレーズの入力では
-  使わない。
 
 ### 3.5 Setup Mode に入る
 
