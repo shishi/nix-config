@@ -19,6 +19,7 @@
       firefox
       flameshot
       google-chrome
+      llm-agents.claude-desktop
       localsend
       microsoft-edge
       slack
