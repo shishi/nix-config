@@ -9,7 +9,7 @@
 # 通常含まれない。実機の NIC ドライバ名を
 #   basename $(readlink /sys/class/net/<iface>/device/driver)
 # で確認し、hosts/jupiter/default.nix の boot.initrd.availableKernelModules
-# (現状 VM 用の "e1000" のみ)に追記するまで、TPM 解錠が失敗した瞬間に
+# (現状 VM 用の "e1000" のみ)を実機の値に置き換えるまで、TPM 解錠が失敗した瞬間に
 # 遠隔から入れない。
 { lib, modulesPath, ... }:
 {

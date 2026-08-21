@@ -45,14 +45,14 @@ in
   # 想定外: nixos-generate-config が生成する availableKernelModules は
   # ストレージ・入力系が中心で、NIC ドライバは通常入らない。したがって実機で
   # hardware-configuration.nix を実物に置き換えても(インストール前ゲート 2)、
-  # この宣言は自動的には得られず、別途ここに追記する必要がある
+  # この宣言は自動的には得られず、実機の値にここを置き換える必要がある
   # (hardware-configuration.nix のインストール前ゲート 3 参照)。
   #
   # 実測(VM jupiter-anywhere-test, 2026-08-21):
   #   basename $(readlink /sys/class/net/enp0s3/device/driver)  # => e1000
   # この e1000 は VM の NIC のドライバであり、実機 jupiter の NIC ドライバ名は
-  # 未確定。インストール時に同じ方法で確認し、実機のドライバ名をここへ追記
-  # すること。
+  # 未確定。インストール時に同じ方法で確認し、実機のドライバ名にここを置き換える
+  # こと。
   boot.initrd.availableKernelModules = [ "e1000" ];
 
   # TPM 自動解錠が失敗したときの遠隔復旧。これが無いと、systemd initrd を
@@ -91,27 +91,15 @@ in
   # NIC ドライバが欠けた場合はこの中間の accept が無いため、ARP 解決自体が
   # 失敗して接続拒否かタイムアウトになると考えられる(未確認)。
   #
-  # boot.initrd.network.enable は sshd を initrd で起動するだけで、systemd
-  # initrd 自身にリンクを上げさせるわけではない(networkd はもう動いている
-  # が、マッチする networks 定義が無ければ何もしない)。ここで実 NIC 向けの
-  # DHCP 定義を明示的に置く。
-  #
-  # インターフェース名は書かない: この定義は VM (enp0s3) と実機 jupiter
-  # (NIC 名は未確定) の両方で動く必要があり、かつ public repo なのでマシン
-  # 固有情報を残さない方針がある。有線イーサネット全般に当たる
-  # matchConfig.Type = "ether" を使う(nixpkgs 自身の
-  # networking.useDHCP 由来のデフォルト網定義 "99-ethernet-default-dhcp" も
-  # 同じ Type = "ether" で当てている)。
-  #
-  # networking.useDHCP (既定 true) が有効な間は、その nixpkgs デフォルトが
-  # 実は initrd 側にも同じ内容を自動生成している。しかし本体側の
-  # networking.useDHCP が将来(例: desktop 側で NetworkManager へ切替)
-  # false になると、そのデフォルトは initrd からも一緒に消え、この遠隔復旧
-  # 経路だけが誰も意図せず連動して死ぬ。ここで明示的に定義し、その依存を切る。
-  boot.initrd.systemd.network.networks."30-initrd-remote-recovery-ethernet-dhcp" = {
-    matchConfig.Type = "ether";
-    DHCP = "yes";
-  };
+  # initrd 向けに実 NIC 用の DHCP ネットワーク定義を自前で置いていない理由:
+  # 実測(2026-08-21、この定義を一時的に外して
+  # `nix eval .#nixosConfigurations.jupiter.config.boot.initrd.systemd.network.networks`
+  # を確認)で、networking.useDHCP(既定 true。実測で有効を確認済み)由来の
+  # nixpkgs デフォルト "99-ethernet-default-dhcp"(matchConfig.Type = "ether";
+  # DHCP = "yes";)が既に同じ内容で initrd 側にも自動生成されていることを
+  # 確認した。今回の VM 故障(initrd でリンクが上がらなかったこと)の原因は
+  # NIC ドライバの欠落であり、この重複する自前定義の有無とは無関係だった。
+  # 実測された故障に対応しない重複定義を残す理由が無いため、置かない。
 
   # これが無いと SSH で入る前に root デバイスの unit がタイムアウトし、
   # 復旧経路が「間に合わない」形で死ぬ。
