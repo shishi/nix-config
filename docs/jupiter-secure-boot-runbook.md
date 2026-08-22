@@ -522,6 +522,7 @@ ssh-keyscan <target> | ssh-keygen -lf -
 
 ```
 gpg --batch --import ~/gpg-secret.asc
+printf '%s:6:\n' '<signingkey の指紋>' | gpg --import-ownertrust
 gpg --list-secret-keys --keyid-format=long | grep -E '^(sec|ssb)'
 if echo test | gpg --batch --pinentry-mode loopback -u <signingkey> --clearsign >/dev/null 2>&1; then
   shred -u ~/gpg-secret.asc
@@ -530,6 +531,12 @@ else
   echo '署名できない -- shred しない。原因を調べてから消すこと'
 fi
 ```
+
+**`--import-ownertrust` を省かない。** 信頼度は秘密鍵とは別に運ばれるので、
+鍵を import しただけでは付いてこない。省くと**署名は作れるのに検証が通らない**
+状態になり、`git log --format=%G?` が `G` ではなく `U`(good signature, unknown
+validity)を返す(実機で実測)。`gpg --list-secret-keys` を見ても分からない。
+`6` は ultimate。指紋は 40 桁の長い方(`gpg --list-keys --with-colons` の `fpr`)。
 
 **`--batch` を省かない。** 非対話の ssh では pinentry が出せず、プロンプトで
 止まる。

@@ -44,14 +44,41 @@ nix run .#switch               # 適用(check-env-critical 内蔵。--force で�
 - インストール前に firmware で Secure Boot を無効にする。installer の ISO は
   署名されていないため、有効なままだと起動しない
 
-初回起動後: 標準パスへ clone → dotfiles の `setup.sh` を実行 → `nh os switch` が
-動くことを確認(post-install 成功基準)。
-以後の更新: `nh os switch`(NixOS 側 programs.nh が NH_FLAKE を設定)
+初回起動後の手順。**パスは `NH_FLAKE` が指す場所と一致していなければならない**
+(`~/dev/src/github.com/shishi/nix-config`)。**`ghq` は jupiter に入っていない**
+ので `ghq get` は使えず、素の `git clone` をそのパスに打つ。
+
+```
+ssh -o StrictHostKeyChecking=accept-new -T git@github.com   # host key を受理する
+mkdir -p ~/dev/src/github.com/shishi
+git clone git@github.com:shishi/nix-config.git ~/dev/src/github.com/shishi/nix-config
+git clone git@github.com:shishi/dotfiles.git   ~/dev/src/github.com/shishi/dotfiles
+bash ~/dev/src/github.com/shishi/dotfiles/setup.sh
+nh os switch
+```
+
+最初の 1 行を省くと `git clone` が host key 確認の対話で止まる(新規マシンの
+`known_hosts` は空)。`setup.sh` 自身は内部で `GIT_SSH_COMMAND` に
+`accept-new` を入れるが、それは `setup.sh` が始まってからの話で、上の 2 つの
+`git clone` には効かない。
+
+`nh os switch` が **`DIFF: 0 bytes`** を返せば、インストールされた世代と repo から
+ビルドした結果が同一 store path で、構成と実機にドリフトが無い(post-install
+成功基準)。以後の更新も `nh os switch`。
 
 ### リモートデスクトップ(RDP)
 
 KRdp が動作中の Plasma セッションに寄生して RDP を話す。`0.0.0.0:3389` に bind し、
-firewall が 3389 を開けている。手元の RDP クライアントから
+firewall が 3389 を開けている(送信元は LAN と Tailscale の範囲に限定)。
+
+**Portal 経路を使う。** `--plasma` だと clipboard が両方向とも動かない(KRdp
+6.7.4 の `PlasmaScreencastV1Session::setClipboardData` が空実装)。Portal は既定で
+接続のたびに画面上の許可を求めるが、`krdp-portal-permission.service` が
+PermissionStore に事前許可を書くのでダイアログは出ない。**この unit が無いと、
+新規インストール直後は「RDP が無いとダイアログを押せない / 押さないと RDP が
+使えない」で詰む。**
+
+手元の RDP クライアントから
 `<jupiter>:3389` へ直接繋ぐ。ユーザー名は `shishi`、パスワードは
 **shishi のシステムパスワード**。接続すると画面ロックが出るので、同じパスワードで
 解除する。
