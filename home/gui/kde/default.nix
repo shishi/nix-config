@@ -233,7 +233,15 @@ in
     # 復帰しないため。ExecStartPre なら再起動のたびに検証が走る。
     # 妥当なら即 exit 0 なので、繰り返しても安い。
     #
-    # --address を落とすと既定の 0.0.0.0 になり、PAM 認証が LAN へ出る。
+    # --address は指定しない(既定の 0.0.0.0)。以前は 127.0.0.1 に絞って SSH
+    # トンネル前提にしていた。
+    #
+    # **PAM 認証がネットワークに出ることは受け入れている。破られると、そこから
+    # NOPASSWD の sudo で root まで届く**(nixos/sudo.nix)。守りは TLS と PAM に
+    # 加えて、到達範囲を送信元で絞っていること —— hosts/jupiter/default.nix の
+    # networking.firewall.extraCommands が RFC1918 と Tailscale の CGNAT 範囲だけを
+    # 通す。**allowedTCPPorts は使っていない**(全インタフェースで開くため)。
+    #
     # --username を渡すと krdpserverrc の SystemUserEnabled が読まれなくなる。
     # --plasma を落とすと Portal 経路になり、初回接続時に画面上での許可が要る。
     systemd.user.services.krdpserver = {
@@ -245,7 +253,7 @@ in
       Service = {
         Type = "exec";
         ExecStartPre = "${krdpCertScript} ${krdpCert} ${krdpCertKey}";
-        ExecStart = "${pkgs.kdePackages.krdp}/bin/krdpserver --plasma --address 127.0.0.1";
+        ExecStart = "${pkgs.kdePackages.krdp}/bin/krdpserver --plasma";
         Restart = "on-failure";
         RestartSec = 3;
       };

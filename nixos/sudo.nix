@@ -10,9 +10,22 @@
 # 広がるのを避ける。earth では scripts/setup-sudo-nopasswd.sh が同じ状態を
 # 作っており、NixOS 側はその宣言的な対応物にあたる。
 #
-# 前提: リモートからの認証は SSH 鍵のみ。これは ssh.nix が強制する
-# (パスワード認証を残したままここを緩めると、shishi のパスワードを知る相手が
-# 追加認証なしに root になれる)。
+# **前提が変わっている(2026-08-22)。リモート認証は SSH 鍵のみではない。**
+# jupiter は RDP(krdpserver)を LAN と Tailscale の範囲へ公開しており、そこは
+# shishi のシステムパスワードで PAM 認証する。RDP で入ればデスクトップに立てて、
+# そこから `sudo` はパスワード不要 —— つまり **ネットワークからパスワード 1 つで
+# root** の経路が存在する。
+#
+# ssh.nix がパスワード認証を切っているのは依然として正しいが、それだけでは
+# この前提を守れない。守っているのは、RDP の到達範囲を送信元で絞っていること
+# (hosts/jupiter/default.nix の networking.firewall.extraCommands)と、
+# PAM と TLS だけである。
+#
+# **攻撃面を再評価するならここから始める。** 選択肢は 3 つで、どれも副作用がある。
+# (a) 現状維持。パスワードの強度に全体が依存する
+# (b) sudo にパスワードを要求する。nh の非対話経路と runbook §4 の
+#     systemd-cryptenroll(標準入力でパスフレーズを渡す)が壊れる
+# (c) RDP をやめて SSH トンネルへ戻す
 { ... }:
 {
   security.sudo.extraRules = [

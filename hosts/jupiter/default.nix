@@ -7,6 +7,14 @@
 let
   # DE の単一真実: この 1 変数から system 側 import と HM 側フラグを導出する
   desktop = "kde"; # ヒアリング #22 裁定
+
+  # RDP を通す送信元。RFC1918 の 3 つと、Tailscale の CGNAT 範囲。
+  rdpNets = [
+    "10.0.0.0/8"
+    "172.16.0.0/12"
+    "192.168.0.0/16"
+    "100.64.0.0/10"
+  ];
 in
 {
   imports = [
@@ -202,10 +210,11 @@ in
   #   明示しなくても module 側が立てる
   # - hardware.steam-hardware.enable = true。コントローラ用の udev ルール
   #
-  # **firewall の口は増えない。** remotePlay / dedicatedServer /
-  # localNetworkGameTransfers の openFirewall はいずれも既定 false で、
-  # allowedTCPPorts は 22 のままである(eval で確認)。Remote Play や
-  # LAN 転送を使う段になったら、そのとき明示的に開ける。
+  # **Steam は firewall の口を増やさない。** remotePlay / dedicatedServer /
+  # localNetworkGameTransfers の openFirewall はいずれも既定 false(eval で確認)。
+  # allowedTCPPorts は 22 だけで、これは services.openssh 由来。3389 は下の RDP の
+  # 宣言で開けているが、Steam とは無関係。Remote Play や LAN 転送を使う段になったら、
+  # そのとき明示的に開ける。
   #
   # 32bit の Vulkan ICD(radeon_icd.i686.json)は enable32Bit だけで入る。
   # hardware.graphics.extraPackages32 は要らない。ここが欠けると 64bit の
@@ -225,6 +234,36 @@ in
   # bin/vulkan-tools を持たないため、引数から vulkaninfo は選ばれない。
   #
   #   nix shell nixpkgs#vulkan-tools -c vulkaninfo --summary
+  # RDP。krdpserver は 0.0.0.0 に bind するので、到達範囲はここで決まる。
+  # 以前は loopback bind + SSH トンネルにしていた。
+  #
+  # **`networking.firewall.allowedTCPPorts` は使わない。** あれは全インタフェースで
+  # 開くため、この機体(lid スイッチとバッテリーを持つ可搬機)を自宅以外の AP へ
+  # 繋いだ瞬間、そのセグメント全体に 3389 が開く。送信元で絞る。
+  #
+  # `networking.nftables.enable` は false(iptables バックエンド)なので
+  # `extraInputRules` は使えず、`extraCommands` に iptables を書く。
+  # `nixos-fw` / `nixos-fw-accept` は NixOS の firewall モジュールが作る chain。
+  #
+  # **この口の先には PAM 認証があり、その先は NOPASSWD の sudo がある**
+  # (nixos/sudo.nix)。PAM を破られると追加認証なしで root まで届く。
+  # 到達範囲を絞っているのはそのため。
+  services.tailscale.enable = true;
+  networking.firewall = {
+    extraCommands = lib.concatMapStrings (net: ''
+      iptables -A nixos-fw -p tcp --dport 3389 -s ${net} -j nixos-fw-accept
+    '') rdpNets;
+    extraStopCommands = lib.concatMapStrings (net: ''
+      iptables -D nixos-fw -p tcp --dport 3389 -s ${net} -j nixos-fw-accept || true
+    '') rdpNets;
+  };
+
+  # Bluetooth。AX210 に内蔵されていて、カーネルは起動時に hci0 として認識し
+  # Intel のファームウェア(intel/ibt-0041-0041.sfi)も読み込み済み。有効化して
+  # いなかったのは宣言が無かったからで、ハードの問題ではない(実測)。
+  # KDE 側の UI は plasma6 が bluedevil を入れるので追加の宣言は要らない。
+  hardware.bluetooth.enable = true;
+
   programs.steam.enable = true;
 
   # pipewire は plasma6 が既に立てているが、rtkit が無いとリアルタイム優先度を

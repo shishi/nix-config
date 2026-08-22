@@ -50,24 +50,30 @@ nix run .#switch               # 適用(check-env-critical 内蔵。--force で�
 
 ### リモートデスクトップ(RDP)
 
-KRdp が動作中の Plasma セッションに寄生して RDP を話す。**loopback にしか bind
-しない**ので、到達は SSH トンネル越しになる。firewall は 22 だけのまま。
+KRdp が動作中の Plasma セッションに寄生して RDP を話す。`0.0.0.0:3389` に bind し、
+firewall が 3389 を開けている。手元の RDP クライアントから
+`<jupiter>:3389` へ直接繋ぐ。ユーザー名は `shishi`、パスワードは
+**shishi のシステムパスワード**。接続すると画面ロックが出るので、同じパスワードで
+解除する。
 
-```bash
-ssh -N -L 13389:127.0.0.1:3389 shishi@<jupiter>
-```
+**この口の先は PAM 認証で、その先は NOPASSWD の sudo。** 破られるとパスワード
+1 つで root まで届く。そのため firewall は 3389 を全インタフェースで開けず、
+送信元が RFC1918 と Tailscale の CGNAT 範囲(`100.64.0.0/10`)のときだけ通す。
+自宅以外の AP に繋いでも、そのセグメントからは届かない。ルータでポート転送する
+ことは想定していない。
 
-手元の RDP クライアントで `127.0.0.1:13389` へ繋ぐ。ユーザー名は `shishi`、
-パスワードは **shishi のシステムパスワード**。接続すると画面ロックが出るので、
-同じパスワードで解除する。
+**Tailscale は `services.tailscale.enable = true` で daemon が上がるだけ。**
+tailnet へ参加するには実機で `sudo tailscale up` を 1 回実行する。参加するまで
+`100.64.0.0/10` 経由の到達は存在しない。
 
 **KWallet は自動では開かない。** `pam_kwallet` はログインパスワードから鍵を
 導出するので、autoLogin では鍵が渡らない(セッション開始直後の `kwalletd6` は
 バス上で activatable のまま)。KWallet を使うアプリは初回に開錠を求めてくる。
 
-手元側を 3389 ではなく 13389 にするのは、Windows が自身の RDP サーバーで 3389 を
-使うため。3389 のまま張ると bind に失敗するか、失敗に気づかないままクライアントが
-**手元の Windows 自身**へ繋がる。
+手元が Windows のとき、`localhost:3389` は Windows 自身の RDP サーバーを指す。
+jupiter へは**ホスト名か IP で**繋ぐこと。SSH トンネルを張る場合も、手元側は
+3389 を避けて `ssh -N -L 13389:127.0.0.1:3389 shishi@<jupiter>` のように別の
+ポートにする。
 
 - セッションは autoLogin で常時上がっており、**開始時にロックが降りる**
   (`kscreenlocker.lockOnStartup`。掛けるのはロッカー自身で、自分の起動時に掛ける)。
