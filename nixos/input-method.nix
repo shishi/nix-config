@@ -14,9 +14,17 @@
       # GTK_IM_MODULE / QT_IM_MODULE を設定しなくなり、その経路に一本化される。
       # 両方を併用すると候補ウィンドウが点滅する既知の不具合があり、
       # fcitx5 自身が Plasma 上で診断ダイアログを出す(VM リハーサルで実測)。
-      # XMODIFIERS は XWayland アプリ向けに残る(モジュール側が常に設定する)。
-      # この構成の Plasma は Wayland 専用(実測: share/xsessions が存在しない)ため、
-      # X11 セッションへ落ちて Qt の IM 経路を失う心配はない。
+      # XMODIFIERS は XWayland アプリ向けに残る(environment.variables に
+      # @im=fcitx が入る)。GTK_IM_MODULE と QT_IM_MODULE は未設定になる。
+      #
+      # X11 セッションの desktop entry は plasma6 module が生成するので、
+      # sessionData.desktops に plasmax11.desktop が存在する。
+      # kdePackages.plasma-workspace 自身に share/xsessions が無いことを見て
+      # 「この構成に X11 は無い」と結論しないこと。
+      #
+      # 未検証: X11 セッションを選んだときに何が使われるか。この構成は
+      # QT_IM_MODULE を設定しないので、X11 を使う予定ができたら先に実機で
+      # 打って確かめること。
       # 未検証: Electron 系は NIXOS_OZONE_WL 未設定だと XWayland 経由になり、
       # XIM フォールバックで preedit の見え方が変わる可能性がある。
       waylandFrontend = true;
