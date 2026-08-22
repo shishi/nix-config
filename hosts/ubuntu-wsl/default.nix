@@ -7,7 +7,7 @@
     ../../home/profiles/wsl-gui.nix
   ];
 
-  # yaskkserv2 は earth では無効(2026-08-09 裁定): Windows 側 CorvusSKK が
+  # yaskkserv2 は earth では無効: Windows 側 CorvusSKK が
   # port 1178 を保持しており(mirrored networking でポート空間共有)、
   # 日本語入力は Windows 側で完結している実測に基づく。jupiter では有効
   my.skk.enable = false;

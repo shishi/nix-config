@@ -7,7 +7,7 @@
       evalOnly =
         name: cfg:
         # unsafeDiscardStringContext が無いと drvPath の文字列コンテキストが
-        # 全依存を持ち込み、`nix flake check` がフル realization してしまう(Med-1 実測)
+        # 全依存を持ち込み、`nix flake check` がフル realization してしまう(実測)
         pkgs.writeText "${name}-eval" (
           builtins.unsafeDiscardStringContext cfg.config.system.build.toplevel.drvPath
         );

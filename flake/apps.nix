@@ -40,7 +40,7 @@
       apps = {
         # standalone の公認適用経路(一本化)。
         # 契約クリティカル check-env → 直接 activation → 成功記録。
-        # 素の `nh home switch` はガードを迂回するため非公認(#8(a) 裁定まで)
+        # 素の `nh home switch` はガードを迂回するため使わない
         switch = {
           type = "app";
           program = "${pkgs.writeShellScript "switch" ''

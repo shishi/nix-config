@@ -59,8 +59,9 @@ in
     programs.plasma = {
       enable = true;
 
-      # KRdp の設定。--address だけは krdpserverrc に対応キーが無いので
-      # unit 側のコマンドラインで渡す。
+      # KRdp の設定。--address だけは krdpserverrc に対応キーが無く、渡すなら
+      # unit 側のコマンドラインになるが、指定せず既定の 0.0.0.0 に bind させる
+      # (理由は下の krdpserver unit のコメント参照)。
       #
       # SystemUserEnabled は「krdpserver を走らせている本人のシステムパスワードで
       # 認証する」の意味で、repo に秘密を置かないための選択。無効にすると
@@ -186,14 +187,14 @@ in
         };
       };
 
-      # クロス DE 契約(確定不変): Caps→Ctrl、キーリピート
+      # DE をまたいで共通にする入力設定: Caps→Ctrl、キーリピート
       input.keyboard = {
         options = [ "ctrl:nocaps" ];
         repeatDelay = 200;
         repeatRate = 33; # ≒ 1000ms / 30ms interval
       };
 
-      # KDE キーバインド(#16 裁定: GNOME 対応物を移植)
+      # KDE キーバインド。GNOME 側で使っていた対応物を移植
       shortcuts = {
         kwin = {
           "Window Close" = [
@@ -271,8 +272,8 @@ in
     # 復帰しないため。ExecStartPre なら再起動のたびに検証が走る。
     # 妥当なら即 exit 0 なので、繰り返しても安い。
     #
-    # --address は指定しない(既定の 0.0.0.0)。以前は 127.0.0.1 に絞って SSH
-    # トンネル前提にしていた。
+    # --address は指定しない(既定の 0.0.0.0)。到達範囲は firewall 側で
+    # 送信元により絞る(hosts/jupiter/default.nix)。
     #
     # **PAM 認証がネットワークに出ることは受け入れている。破られると、そこから
     # NOPASSWD の sudo で root まで届く**(nixos/sudo.nix)。守りは TLS と PAM に
@@ -291,15 +292,30 @@ in
     # Portal は初回接続時に画面上での許可を求める。その許可は
     # ~/.local/state/krdp-serverstaterc の restorationToken として保存され、以後は
     # 再利用されるので聞かれない。**この token は実機の前に立たなくても取れる** —
-    # --plasma で動いている RDP 画面越しにダイアログを押せばよい(2026-08-22 に
-    # 実際にそうした)。token が失効・不一致になった場合の代替は
+    # --plasma で動いている RDP 画面越しにダイアログを押せばよい
+    # (実測 2026-08-22)。token が失効・不一致になった場合の代替は
     # xdg-desktop-portal-kde の mega-auth で、PermissionStore の
     # kde-authorized / remote-desktop に "yes" を書くとダイアログが出なくなる
     # (上流が headless 用に用意している口。remotedesktop.cpp の
     # isAppMegaAuthorized)。
     #
-    # 復旧手段: この行に --plasma を戻せば、clipboard を失う代わりに許可なしで
-    # 必ず動く。SSH が生きていれば数秒で戻せる。
+    # 復旧手段: krdpserver を --plasma 付きで起動し直せば、clipboard を失う
+    # 代わりに許可なしで必ず動く。unit 実体は store への read-only symlink
+    # なので直接編集はできない。SSH から:
+    #   systemctl --user edit krdpserver
+    # で drop-in を開き、次の 3 行を書いて保存する(値が空の
+    # ExecStart= が既存の ExecStart を打ち消す。空行では打ち消せない):
+    #   [Service]
+    #   ExecStart=
+    #   ExecStart=<systemctl cat krdpserver で見える現 ExecStart> --plasma
+    # そのあと systemctl --user restart krdpserver
+    # 恒久反映はこのファイルを直して rebuild。**drop-in は rebuild では
+    # 消えない**(home-manager 管理外)ので、`systemctl --user revert
+    # krdpserver` で drop-in を消してから restart する。消し忘れると
+    # --plasma のまま走り続け、drop-in が固定した旧 store パスが GC された
+    # 時点で unit 自体が起動しなくなる。
+    #
+    # ── ここから下は krdp-portal-permission unit の話 ──
     # Portal の RemoteDesktop を無人で使えるようにする。
     #
     # xdg-desktop-portal-kde は許可を出す前に PermissionStore の
@@ -326,9 +342,11 @@ in
     systemd.user.services.krdp-portal-permission = {
       Unit = {
         Description = "Pre-authorize krdpserver for the RemoteDesktop portal";
-        # krdpserver より先に走らせる。target との間に順序を張らないのは、
-        # target が Wants する unit の後ろに順序付けられる性質で循環を作らない
-        # ため(このセッションで一度その循環を作って RDP を落としている)。
+        # krdpserver より先に走らせる。After=plasma-workspace.target を
+        # 張ると、target が Wants する unit へ暗黙の After= が付く性質と
+        # 衝突して循環になり、RDP が丸ごと起動しなくなる(実際に起きた)。
+        # Before= 方向なら循環しないが krdpserver との相対順序を保証しない
+        # ので、krdpserver.service へ直接張る。
         Before = [ "krdpserver.service" ];
       };
       Service = {

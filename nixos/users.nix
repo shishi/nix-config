@@ -27,9 +27,13 @@
       "wheel"
       "networkmanager"
     ];
-    shell = pkgs.fish; # ヒアリング #8: fish 第一級
+    shell = pkgs.fish;
 
-    # 初回ログイン手段(無いと新規インストール機にログイン不能 — High-3)。
+    # 初回ログイン手段(無いと新規インストール機へ遠隔ログイン不能。
+    # SSH はパスワード認証を切っているため。物理コンソールからは
+    # hashedPasswordFile を宣言・搬入したホストに限りパスワードで入れる —
+    # 無いまま新規インストールしたホストは shadow が `!` になりコンソールも
+    # 不能。既存ホストで passwd 済みなら shadow は残る)。
     # 実体と導出先の一覧は shared/authorized-keys.nix にある。
     openssh.authorizedKeys.keys = import ../shared/authorized-keys.nix;
   };

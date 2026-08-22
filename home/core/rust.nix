@@ -31,16 +31,16 @@ in
     cargo-binstall
     sccache
     mold
-    rustBootstrap # nix run 用に PATH にも置く(flake app は Task 13)
+    rustBootstrap # nix run 用に PATH にも置く
   ];
 
-  # PATH 順序契約: nix profile → ~/.cargo/bin(v12 裁定)。
-  # fish の実効 PATH は dotfiles 所有(#8(b))のため、ここは bash 系 +
+  # PATH 順序契約: nix profile → ~/.cargo/bin。
+  # fish の実効 PATH は dotfiles 所有のため、ここは bash 系 +
   # hm-session-vars 向けの宣言のみ。準拠は check-env が検証する。
   home.sessionPath = [ "$HOME/.cargo/bin" ];
 
   # sccache + mold(native のみ)+ alias。クロスターゲットと jobs 固定は
-  # #20 裁定で削除(必要なプロジェクトが devshell で個別設定する)
+  # 置かない(必要なプロジェクトが devshell で個別設定する)
   home.file.".cargo/config.toml".text = ''
     [build]
     rustc-wrapper = "${pkgs.sccache}/bin/sccache"

@@ -27,7 +27,7 @@
           "/org/gnome/settings-daemon/plugins/media-keys/custom-keybindings/custom0/"
           "/org/gnome/settings-daemon/plugins/media-keys/custom-keybindings/custom1/"
         ];
-        # ターミナル起動は wezterm(#35 裁定: 旧 gnome-terminal は nix 管理外だった)
+        # ターミナル起動は wezterm
         "org/gnome/settings-daemon/plugins/media-keys/custom-keybindings/custom0" = {
           binding = "<Control><Alt>t";
           command = "wezterm";

@@ -38,9 +38,8 @@ in
     shellAliases = aliases;
   };
 
-  # fish への env/alias 供給は行わない(2026-08-11 撤去)。
-  # dotfiles の config.fish が abbr(23 個)・EDITOR(nvim-edit)・LESS・PAGER を
-  # 既に所有しており、供給ファイルは重複どころかリッチな設定を素朴な値で
-  # 後から上書きして劣化させていた(実測)。NH_FLAKE も dotfiles 直書きへ移管済み。
-  # fish 側の PATH / env / alias の正は dotfiles(#8(b) の完全形)
+  # fish への env/alias 供給は行わない。dotfiles の config.fish が
+  # abbr・EDITOR・LESS・PAGER を既に所有しており、ここから供給すると
+  # リッチな設定を素朴な値で後から上書きして劣化させる(実測)。
+  # NH_FLAKE も dotfiles 直書き。fish 側の PATH / env / alias の正は dotfiles
 }

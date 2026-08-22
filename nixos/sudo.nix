@@ -10,24 +10,23 @@
 # 広がるのを避ける。earth では scripts/setup-sudo-nopasswd.sh が同じ状態を
 # 作っており、NixOS 側はその宣言的な対応物にあたる。
 #
-# **前提が変わっている(2026-08-22)。リモート認証は SSH 鍵のみではない。**
+# **リモート認証は SSH 鍵のみではない。**
 # jupiter は RDP(krdpserver)を LAN と Tailscale の範囲へ公開しており、そこは
 # shishi のシステムパスワードで PAM 認証する。RDP で入ればデスクトップに立てて、
 # そこから `sudo` はパスワード不要 —— つまり **ネットワークからパスワード 1 つで
 # root** の経路が存在する。
 #
-# ssh.nix がパスワード認証を切っているのは依然として正しいが、それだけでは
-# この前提を守れない。守っているのは、RDP の到達範囲を送信元で絞っていること
+# ssh.nix はパスワード認証を切っているが、それだけではこの経路を塞げない。守っているのは、RDP の到達範囲を送信元で絞っていること
 # (hosts/jupiter/default.nix の networking.firewall.extraCommands)と、
 # PAM と TLS だけである。
 #
-# **攻撃面を再評価するならここから始める。** 選択肢は 3 つで、どれも副作用がある。
+# **攻撃面を再評価するならここから始める。** 選択肢は 4 つで、どれも副作用がある。
 # (a) 現状維持。パスワードの強度に全体が依存する
 # (b) sudo にパスワードを要求する。nh の非対話経路と runbook §4 の
 #     systemd-cryptenroll(標準入力でパスフレーズを渡す)が壊れる
-# (c) RDP をやめて SSH トンネルへ戻す
-# (d) 生体認証 + SSH agent 認証に切り替える(2026-08-23 調査。採用せず (a) を
-#     継続 —— ただし将来効かせたくなったときの手順として残す):
+# (c) RDP の直接公開をやめて SSH トンネル(loopback bind + port forward)に切り替える
+# (d) 生体認証 + SSH agent 認証に切り替える(採用していない。将来
+#     効かせたくなったときの手順として残す):
 #     1. 下の extraRules(shishi の NOPASSWD)を消す
 #     2. jupiter は howdy(顔)と fprintd(指紋)が有効なので、ローカルの
 #        sudo は顔か指紋で通るようになる。howdy は abort_if_ssh = true(既定)

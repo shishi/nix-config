@@ -1,10 +1,12 @@
 # jupiter: LUKS2(TPM2 自動解錠はインストール後に systemd-cryptenroll で登録)
-# + btrfs subvolume + zstd。デバイス名はマシン確定時に実値へ(インストール前ゲート 1)
+# + btrfs subvolume + zstd
 { ... }:
 {
   disko.devices.disk.main = {
     type = "disk";
-    device = "/dev/nvme0n1"; # ★実機確定時に必ず実デバイスへ変更
+    # NVMe は 1 本だけの実機なので列挙順に依存しない。増設するなら
+    # /dev/disk/by-id のパスへ切り替える
+    device = "/dev/nvme0n1";
     content = {
       type = "gpt";
       partitions = {

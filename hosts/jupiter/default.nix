@@ -6,7 +6,7 @@
 }:
 let
   # DE の単一真実: この 1 変数から system 側 import と HM 側フラグを導出する
-  desktop = "kde"; # ヒアリング #22 裁定
+  desktop = "kde";
 
   # RDP を通す送信元。RFC1918 の 3 つと、Tailscale の CGNAT 範囲。
   rdpNets = [
@@ -29,7 +29,7 @@ in
   ];
 
   networking.hostName = "jupiter";
-  system.stateVersion = "25.05"; # ★Task 17 Gate 0: インストール直前にその時点の NixOS リリースへ確定(#6)
+  system.stateVersion = "25.05"; # インストール時のリリース。以後は変更しない
 
   # lanzaboote が UKI を署名して systemd-boot を置き換える。
   # 鍵の生成と Setup Mode での enroll は宣言できないので runbook 側で行う
@@ -42,17 +42,17 @@ in
   };
   boot.loader.efi.canTouchEfiVariables = true;
 
-  # TPM2 自動解錠(systemd-cryptenroll)は systemd initrd が前提(High-5。
-  # 無いと enroll しても起動時に解錠されず、遠隔無人再起動が不達)
+  # TPM2 自動解錠(systemd-cryptenroll)は systemd initrd が前提。
+  # 無いと enroll しても起動時に解錠されず、遠隔無人再起動が不達になる
   boot.initrd.systemd.enable = true;
 
   # initrd で NIC を認識させるためのドライバ。nixos-generate-config が生成する
   # availableKernelModules はストレージ・入力系が中心で NIC ドライバを含まない
-  # ため、実機で hardware-configuration.nix を実物へ置き換えても(ゲート 2)
-  # ここは自動では得られない。だから手で宣言する。
+  # ため、hardware-configuration.nix を実機の実物にしても、ここは自動では
+  # 得られない。だから手で宣言する。
   #
   # USB イーサのホストコントローラ(xhci_pci)は hardware-configuration.nix 側
-  # から来る。ゲート 2 で置き換えたあと、それが残っていることを確認すること。
+  # から来る。再生成して置き換えたときは、それが残っていることを確認すること。
   #
   # **実機に有線 LAN ポートは無い**(Minisforum V3)。内蔵は Intel AX210 の
   # 無線のみで、initrd に無線を入れると wpa_supplicant と資格情報を initrd へ
@@ -69,7 +69,7 @@ in
   # それが分かるのは障害の最中である。余分に入っていても initrd が数 KB
   # 増えるだけで害は無い。実際に使うアダプタのドライバ名は
   #   basename $(readlink /sys/class/net/<iface>/device/driver)
-  # で確認し、ここに無ければ追記する(インストール前ゲート 3)。
+  # で確認し、ここに無ければ追記する。
   #
   # e1000 は VM リハーサル用。消すと flake/checks.nix の boot-contract が落ちる。
   boot.initrd.availableKernelModules = [
@@ -113,8 +113,8 @@ in
   # 走っていなかった。sshd 自体は健全で 3 分間 listening していたが、ゲストに
   # IP が無いため VirtualBox の NAT がホスト側で accept した TCP をゲストへ
   # 届けられなかった。根本原因は上記 availableKernelModules に NIC ドライバが
-  # 無く、initrd でリンクが上がっていなかったこと(NIC ドライバを追加した
-  # 今回の修正で解消)。
+  # 無く、initrd でリンクが上がっていなかったこと(availableKernelModules
+  # への NIC ドライバ追加で解消)。
   #
   # この「TCP 確立・banner 無し」という見え方は、VirtualBox の NAT がホスト側
   # で accept してからゲストへ転送する実装に起因する VM 固有のもの。実機で
@@ -178,7 +178,7 @@ in
 
   # 自宅サーバー運用: SSH 常時 + Docker(unix socket のみ)
   services.openssh.enable = true;
-  virtualisation.docker.enable = true; # ヒアリング #36
+  virtualisation.docker.enable = true;
 
   # FHS 非互換の prebuilt バイナリへの備え。x86_64 glibc の prebuilt ELF は
   # /lib64/ld-linux-x86-64.so.2 を interpreter に持ち、NixOS にはそれが無いため
@@ -200,7 +200,7 @@ in
   # 依存する。追加のライブラリが要る事態になったら、その時点の実物を測ってから
   # programs.nix-ld.libraries を足す。
   programs.nix-ld.enable = true;
-  users.users.shishi.extraGroups = [ "docker" ]; # non-root で docker run(受け入れゲート)
+  users.users.shishi.extraGroups = [ "docker" ]; # non-root で docker run
 
   # Steam。unfree なので flake/default.nix の allowUnfree = true が前提。
   #
@@ -234,8 +234,8 @@ in
   # bin/vulkan-tools を持たないため、引数から vulkaninfo は選ばれない。
   #
   #   nix shell nixpkgs#vulkan-tools -c vulkaninfo --summary
+
   # RDP。krdpserver は 0.0.0.0 に bind するので、到達範囲はここで決まる。
-  # 以前は loopback bind + SSH トンネルにしていた。
   #
   # **`networking.firewall.allowedTCPPorts` は使わない。** あれは全インタフェースで
   # 開くため、この機体(lid スイッチとバッテリーを持つ可搬機)を自宅以外の AP へ

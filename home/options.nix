@@ -24,7 +24,7 @@
         "bash"
       ];
       default = "fish";
-      description = "ログインシェル(ヒアリング #8 裁定値)。検証と alias 移植先の導出に使う";
+      description = "ログインシェル。検証と alias 移植先の導出に使う";
     };
 
     skk.enable = lib.mkEnableOption "yaskkserv2 SKK server stack";

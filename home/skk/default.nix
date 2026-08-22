@@ -117,7 +117,7 @@ in
             ${pkgs.coreutils}/bin/mv "$tmp" ${yaskkservDict}
             # HM の activation は名前順で reloadSystemd(sd-switch)が本フックより
             # 先に走るため、辞書生成直後にユニットを明示起動する(これが無いと
-            # 再 switch でも condition failed のまま起動しない — 2 巡目レビュー実測)
+            # 再 switch でも condition failed のまま起動しない — 実測)
             ${pkgs.systemd}/bin/systemctl --user start yaskkserv2.service 2>/dev/null || true
           else
             # 変換は決定的な処理なのでリトライしない(同じ入力なら同じ結果)。
