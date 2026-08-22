@@ -268,39 +268,40 @@ test -s secrets/extra-files/home/shishi/gpg-secret.asc || echo 'gpg export が�
 `<signingkey>` を打ち間違えても `gpg` は非 0 で終わるが、リダイレクトが先に
 空ファイルを作るので、mode だけを見る確認では気づけない。
 
-パスワードハッシュは `mkpasswd` で作る。`-s` は標準入力から読む指定で、
-これが無いと端末のない環境では入力待ちのまま止まる。平文を端末に出さないため、
-入力はシェルの silent read で受けてパイプで渡す。末尾の改行は NixOS 側が
-chomp するので残ってよい。
-
-**このブロックは bash で実行する。** fish は `IFS= read -rsp` も `if ... fi` も
-解釈できないので途中で止まる(ハッシュは作られない)。**`bash` の 1 行を先に
-実行し、プロンプトが出てから残りを貼ること。** まとめて貼ると、後続行が
-親シェルの入力バッファに残ったまま `read` に食われる。
-
-書き込みは生成に成功したときだけ行う。リダイレクトはコマンドの実行前に
-ファイルを truncate するので、`nix run` が失敗すると **0 バイトのファイルが
-mode 600 で残る**。それは手順 3 の mode 確認を通ってしまう。
+初回ログイン用のパスワードは `secrets/login-password` に平文で置く。LUKS の
+パスフレーズと同じ扱いで、`secrets/` は `.gitignore` 済み。**値をこの手順書にも、
+チャットにも、レビュー用の記録にも書かない。**
 
 ```
-bash                       # fish 等から実行する場合は先に bash へ入る
-IFS= read -rsp 'new password: ' pw; echo
-IFS= read -rsp 'retype: ' pw2; echo
-if [ -z "$pw" ] || [ "$pw" != "$pw2" ]; then
-  echo 'empty or mismatched -- 生成しない'
-elif hash=$(printf '%s' "$pw" | nix run nixpkgs#mkpasswd -- -m yescrypt -s) \
-     && [ "${hash#\$y\$}" != "$hash" ]; then
-  printf '%s\n' "$hash" > secrets/extra-files/var/lib/secrets/shishi-password-hash
-  chmod 600 secrets/extra-files/var/lib/secrets/shishi-password-hash
-else
-  echo 'mkpasswd failed -- 生成しない'
-fi
-unset pw pw2 hash
-exit
+install -m 600 /dev/null secrets/login-password
+# エディタで開いてパスワードを 1 行書く
 ```
 
-出力は `$y$` で始まる 1 行になる。**このファイルの中身をこの手順書や
-レビュー用の記録に貼らないこと。**
+**RDP とコンソールのログインで自分が打つ値**なので、打てる長さにする。ここから
+`mkpasswd` でハッシュを作り、`--extra-files` で運ぶのはハッシュだけ。
+
+```
+[ -s secrets/login-password ] || { echo 'パスワードが空'; exit 1; }
+hash=$(printf '%s' "$(cat secrets/login-password)" | nix run nixpkgs#mkpasswd -- -m yescrypt -s)
+case "$hash" in
+  '$y$'*) printf '%s\n' "$hash" > secrets/extra-files/var/lib/secrets/shishi-password-hash
+          chmod 600 secrets/extra-files/var/lib/secrets/shishi-password-hash
+          echo 'ハッシュを生成した' ;;
+  *)      echo 'mkpasswd が yescrypt のハッシュを返さなかった -- 生成しない' ;;
+esac
+unset hash
+```
+
+`-s` は `mkpasswd` に標準入力から読ませる指定で、これが無いと端末のない環境で
+入力待ちのまま止まる。`$(cat ...)` がエディタの付ける末尾の改行を落とす。
+書き込みを `case` の中に置いてあるのは、リダイレクトがコマンドの実行前に
+ファイルを truncate するため — `nix run` が失敗すると **0 バイトのファイルが
+mode 600 で残り**、手順 3 の mode 確認を素通りする。
+
+**この値はインストール時にしか効かない。** `mutableUsers = true` なので
+`hashedPasswordFile` が使われるのは shishi を新規作成するときだけで、以後は
+実機で `passwd` を実行した値が正になる(`secrets/login-password` を書き換えても
+実機には反映されない)。パスワードを強くしたくなったら実機で `passwd` を叩く。
 
 **手順 1: ディスクを作る(disko phase だけ)**
 
@@ -496,6 +497,9 @@ rm -rf secrets/extra-files
 
 `secrets/luks-passphrase` は §6 の遠隔復旧で要る値なので残す。捨てるなら先に
 別の場所へ控える。**`secrets/` を丸ごと消すとパスフレーズも消える。**
+
+`secrets/login-password` はインストール後は使われない(上記のとおり以後は
+実機の `passwd` が正)。残すかどうかは、忘れたときに困るかどうかで決める。
 
 **`known_hosts` に installer の鍵が残っていたら消す。** インストール後の機体は
 installer とは別の host key を出すので、素の `ssh` は
