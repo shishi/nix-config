@@ -27,6 +27,21 @@
       };
     };
 
+    # **force が要る。** KDE は「既定のアプリケーション」を GUI から変えると
+    # これらのファイルを直接書き、home-manager は管理外のファイルを上書きしない。
+    # 付けないと activation が "Existing file ... would be clobbered" で失敗する
+    # (実機で実際に失敗し、home-manager-shishi.service が落ちて、この commit の
+    # 変更が一切適用されなかった)。新規インストールでも、セッションが一度でも
+    # 起動すれば同じ状態になる。
+    #
+    # 代償として、GUI で関連付けを変えても次の switch で戻る。panels と同じ扱いで、
+    # 変えたいものは repo に書く。
+    #
+    # xdg.mimeApps は 2 箇所に同じ内容を書く(home-manager の
+    # modules/misc/xdg/mime-apps.nix)。両方に force が要る。
+    xdg.configFile."mimeapps.list".force = true;
+    xdg.dataFile."applications/mimeapps.list".force = true;
+
     home.packages = with pkgs; [
       _1password-gui
       brave
