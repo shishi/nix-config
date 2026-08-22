@@ -16,10 +16,6 @@ VM で成立している。カーネル更新に追従させる `systemd-pcrlock
 
 ## 1. 何が宣言済みで、何を手で打つのか
 
-installer 自体も宣言済み(`hosts/installer/default.nix` / `nix build .#installer-iso`)。
-公開鍵を焼き込んであるので、起動しただけで `root@` に鍵で入れる。詳細は §2 の
-ゲート 4 手順 0。
-
 `hosts/jupiter/default.nix` と `hosts/jupiter/disko.nix` に宣言済み。**既に
 インストール済みのホストでは**、§3.1・§3.2 の鍵生成を先に済ませたうえで
 `nixos-rebuild` を実行すれば反映される。
@@ -73,46 +69,26 @@ installer 自体も宣言済み(`hosts/installer/default.nix` / `nix build .#ins
 
 ## 2. インストール前ゲート
 
-`hosts/jupiter/hardware-configuration.nix` は現在スタブで、2 段のゲートを
-コメントとして持っている。
+**ゲート 2・3 は実機で確認済み(2026-08-22)。作業は残っていない。**
 
-**ゲート 2**: installer から起動した実機で
+- `hosts/jupiter/hardware-configuration.nix` は実機の
+  `nixos-generate-config --show-hardware-config --no-filesystems` の出力そのもの。
+  スタブではない
+- ディスクは `nvme0n1`(KINGSTON OM8PGP41024Q-A0 / 953.9 GB)1 本。
+  `hosts/jupiter/disko.nix` の `device` と一致している。**手順 1 の disko phase は
+  これを実際に消去する。**別のディスクを指していれば取り返しがつかないので、
+  機体を変えるときはここだけ確認し直す
+- USB イーサは `enp198s0f3u1` / driver `r8152`。`boot.initrd.availableKernelModules`
+  に含まれている
+- TPM は `/dev/tpm0`、version major 2。Secure Boot は `disabled`
 
-```
-nixos-generate-config --no-filesystems --show-hardware-config
-```
-
-を実行し、その出力で `hosts/jupiter/hardware-configuration.nix` のスタブを
-実物に置き換える。
-
-置き換えた出力に **`xhci_pci` が含まれることを確認する。** 無ければ手で足す。
-USB イーサネットのホストコントローラがこれで、欠けると次のゲート 3 で
-どれだけドライバを並べても initrd で列挙されない。
-
-**ゲート 3**: **この機体に有線 LAN ポートは無い。** 内蔵は Intel AX210 の
-無線だけで、initrd に無線を入れると wpa_supplicant と資格情報を initrd へ
-持ち込むことになるため、そこまではしない。したがって:
-
-- **USB イーサネットアダプタを挿しっぱなしにする。** 「復旧が要るときに挿す」は
-  成立しない — 復旧が要るのは TPM 解錠に失敗して遠隔にいるときで、その瞬間に
-  挿す手はそこに無い。少なくとも、失敗しうる再起動(§7 が挙げるブートローダ・
-  Secure Boot 構成を変える操作)の**前**には挿してあること。挿さっていなければ
-  initrd のリンクは上がらず、復旧手段は物理コンソールだけになる。
-- `hosts/jupiter/default.nix` の `boot.initrd.availableKernelModules` に
-  よく使われるチップの集合を宣言してある(**一覧はここに写さない。実物を見ること。**
-  写すとずれる)。**全部を覆ってはいないので、下の確認は必ず行う。**
-  型番を固定していないのは、足りないと復旧が静かに使えず、それが分かるのは
-  障害の最中だから。余分に入っていても initrd が数 KB 増えるだけで害は無い。
-
-実際に使うアダプタのドライバがこの集合に含まれることは、一度だけ確認する。
-
-```
-basename $(readlink /sys/class/net/<iface>/device/driver)
-```
-
-含まれていなければ `boot.initrd.availableKernelModules` へ追記する。
-`e1000` は VM リハーサル用なので消さない(消すと `flake/checks.nix` の
-`boot-contract` が落ちて VM での検証経路が壊れる)。
+**USB イーサネットアダプタは挿しっぱなしにする。** 「復旧が要るときに挿す」は
+成立しない — 復旧が要るのは TPM 解錠に失敗して遠隔にいるときで、その瞬間に挿す手は
+そこに無い。少なくとも、失敗しうる再起動(§7 が挙げるブートローダ・Secure Boot
+構成を変える操作)の**前**には挿してあること。挿さっていなければ initrd のリンクは
+上がらず、復旧手段は物理コンソールだけになる。内蔵は Intel AX210 の無線のみで、
+initrd に無線を入れると wpa_supplicant と資格情報を initrd へ持ち込むことになる
+ため、そこまではしない。
 
 **ゲート 4(初回インストール専用。対象マシンにまだ NixOS がインストール
 されていない場合のみ適用)**
@@ -160,32 +136,7 @@ basename $(readlink /sys/class/net/<iface>/device/driver)
 
 ### 手順
 
-**手順 0: installer USB を作って起動する**
-
-**素の `nixos-minimal` ISO を使わない。** 素の ISO には root の
-`authorized_keys` が無く、`nixos-anywhere` は disko と install の実行時に必ず
-`root@` へ接続する(installer の `root` と `nixos` は空パスワードで、空パスワード
-での SSH ログインは sshd 側で許可されていない)。そのため素の ISO では、
-インストールのたびにコンソールで公開鍵を手打ちすることになる。
-
-`hosts/installer/default.nix` が、`shared/authorized-keys.nix` の公開鍵を
-焼き込んだ ISO を宣言してある。ワークステーション側で作る。
-
-```
-nix build .#installer-iso --out-link /tmp/installer-iso
-ls -lL /tmp/installer-iso/iso/nixos-installer-shishi.iso
-```
-
-USB への書き込みは Windows 側で行うので、Windows のファイルシステムへコピーする
-(ISO は約 1.4 GB)。
-
-```
-cp -L /tmp/installer-iso/iso/nixos-installer-shishi.iso /mnt/c/Users/shishi/Downloads/
-```
-
-Rufus か balenaEtcher で USB へ書く。**Rufus を使う場合は「DD イメージモード」を
-選ぶ。** **この書き込み手順は未確認**(ISO の生成とファイル名までは実測したが、
-書いた USB から実機が起動するところまでは通していない)。
+**手順 0: installer を起動して root に鍵を置く**
 
 **USB イーサネットアダプタを挿してから起動する。** この機体に有線 LAN ポートは
 無く、`nixos-anywhere` はワークステーションから対象機の sshd へ繋ぐので、対象機が
@@ -209,6 +160,20 @@ ip -brief addr show
 以降の `<target>` はこの IP。`<port>` は対象機の sshd のポートで、既定の 22 なら
 `--ssh-port` / `-p` は省いてよい(リハーサルでは VM の NAT ポート転送を挟んだ
 ため明示した)。
+
+**`root` に公開鍵を置く。実機のコンソールでは打たない。**
+`nixos-anywhere` は disko と install の両フェーズで `root@` へ接続するが、素の
+`nixos-minimal` ISO には root の `authorized_keys` が無い。installer の `root` と
+`nixos` は空パスワードで、空パスワードでの SSH ログインは sshd が拒否するため、
+コンソールで `nixos` に `passwd` を 1 回実行してから、**ワークステーション側で**
+次を実行する。
+
+```
+ssh nixos@<target> 'sudo install -d -m700 /root/.ssh; curl -Ls github.com/shishi.keys | sudo tee /root/.ssh/authorized_keys'
+```
+
+installer の `nixos` は wheel に属し `security.sudo.wheelNeedsPassword` が false
+なので、`sudo` はパスワードを聞かない。実機で打つのは `passwd` だけになる。
 
 疎通を確認してから先へ進む。
 
