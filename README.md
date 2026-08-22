@@ -45,8 +45,9 @@ nix run .#switch               # 適用(check-env-critical 内蔵。--force で�
   署名されていないため、有効なままだと起動しない
 
 初回起動後の手順。**パスは `NH_FLAKE` が指す場所と一致していなければならない**
-(`~/dev/src/github.com/shishi/nix-config`)。**`ghq` は jupiter に入っていない**
-ので `ghq get` は使えず、素の `git clone` をそのパスに打つ。
+(`~/dev/src/github.com/shishi/nix-config`)。`ghq` 自体は宣言済みで入っているが、
+root 設定(gitconfig)は dotfiles の setup 前で未設定のため、`ghq get` は既定の
+`~/ghq` に clone してパスがずれる。素の `git clone` をそのパスに打つ。
 
 ```
 ssh -o StrictHostKeyChecking=accept-new -T git@github.com   # host key を受理する
