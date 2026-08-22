@@ -99,9 +99,13 @@ in
         Translations.LANGUAGE = "en_US";
       };
 
-      # パネルを右へ。plasma-manager は panels が宣言されると
-      # plasma-org.kde.plasma.desktop-appletsrc を削除してから作り直すので、
-      # 使うウィジェットはすべてここに並べる必要がある(GUI での追加は次の switch で消える)。
+      # パネルを右へ。panels を宣言すると startup script が全パネルを除去して
+      # 宣言どおり作り直すので、パネルで使うウィジェットはすべてここに並べる
+      # 必要がある(appletsrc ファイル自体の削除は overrideConfig = true のときだけ)。
+      # script は生成 JS の sha256 が前回実行時から変わったときだけ再実行される
+      # (jupiter の ~/.local/share/plasma-manager/scripts/ で実測。2026-08-23)。
+      # つまり GUI での追加は、宣言を変えた後の最初の Plasma セッション開始時に
+      # 消える。宣言が同じ間はセッションをまたいで残り続ける。
       # kimpanel は fcitx5 の入力モード表示なので落とさない。
       panels = [
         {
@@ -114,9 +118,17 @@ in
               # taskbar に固定するもの。並び順はこのリストの順。
               # .desktop の実名は実機で確認した(brave は brave-browser.desktop と
               # com.brave.Browser.desktop の 2 つを持つ。前者を使う)。
+              #
+              # 必ず applications: 形式で書く。GUI でピン留めすると
+              # file:///nix/store/...-user-environment/... の絶対パスで記録され、
+              # GC で旧パスが消えた時点でピンが死ぬ(wezterm を GUI で留めたら
+              # この形で記録されていた。2026-08-23 実機)。Exec が絶対 store
+              # パスの .desktop なら、死ぬまでの間も旧世代を起動し続ける
+              # (wezterm の Exec は bare name なので PATH 解決で新世代が動く)。
               iconTasks.launchers = [
                 "applications:systemsettings.desktop"
                 "applications:org.kde.dolphin.desktop"
+                "applications:org.wezfurlong.wezterm.desktop"
                 "applications:brave-browser.desktop"
                 "applications:chatgpt.desktop"
                 "applications:claude-desktop.desktop"
