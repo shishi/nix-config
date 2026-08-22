@@ -297,7 +297,11 @@ in
         Type = "oneshot";
         RemainAfterExit = true;
         # PermissionStore は D-Bus activatable なので、先に起動しておく必要はない。
-        ExecStart = "${pkgs.systemd}/bin/busctl --user call org.freedesktop.impl.portal.PermissionStore /org/freedesktop/impl/portal/PermissionStore org.freedesktop.impl.portal.PermissionStore SetPermission sbsas kde-authorized true remote-desktop org.kde.krdpserver 1 yes";
+        # シグネチャは sbssas (table, create, id, app, permissions)。busctl は
+        # 型指定が短いと引数を配列長として読もうとして
+        # "Failed to parse ... number of array entries" で落ちる。introspect で
+        # 確定させてある。
+        ExecStart = "${pkgs.systemd}/bin/busctl --user call org.freedesktop.impl.portal.PermissionStore /org/freedesktop/impl/portal/PermissionStore org.freedesktop.impl.portal.PermissionStore SetPermission sbssas kde-authorized true remote-desktop org.kde.krdpserver 1 yes";
       };
       Install.WantedBy = [ "plasma-workspace.target" ];
     };
