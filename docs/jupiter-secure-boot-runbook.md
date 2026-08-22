@@ -169,8 +169,14 @@ ip -brief addr show
 次を実行する。
 
 ```
-ssh nixos@<target> 'sudo install -d -m700 /root/.ssh; curl -Ls github.com/shishi.keys | sudo tee /root/.ssh/authorized_keys'
+ssh -o StrictHostKeyChecking=no -o UserKnownHostsFile=/dev/null nixos@<target> \
+  'sudo install -d -m700 /root/.ssh; curl -Ls github.com/shishi.keys | sudo tee /root/.ssh/authorized_keys'
 ```
+
+**この 1 行にも host key のオプションを付ける。** 付けずに実行すると installer の
+使い捨て host key が `known_hosts` に残り、インストール後に同じアドレスへ繋いだ
+ときに `REMOTE HOST IDENTIFICATION HAS CHANGED` で拒否される(実測: 付け忘れて
+実際にこうなった)。インストール後の機体は installer とは別の host key を出す。
 
 installer の `nixos` は wheel に属し `security.sudo.wheelNeedsPassword` が false
 なので、`sudo` はパスワードを聞かない。実機で打つのは `passwd` だけになる。
@@ -490,6 +496,21 @@ rm -rf secrets/extra-files
 
 `secrets/luks-passphrase` は §6 の遠隔復旧で要る値なので残す。捨てるなら先に
 別の場所へ控える。**`secrets/` を丸ごと消すとパスフレーズも消える。**
+
+**`known_hosts` に installer の鍵が残っていたら消す。** インストール後の機体は
+installer とは別の host key を出すので、素の `ssh` は
+`REMOTE HOST IDENTIFICATION HAS CHANGED` で止まる。
+
+```
+ssh-keygen -R <target>
+```
+
+消したあと接続すると新しい鍵の受理を聞かれる。**受理する前に、対象機が出している
+指紋と照合する。**
+
+```
+ssh-keyscan <target> | ssh-keygen -lf -
+```
 
 初回起動後、対象機で GPG 秘密鍵を import する。ワークステーションから
 `ssh <target> 'bash -s' < script` の形で流す(`shishi` のログインシェルは fish
