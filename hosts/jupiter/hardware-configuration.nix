@@ -3,15 +3,13 @@
 #   nixos-generate-config --no-filesystems --show-hardware-config
 # で実物を取得して置き換えるまで、インストールに進むことは禁止。
 #
-# インストール前ゲート 3: ゲート 2 で実物に置き換えた後も、これだけでは
-# 遠隔復旧経路(initrd SSH)は機能しない。nixos-generate-config が出す
-# availableKernelModules はストレージ・入力系が中心で、NIC ドライバは
-# 通常含まれない。実機の NIC ドライバ名を
+# インストール前ゲート 3: ゲート 2 で実物に置き換えても、initrd の NIC
+# ドライバはここから得られない(nixos-generate-config が出すのはストレージ・
+# 入力系が中心)。この機体には有線 LAN ポートが無く、遠隔復旧(initrd SSH)は
+# USB イーサネットアダプタを挿す前提にしてある。ドライバの集合は
+# hosts/jupiter/default.nix の boot.initrd.availableKernelModules 側で宣言済み。
+# 使うアダプタがその集合に含まれることだけ、一度確認する:
 #   basename $(readlink /sys/class/net/<iface>/device/driver)
-# で確認し、hosts/jupiter/default.nix の boot.initrd.availableKernelModules
-# (現状 VM 用の "e1000" のみ)へ実機のドライバ名を追記するまで、TPM 解錠が
-# 失敗した瞬間に遠隔から入れない(e1000 は VM リハーサル用として残す —
-# 消すと VM での検証経路が壊れる)。
 { lib, modulesPath, ... }:
 {
   imports = [ (modulesPath + "/installer/scan/not-detected.nix") ];

@@ -38,25 +38,44 @@ in
   # 無いと enroll しても起動時に解錠されず、遠隔無人再起動が不達)
   boot.initrd.systemd.enable = true;
 
-  # initrd で NIC を認識させるためのドライバ。hardware-configuration.nix の
-  # boot.initrd.availableKernelModules (nvme/xhci_pci/usb_storage/sd_mod) は
-  # ストレージ・入力系のみで、NIC ドライバは含まれない。initrd でネットワーク
-  # が要るのは下記の遠隔復旧(initrd SSH)のためで、これは NixOS の既定の
-  # 想定外: nixos-generate-config が生成する availableKernelModules は
-  # ストレージ・入力系が中心で、NIC ドライバは通常入らない。したがって実機で
-  # hardware-configuration.nix を実物に置き換えても(インストール前ゲート 2)、
-  # この宣言は自動的には得られず、実機のドライバ名をここへ追記する必要がある
-  # (hardware-configuration.nix のインストール前ゲート 3 参照)。
+  # initrd で NIC を認識させるためのドライバ。nixos-generate-config が生成する
+  # availableKernelModules はストレージ・入力系が中心で NIC ドライバを含まない
+  # ため、実機で hardware-configuration.nix を実物へ置き換えても(ゲート 2)
+  # ここは自動では得られない。だから手で宣言する。
   #
-  # 実測(VM jupiter-anywhere-test, 2026-08-21):
-  #   basename $(readlink /sys/class/net/enp0s3/device/driver)  # => e1000
-  # この e1000 は VM の NIC のドライバであり、実機 jupiter の NIC ドライバ名は
-  # 未確定。インストール時に同じ方法で確認し、実機のドライバ名をここへ追記
-  # すること(既存の e1000 は消さない — availableKernelModules は「含まれて
-  # いれば適用される」意味論で、余分なモジュールが含まれていても実機に害は
-  # 無い。e1000 を消すと VM での検証経路(flake/checks.nix の e1000 check)が
-  # 壊れる)。
-  boot.initrd.availableKernelModules = [ "e1000" ];
+  # USB イーサのホストコントローラ(xhci_pci)は hardware-configuration.nix 側
+  # から来る。ゲート 2 で置き換えたあと、それが残っていることを確認すること。
+  #
+  # **実機に有線 LAN ポートは無い**(Minisforum V3)。内蔵は Intel AX210 の
+  # 無線のみで、initrd に無線を入れると wpa_supplicant と資格情報を initrd へ
+  # 持ち込むことになる。そこまではしない。
+  #
+  # 代わりに **USB イーサネットアダプタを挿しっぱなしにする**前提を採る。
+  # 「復旧が要るときに挿す」は成立しない — 復旧が要るのは TPM 解錠に失敗して
+  # 遠隔にいるときで、その瞬間に挿す手はそこに無い。挿さっていなければ
+  # initrd のリンクは上がらず、復旧手段は物理コンソールだけになる。
+  #
+  # アダプタの型番は固定しない。availableKernelModules は「含まれていれば
+  # そのハードがあるとき適用される」意味論なので、よく使われるチップの集合を
+  # 入れておく。**全部を覆ってはいない。** 足りないと遠隔復旧が静かに使えず、
+  # それが分かるのは障害の最中である。余分に入っていても initrd が数 KB
+  # 増えるだけで害は無い。実際に使うアダプタのドライバ名は
+  #   basename $(readlink /sys/class/net/<iface>/device/driver)
+  # で確認し、ここに無ければ追記する(インストール前ゲート 3)。
+  #
+  # e1000 は VM リハーサル用。消すと flake/checks.nix の boot-contract が落ちる。
+  boot.initrd.availableKernelModules = [
+    "e1000"
+    "usbnet"
+    "asix"
+    "ax88179_178a"
+    "r8152"
+    "r8153_ecm"
+    "cdc_ether"
+    "cdc_ncm"
+    "smsc95xx"
+    "aqc111"
+  ];
 
   # TPM 自動解錠が失敗したときの遠隔復旧。これが無いと、systemd initrd を
   # 入れた理由(遠隔無人再起動)が TPM の失敗でそのまま失われる。
@@ -94,19 +113,60 @@ in
   # NIC ドライバが欠けた場合はこの中間の accept が無いため、ARP 解決自体が
   # 失敗して接続拒否かタイムアウトになると考えられる(未確認)。
   #
-  # initrd 向けに実 NIC 用の DHCP ネットワーク定義を自前で置いていない理由:
-  # 実測(2026-08-21、この定義を一時的に外して
+  # initrd 向けの DHCP 定義。**自前で置かないと IP が来ない。**
+  #
+  # 以前はこれを置いていなかった。networking.useDHCP(既定 true)由来の
+  # nixpkgs デフォルト "99-ethernet-default-dhcp" が initrd 側にも自動生成
+  # されるので任せられたため。networking.networkmanager.enable = true は
+  # useDHCP を false にするので、その生成が止まる。
+  #
+  # 実測: NM 有効で
   # `nix eval .#nixosConfigurations.jupiter.config.boot.initrd.systemd.network.networks`
-  # を確認)で、networking.useDHCP(既定 true。実測で有効を確認済み)由来の
-  # nixpkgs デフォルト "99-ethernet-default-dhcp"(matchConfig.Type = "ether";
-  # DHCP = "yes";)が既に同じ内容で initrd 側にも自動生成されていることを
-  # 確認した。今回の VM 故障(initrd でリンクが上がらなかったこと)の原因は
-  # NIC ドライバの欠落であり、この重複する自前定義の有無とは無関係だった。
-  # 実測された故障に対応しない重複定義を残す理由が無いため、置かない。
+  # が `{}` になり、NM を mkForce false に戻すと
+  # ["99-ethernet-default-dhcp" "99-wireless-client-dhcp"] が返る。
+  #
+  # 定義が無いと、ドライバが入っていてリンクが上がり sshd が listen していても
+  # アドレスが付かない。外形は「NIC ドライバ欠落」のときと同じなので、
+  # ドライバを足したことで切り分けが逆方向へ誘導される。
+  #
+  # 無線側(99-wireless-client-dhcp 相当)は置かない。initrd に
+  # wpa_supplicant と資格情報を持ち込まない以上、一致しても接続できない。
+  #
+  # **この matchConfig に Name や Driver の制約を足さないこと。** [Match] は
+  # AND なので、足すとマッチが狭まる。USB イーサは MAC がローカル管理アドレスだと
+  # `enx…` ではなく `usb0` のままになることがあり、`en*` 系の制約から外れる。
+  # boot-contract は Type と DHCP の値しか見ないので、この形は検出できない。
+  #
+  # 名前と中身は nixpkgs の既定と同じにする。Kind = "!*" は仮想インタフェース
+  # (bridge / veth など)を除外する指定で、上流の定義に含まれている(実測:
+  # NM を mkForce false に戻すと matchConfig が {Kind = "!*"; Type = "ether";})。
+  # 同名なので、将来 useDHCP が true へ戻っても衝突せずマージされる。
+  boot.initrd.systemd.network.networks."99-ethernet-default-dhcp" = {
+    matchConfig = {
+      Type = "ether";
+      Kind = "!*";
+    };
+    networkConfig.DHCP = "yes";
+  };
 
   # これが無いと SSH で入る前に root デバイスの unit がタイムアウトし、
   # 復旧経路が「間に合わない」形で死ぬ。
   fileSystems."/".options = [ "x-systemd.device-timeout=infinity" ];
+
+  # **この機体に有線 LAN ポートは無い。** NetworkManager を入れないと、
+  # 無線を AP へ接続させるものが誰も居らず、DHCP 以前にリンクが上がらない
+  # (dhcpcd だけでは無線は繋がらない)。SSH も RDP も届かないので、
+  # ここまでの構成すべてがこれに依存している。
+  #
+  # 有効化すると networking.useDHCP は false になり、
+  # networking.wireless(wpa_supplicant)は NetworkManager 側が立てる。
+  # Plasma の接続 UI(plasma-nm)は plasma6 module が既に入れている。
+  #
+  # 資格情報は NetworkManager が /etc/NetworkManager/system-connections/ に持つ。
+  # public repo にも --extra-files にも出さない。コンソールで一度接続するだけ。
+  # nixos/users.nix が shishi を networkmanager グループへ入れているのは
+  # この宣言と対になっている。
+  networking.networkmanager.enable = true;
 
   # 自宅サーバー運用: SSH 常時 + Docker(unix socket のみ)
   services.openssh.enable = true;
@@ -166,6 +226,11 @@ in
   #
   #   nix shell nixpkgs#vulkan-tools -c vulkaninfo --summary
   programs.steam.enable = true;
+
+  # pipewire は plasma6 が既に立てているが、rtkit が無いとリアルタイム優先度を
+  # 取れない。負荷が高いときに音が途切れる側に倒れる。増えるのは
+  # rtkit-daemon 1 本で、polkit は既に有効、firewall の口も増えない。
+  security.rtkit.enable = true;
 
   # 初回インストールで nixos-anywhere --extra-files に渡した鍵は、tar が
   # --no-same-owner で展開されるため所有者が root になる(mode だけが保存される)。

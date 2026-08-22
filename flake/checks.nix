@@ -121,13 +121,18 @@
             # (type + base64 + comment)なので改行は値の内部に現れず、
             # 連結しても「本数がずれた 2 つの列」が同じ文字列に化けることはない。
             joinKeys = lib.concatStringsSep "\n";
-            # 実測(2026-08-21): hosts/jupiter/default.nix が自前で置いていた
-            # 実 NIC 向け DHCP 定義を一時的に外しても、networking.useDHCP
-            # (既定 true。実機・VM とも有効)由来の nixpkgs デフォルト
-            # "99-ethernet-default-dhcp"(matchConfig.Type = "ether"; DHCP = "yes")
-            # が同じ内容で initrd 側にも存在し続けた。この重複定義は実測された
-            # VM 故障(NIC ドライバ欠落)とは無関係だったため削除済み。復旧経路の
-            # NIC 到達性は下の initrd.availableKernelModules.e1000 で見る。
+            # initrd の DHCP 定義は **networking.useDHCP に連動して消える**。
+            # 以前は useDHCP(既定 true)由来の nixpkgs デフォルト
+            # "99-ethernet-default-dhcp" が initrd 側にも生成されるので任せて
+            # いたが、networking.networkmanager.enable = true が useDHCP を
+            # false にするため、その生成が止まる(実測: NM 有効で
+            # boot.initrd.systemd.network.networks が {} になり、
+            # NM を mkForce false に戻すと 2 定義が返る)。
+            #
+            # 定義が無いと、ドライバが入っていてリンクが上がり sshd が listen
+            # していてもアドレスが付かない。外形は NIC ドライバ欠落と同じで、
+            # ビルドも起動も成功するため、気づくのは復旧が要る場面になる。
+            # だから config 側の宣言をここで固定する。
           in
           pkgs.runCommand "boot-contract" { } ''
             ok=1
@@ -155,6 +160,25 @@
             check initrd.availableKernelModules.e1000 "${
               if builtins.elem "e1000" cfg.boot.initrd.availableKernelModules then "present" else "missing"
             }" "present"
+            # 下の initrd 系の条件は systemd initrd が前提。boot.initrd.systemd.enable
+            # を落とすと scripted initrd に戻り、network.networks も
+            # crypttabExtraOpts の tpm2-device も initrd に反映されない。
+            # にもかかわらず attrset の値としては読めてしまうので、土台を先に見る。
+            # これが無いと、下の条件は「見ているように見えて何も守らない」。
+            check initrd.systemd.enable "${if cfg.boot.initrd.systemd.enable then "true" else "false"}" "true"
+            # NIC ドライバがあってもこれが無いと IP が来ない(上のコメント参照)。
+            check initrd.dhcpNetwork "${
+              if cfg.boot.initrd.systemd.network.networks ? "99-ethernet-default-dhcp" then
+                "present"
+              else
+                "missing"
+            }" "present"
+            check initrd.dhcpNetwork.match "${
+              cfg.boot.initrd.systemd.network.networks."99-ethernet-default-dhcp".matchConfig.Type or ""
+            }" "ether"
+            check initrd.dhcpNetwork.dhcp "${
+              cfg.boot.initrd.systemd.network.networks."99-ethernet-default-dhcp".networkConfig.DHCP or ""
+            }" "yes"
             # これが無いと SSH で入る前に root デバイスの unit がタイムアウトする。
             check root.deviceTimeout "${
               if builtins.elem "x-systemd.device-timeout=infinity" cfg.fileSystems."/".options then

@@ -25,20 +25,20 @@ VM で成立している。カーネル更新に追従させる `systemd-pcrlock
   (`pkiBundle = "/var/lib/sbctl";`)
 - `boot.loader.efi.canTouchEfiVariables = true;`
 - `boot.initrd.systemd.enable = true;`(TPM2 自動解錠には systemd initrd が前提)
-- `boot.initrd.availableKernelModules = [ "e1000" ];`(VM の NIC ドライバ名。
-  実機のドライバ名は §2 で確認して追記する。`e1000` は VM リハーサル用として
-  残し、消さない)
+- `boot.initrd.availableKernelModules`(`e1000` = VM 用 + USB イーサの集合。
+  実機に有線ポートが無いため、遠隔復旧は USB アダプタ前提。詳細は §2 のゲート 3。
+  `e1000` は VM リハーサル用として残し、消さない)
 - `boot.initrd.network.enable = true;` と `boot.initrd.network.ssh`
   (`port = 2222`、`hostKeys` は `/var/lib/initrd-ssh/ssh_host_ed25519_key`
   を指す絶対パス指定。実体(鍵ファイル)は宣言できないので手で生成する
   (§3.2)。`authorizedKeys` は本体ユーザーの鍵を流用)
-- initrd の DHCP は**自前で宣言しない**。`networking.useDHCP`(既定 true)から
-  nixpkgs が `99-ethernet-default-dhcp`(`matchConfig.Type = "ether"`)を
-  initrd 側にも生成するので、それに任せる。リンクが上がらないときに疑うのは
-  この定義ではなく、上の `availableKernelModules`(NIC ドライバ)の方。
-  **`networking.useDHCP` を false にすると(NetworkManager へ切り替える等)、
-  initrd 側の DHCP 定義も生成されなくなり、§6 の遠隔復旧経路が連動して
-  死ぬ。**
+- `boot.initrd.systemd.network.networks."99-ethernet-default-dhcp"` を
+  **自前で宣言している**。`networking.networkmanager.enable = true` が
+  `networking.useDHCP` を false にし、それに連動して nixpkgs 由来の
+  同名デフォルトが initrd 側から消えるため(実測)。
+  **この宣言を消すと、ドライバが入っていてリンクが上がっても IP が来ず、
+  §6 の遠隔復旧が死ぬ。** 外形は NIC ドライバ欠落と同じなので切り分けを誤る。
+  `flake/checks.nix` の `boot-contract` がこの宣言の存在と中身を固定している。
 - `fileSystems."/".options = [ "x-systemd.device-timeout=infinity" ];`
 - `hosts/jupiter/disko.nix` の
   `disko.devices.disk.main.content.partitions.luks.content.settings.crypttabExtraOpts`
@@ -78,25 +78,34 @@ nixos-generate-config --no-filesystems --show-hardware-config
 を実行し、その出力で `hosts/jupiter/hardware-configuration.nix` のスタブを
 実物に置き換える。
 
-**ゲート 3**: `nixos-generate-config` が生成する
-`boot.initrd.availableKernelModules` はストレージ・入力系
-(`nvme` / `xhci_pci` / `usb_storage` / `sd_mod` 相当)が中心で、NIC ドライバは
-含まれない。initrd でネットワークが要るのは §6 の遠隔復旧経路(initrd SSH)の
-ためであり、ゲート 2 だけでは自動的に得られない。実機で NIC ドライバ名を
-確認し、`hosts/jupiter/default.nix` の `boot.initrd.availableKernelModules` へ
-実機の値を追記する。
+置き換えた出力に **`xhci_pci` が含まれることを確認する。** 無ければ手で足す。
+USB イーサネットのホストコントローラがこれで、欠けると次のゲート 3 で
+どれだけドライバを並べても initrd で列挙されない。
+
+**ゲート 3**: **この機体に有線 LAN ポートは無い。** 内蔵は Intel AX210 の
+無線だけで、initrd に無線を入れると wpa_supplicant と資格情報を initrd へ
+持ち込むことになるため、そこまではしない。したがって:
+
+- **USB イーサネットアダプタを挿しっぱなしにする。** 「復旧が要るときに挿す」は
+  成立しない — 復旧が要るのは TPM 解錠に失敗して遠隔にいるときで、その瞬間に
+  挿す手はそこに無い。少なくとも、失敗しうる再起動(§7 が挙げるブートローダ・
+  Secure Boot 構成を変える操作)の**前**には挿してあること。挿さっていなければ
+  initrd のリンクは上がらず、復旧手段は物理コンソールだけになる。
+- `hosts/jupiter/default.nix` の `boot.initrd.availableKernelModules` に
+  よく使われるチップの集合を宣言してある(**一覧はここに写さない。実物を見ること。**
+  写すとずれる)。**全部を覆ってはいないので、下の確認は必ず行う。**
+  型番を固定していないのは、足りないと復旧が静かに使えず、それが分かるのは
+  障害の最中だから。余分に入っていても initrd が数 KB 増えるだけで害は無い。
+
+実際に使うアダプタのドライバがこの集合に含まれることは、一度だけ確認する。
 
 ```
 basename $(readlink /sys/class/net/<iface>/device/driver)
 ```
 
-VM(NIC `enp0s3`)の値は `e1000`。**実機 jupiter のドライバ名は未確認。**
-インストール時に上記コマンドで確認し、`boot.initrd.availableKernelModules` へ
-実機の値を追記すること。`availableKernelModules` は「含まれていれば適用
-される」意味論なので、既存の `e1000` は消さない(残しても実機に害は無く、
-消すと `flake/checks.nix` の `e1000` check が落ちて VM での検証経路が壊れる)。
-追記しないと、実機の NIC がそのドライバに対応していない限り initrd で
-リンクが上がらず、§6 の復旧経路が機能しない。
+含まれていなければ `boot.initrd.availableKernelModules` へ追記する。
+`e1000` は VM リハーサル用なので消さない(消すと `flake/checks.nix` の
+`boot-contract` が落ちて VM での検証経路が壊れる)。
 
 **ゲート 4(初回インストール専用。対象マシンにまだ NixOS がインストール
 されていない場合のみ適用)**
@@ -140,6 +149,11 @@ VM(NIC `enp0s3`)の値は `e1000`。**実機 jupiter のドライバ名は未確
 ### 手順
 
 **手順 0: installer に SSH 鍵を置く**
+
+**先に USB イーサネットアダプタを挿す。** この機体に有線 LAN ポートは無く、
+`nixos-anywhere` はワークステーションから対象機の sshd へ繋ぐので、対象機が
+先に IP を持っている必要がある。無線しか無い状態で installer を起動すると、
+コンソールで `wpa_supplicant` を手で叩くまでネットワークに出られない。
 
 対象マシンを NixOS の installer から起動し、**コンソールで一度だけ**次を
 実行する。
@@ -727,9 +741,10 @@ printf '%s' '<現在のLUKSパスフレーズ>' | sudo systemd-cryptenroll \
   /dev/disk/by-partlabel/disk-main-luks
 ```
 
-**この 2 コマンド構成そのものは未確認。**「1 コマンドにまとめないこと」
-という制約だけが確認済みで、実際にこの手順で wipe → 再 enroll を通した
-確認はしていない。
+**この 2 コマンド構成を VM で通した。** `--wipe-slot=tpm2` の直後に
+`luksDump` の `Tokens:` が空になり、再起動すると initrd で解錠待ちになる。
+initrd SSH で解錠して起動したあと `--tpm2-device=auto --tpm2-pcrs=7` で
+enroll し直すと `0: systemd-tpm2` が戻る。
 
 ## 5. 動作確認
 
@@ -754,6 +769,13 @@ enrollment 自体の問題ではない)。原因は特定できていない。�
 ハングする場合は、この runbook が想定していない別の原因を疑うこと。**
 
 ## 6. 復旧手順(initrd SSH)
+
+### 6.0 先に確認すること: USB イーサネットアダプタが挿さっているか
+
+**この機体に有線 LAN ポートは無く、initrd に無線は入れていない。**
+USB イーサネットアダプタが挿さっていなければ、initrd 側の遠隔復旧は
+**存在しない** — 物理コンソールへ行くしかない。ドライバやネットワーク定義の
+切り分けに入る前に、まずアダプタの装着を確認すること。
 
 ### 6.1 前提: NIC ドライバが無いと復旧経路自体が機能しない
 
