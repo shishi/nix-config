@@ -198,9 +198,10 @@ jupiter へ同じアドレスで繋ぐときにも `REMOTE HOST IDENTIFICATION H
 `ssh-agent` に入っていない場合(`BatchMode=yes` は passphrase 入力も封じる)。
 後者なら `ssh-add -l` に鍵が出ない。
 
-手順 2 は target 上で `nix run` を使う。この ISO は
-`nix.settings.experimental-features` に `nix-command` と `flakes` を宣言して
-あるのでそのまま動く。
+手順 2 は target 上で `nix run` を使うので、**`nix-command` と `flakes` を
+コマンドラインで明示する**(手順 2 のコマンドに入れてある)。素の
+`nixos-minimal` ISO ではどちらも有効になっていない(実測: `nix config show` が
+`nix-command` 不足で失敗する)。
 
 **手順 0b: 鍵を用意する(ワークステーション側)**
 
@@ -343,7 +344,7 @@ target 上で実行する。
 
 ```
 rm -rf /var/lib/sbctl   # 手順 2 を 2 回目以降に実行するときだけ必要
-nix run nixpkgs#sbctl -- create-keys
+nix --extra-experimental-features "nix-command flakes" run nixpkgs#sbctl -- create-keys
 mkdir -p /mnt/var/lib
 cp -a /var/lib/sbctl /mnt/var/lib/
 mkdir -p /mnt/var/lib/initrd-ssh
@@ -357,8 +358,10 @@ ssh-keygen -lf /mnt/var/lib/initrd-ssh/ssh_host_ed25519_key.pub
 `cp -a` で所有者と mode がそのまま `/mnt` 側へ移る。
 
 最後の `ssh-keygen -lf` が出すフィンガープリントは §6.2 の照合に使うので
-控える(`/var/lib` は暗号化された `/` の上にあり、initrd で足止めされて
-いる状況では未マウントのため、そのときには取りに行けない)。
+**`secrets/initrd-ssh-fingerprint.txt` に保存する**(`secrets/` は
+`.gitignore` 済み。公開鍵の指紋なので秘密ではないが、機体を特定する情報なので
+public repo には入れない)。`/var/lib` は暗号化された `/` の上にあり、initrd で
+足止めされている状況では未マウントなので、そのときには取りに行けない。
 
 確認:
 
@@ -452,9 +455,26 @@ ssh -p <port> -o StrictHostKeyChecking=no -o UserKnownHostsFile=/dev/null \
   root@<target> 'swapoff -a; umount -R /mnt && cryptsetup close cryptroot'
 ```
 
-`umount` と `cryptsetup close` が成功したことを確認してから電源を落とし、
-installer の ISO / USB を外してディスクから起動する。**`--phases reboot` は
-使わない**(メディアを外す前に再起動すると installer が再び立ち上がる)。
+`umount` と `cryptsetup close` が成功したことを確認してから再起動する。
+**`--phases reboot` は使わない**(下の boot 項目の始末をする前に再起動すると
+installer が再び立ち上がる)。
+
+**`nixos-install` は EFI の boot 項目を作らない。** 実機(2026-08-22)の
+`efibootmgr` は `BootOrder: 0002,0003` で、0002 は disko が消した Windows の
+項目、0003 が installer の USB だった。NixOS の項目は無い。ESP には
+フォールバック経路(`EFI/BOOT/BOOTX64.EFI`)が置かれるので、**USB を抜けば**
+0002 が失敗してフォールバックでディスクから起動する。
+
+USB を抜かずに済ませるなら、firmware 変数に項目を作る。ローダは
+`EFI/systemd/systemd-bootx64.efi`(lanzaboote が署名版に差し替えたもの)。
+
+```
+efibootmgr -c -d /dev/nvme0n1 -p 1 -L 'NixOS Boot Manager' -l '<systemd-boot のパス>'
+efibootmgr -b 0002 -B     # 消えた Windows の項目を消す
+efibootmgr                # BootOrder の先頭が新しい項目であることを確認
+```
+
+`-l` に渡すパスは ESP からの相対で、区切りはバックスラッシュ。
 
 初回起動では TPM2 がまだ未 enroll なので、コンソールで LUKS パスフレーズを
 聞かれる。手順 1 で使ったものを入力する。
