@@ -46,25 +46,6 @@ let
     ${pkgs.coreutils}/bin/mv "$tmpc" "$cert"
   '';
 
-  # plasma-workspace.target の到達は「unit が起動した」ことしか保証せず、
-  # ksmserver が org.kde.screensaver をセッションバスに登録し終えたことは
-  # 意味しない。取りこぼすと autoLogin で上がったデスクトップが開いたまま残る。
-  # 名前が出るまで待つ。上限は反復回数ではなく経過時刻で取る — 1 回あたりの
-  # 所要時間は busctl の待ちに左右されるので、回数では上限が定まらず
-  # unit 側の TimeoutStartSec を先に踏みうる。
-  krdpLockScript = pkgs.writeShellScript "krdp-lock-session" ''
-    set -eu
-    deadline=$(( $(${pkgs.coreutils}/bin/date +%s) + 30 ))
-    while [ "$(${pkgs.coreutils}/bin/date +%s)" -lt "$deadline" ]; do
-      if ${pkgs.systemd}/bin/busctl --user call \
-        org.kde.screensaver /ScreenSaver org.freedesktop.ScreenSaver Lock; then
-        exit 0
-      fi
-      ${pkgs.coreutils}/bin/sleep 1
-    done
-    echo "krdp-lock-session: org.kde.screensaver が 30 秒現れなかった" >&2
-    exit 1
-  '';
 in
 {
   imports = [ inputs.plasma-manager.homeModules.plasma-manager ];
@@ -204,6 +185,29 @@ in
         autoLock = true;
         timeout = 60; # 分
         lockOnResume = true;
+
+        # autoLogin は起動時のパスワード入力を消す。LUKS が TPM で自動解錠される
+        # 構成では、それが物理アクセスに対する最後の資格情報要求点になっている。
+        # 消したぶんをここで戻す。
+        #
+        # kscreenlockerrc の Daemon.LockOnStart に落ちる。ロックを掛けるのは
+        # ロッカー自身で、自分の起動時に lock(EstablishLock::Immediate) を呼ぶ
+        # (kscreenlocker の ksldapp.cpp)。外から DBus で頼む形にすると、
+        # バス名が登録されるまで待つ必要が出て、待ち・再試行・順序制約が要る。
+        #
+        # passwordRequired を宣言するのは、ロック画面が出ることと解除に
+        # パスワードが要ることが別だから。既定は真だが構成で決まっていないと、
+        # KCM で外した値が rc に残ったままになる(plasma-manager は
+        # overrideConfig = false のとき、宣言していないキーを消さない)。
+        # 猶予は requirePassword が偽のときだけ働く(ksldapp.cpp の
+        # m_inGraceTime = !m_requirePassword)ので実質無効だが、0 を書いて
+        # 既定値への依存を消す。
+        #
+        # **rc は書き換え可能な実ファイルなので、手で LockOnStart=false に
+        # されると次の activation まで戻らない。** 構成から消さなくても外れる。
+        lockOnStartup = true;
+        passwordRequired = true;
+        passwordRequiredDelay = 0;
       };
       powerdevil.AC = {
         autoSuspend.action = "sleep";
@@ -235,10 +239,7 @@ in
     systemd.user.services.krdpserver = {
       Unit = {
         Description = "KRDP server for the running Plasma session";
-        After = [
-          "plasma-core.target"
-          "krdp-lock-session.service"
-        ];
+        After = [ "plasma-core.target" ];
         PartOf = [ "plasma-workspace.target" ];
       };
       Service = {
@@ -251,36 +252,5 @@ in
       Install.WantedBy = [ "plasma-workspace.target" ];
     };
 
-    # autoLogin は起動時のパスワード入力を消す。LUKS が TPM で自動解錠される構成では
-    # それが物理アクセスに対する最後の資格情報要求点なので、セッションが上がった
-    # 直後にロックして戻す。ロック解除は kde PAM 経由なので KWallet もそこで開く。
-    #
-    # loginctl lock-session は呼び出し元の session を必要とするが、user manager は
-    # session の cgroup の外に居るため使えない。セッションバス経由で叩く。
-    #
-    # krdpserver の側に After= を張ってあるので、RDP が待ち受けを始めるのは
-    # ロックが降りた後になる。順序だけで Requires ではないため、ロックに失敗しても
-    # RDP は上がる(遠隔からの入口を失わないほうを採る)。
-    systemd.user.services.krdp-lock-session = {
-      Unit = {
-        Description = "Lock the session immediately after it starts";
-        # After=plasma-workspace.target は張らない。target は自分が Wants する
-        # unit の後に順序づけられるので、krdpserver 側の After= と合わせると
-        # lock -> target -> krdpserver -> lock で循環し、systemd が
-        # krdpserver のジョブを削除して RDP が上がらなくなる。
-        # ロックの準備完了はスクリプト側が DBus 名を待って引き受ける。
-        PartOf = [ "plasma-workspace.target" ];
-      };
-      Service = {
-        Type = "oneshot";
-        ExecStart = "${krdpLockScript}";
-        # スクリプト側の上限 30 秒より確実に長くしておく。短いと systemd が
-        # 先に SIGTERM で打ち切り、診断行が journal に出ないまま終わる。
-        TimeoutStartSec = 60;
-        Restart = "on-failure";
-        RestartSec = 10;
-      };
-      Install.WantedBy = [ "plasma-workspace.target" ];
-    };
   };
 }

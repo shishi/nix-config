@@ -69,9 +69,10 @@ ssh -N -L 13389:127.0.0.1:3389 shishi@<jupiter>
 使うため。3389 のまま張ると bind に失敗するか、失敗に気づかないままクライアントが
 **手元の Windows 自身**へ繋がる。
 
-- セッションは autoLogin で常時上がっており、**ロックが降りてから RDP が
-  待ち受けを始める**(`krdpserver.service` が `krdp-lock-session.service` の後)。
-  物理アクセスにもロック解除のパスワードが要る
+- セッションは autoLogin で常時上がっており、**開始時にロックが降りる**
+  (`kscreenlocker.lockOnStartup`。掛けるのはロッカー自身で、自分の起動時に掛ける)。
+  物理アクセスにもロック解除のパスワードが要る。krdpserver との起動順は
+  制約していないので、セッション起動中のごく短い間はロック前の状態がありうる
 - RDP 上でログアウトするとセッションごと krdpserver が落ちるが、SDDM が
   autoLogin をやり直すので自動で戻る(`sddm.autoLogin.relogin`)。ただし
   **セッションが異常終了した場合は戻らない** — SDDM はそこで止まるので、

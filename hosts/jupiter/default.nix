@@ -201,13 +201,19 @@ in
   # **外している側**: LUKS が TPM で自動解錠される構成では、SDDM のログイン画面が
   # 起動後に残る唯一の資格情報要求点である。autoLogin はそれを消すため、
   # 持ち出された機体は電源を入れるだけでデスクトップが出ることになる。
-  # 消したぶんは home 側の krdp-lock-session.service が
-  # セッション開始直後にロックして戻す。**autoLogin をここで有効にする以上、
-  # あちらのロックは外せない。** 片方だけ消すと、起動もログインも RDP も
+  # 消したぶんは home 側の programs.plasma.kscreenlocker の
+  # lockOnStartup と passwordRequired が戻す。**autoLogin をここで有効にする
+  # 以上、あちらは外せない。** 片方だけ消すと、起動もログインも RDP も
   # 成功したまま、物理アクセスに対する認証だけが 0 個になる。
   #
+  # **この対は check で固定していない。** autoLogin を触るときは手で両方を見る。
+  # ロックが掛からなかったことは systemd にも journal にも残らないので、
+  # 気づく手段は画面を見るか、`busctl --user call org.kde.screensaver
+  # /ScreenSaver org.freedesktop.ScreenSaver GetActive` を叩くことだけである。
+  #
   # pam_kwallet はログインパスワードから鍵を導出するため autoLogin とは
-  # 両立しない。KWallet はロック解除(kde PAM)のときに開く。
+  # 両立しない。セッション開始直後の kwalletd6 はバス上で activatable のまま
+  # である(実測)。ロック解除で開くかどうかは測っていない。
   services.displayManager.autoLogin = {
     enable = true;
     user = "shishi";
