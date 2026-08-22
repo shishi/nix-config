@@ -213,28 +213,30 @@ public repo なのでパスワードを宣言しておらず、このファイ�
 パスワード未設定のまま起動する。**その状態では autoLogin で上がったセッションの
 ロックを解除できない**(SSH 鍵で入って `sudo passwd shishi` で入れ直せる)。
 
-受け渡し用のディレクトリを作る。中の構成は**インストール先の `/` からの相対パス**で、
-先頭に `/` を付けない。
+受け渡し用のディレクトリは `secrets/extra-files` にする。`secrets/` は
+`.gitignore` 済みなので、鍵もパスフレーズも repo の中の 1 箇所に収まり、
+片付けもそこを消すだけで済む。ホームディレクトリに散らさない。
+中の構成は**インストール先の `/` からの相対パス**で、先頭に `/` を付けない。
 
 ```
-<keys-dir>/home/shishi/.ssh/id_ed25519            (0600)
-<keys-dir>/home/shishi/.ssh/id_ed25519.pub        (0644)
-<keys-dir>/home/shishi/gpg-secret.asc             (0600)
-<keys-dir>/var/lib/secrets/shishi-password-hash   (0600)
+secrets/extra-files/home/shishi/.ssh/id_ed25519            (0600)
+secrets/extra-files/home/shishi/.ssh/id_ed25519.pub        (0644)
+secrets/extra-files/home/shishi/gpg-secret.asc             (0600)
+secrets/extra-files/var/lib/secrets/shishi-password-hash   (0600)
 ```
 
 **mode はそのまま保存されるので、ここで正しくしておく**(所有者は保存されない。
-手順 3 参照)。**`<keys-dir>` 全体に `chmod -R 700` をかけないこと。**
-`<keys-dir>` の下のディレクトリの mode は、そのままインストール後の同じパスの
-mode になる。`<keys-dir>/home` を 0700 にすると shishi が自分の home へ辿れず
-ログインが壊れる。`<keys-dir>/var` と `<keys-dir>/var/lib` も同じで、
+手順 3 参照)。**`secrets/extra-files` 全体に `chmod -R 700` をかけないこと。**
+`secrets/extra-files` の下のディレクトリの mode は、そのままインストール後の同じパスの
+mode になる。`secrets/extra-files/home` を 0700 にすると shishi が自分の home へ辿れず
+ログインが壊れる。`secrets/extra-files/var` と `secrets/extra-files/var/lib` も同じで、
 0700 にすると /var 配下を読む全サービスが壊れる。
 
 ```
-mkdir -p <keys-dir>/home/shishi/.ssh <keys-dir>/var/lib/secrets
-chmod 755 <keys-dir> <keys-dir>/home <keys-dir>/var <keys-dir>/var/lib
-chmod 700 <keys-dir>/home/shishi <keys-dir>/home/shishi/.ssh
-chmod 700 <keys-dir>/var/lib/secrets
+mkdir -p secrets/extra-files/home/shishi/.ssh secrets/extra-files/var/lib/secrets
+chmod 755 secrets/extra-files secrets/extra-files/home secrets/extra-files/var secrets/extra-files/var/lib
+chmod 700 secrets/extra-files/home/shishi secrets/extra-files/home/shishi/.ssh
+chmod 700 secrets/extra-files/var/lib/secrets
 ```
 
 SSH 鍵はコピーする。構成表には載っているが、GPG やパスワードと違って
@@ -242,18 +244,18 @@ SSH 鍵はコピーする。構成表には載っているが、GPG やパスワ
 `setup.sh` の private repo clone が認証できない。
 
 ```
-cp ~/.ssh/id_ed25519 ~/.ssh/id_ed25519.pub <keys-dir>/home/shishi/.ssh/
-chmod 600 <keys-dir>/home/shishi/.ssh/id_ed25519
-chmod 644 <keys-dir>/home/shishi/.ssh/id_ed25519.pub
+cp ~/.ssh/id_ed25519 ~/.ssh/id_ed25519.pub secrets/extra-files/home/shishi/.ssh/
+chmod 600 secrets/extra-files/home/shishi/.ssh/id_ed25519
+chmod 644 secrets/extra-files/home/shishi/.ssh/id_ed25519.pub
 ```
 
 GPG は keyring を丸ごと運ばず、armored のエクスポートを 1 ファイル置いて初回起動後に
 import する。
 
 ```
-gpg --export-secret-keys --armor <signingkey> > <keys-dir>/home/shishi/gpg-secret.asc
-chmod 600 <keys-dir>/home/shishi/gpg-secret.asc
-test -s <keys-dir>/home/shishi/gpg-secret.asc || echo 'gpg export が空 -- <signingkey> を確認する'
+gpg --export-secret-keys --armor <signingkey> > secrets/extra-files/home/shishi/gpg-secret.asc
+chmod 600 secrets/extra-files/home/shishi/gpg-secret.asc
+test -s secrets/extra-files/home/shishi/gpg-secret.asc || echo 'gpg export が空 -- <signingkey> を確認する'
 ```
 
 `<signingkey>` を打ち間違えても `gpg` は非 0 で終わるが、リダイレクトが先に
@@ -281,8 +283,8 @@ if [ -z "$pw" ] || [ "$pw" != "$pw2" ]; then
   echo 'empty or mismatched -- 生成しない'
 elif hash=$(printf '%s' "$pw" | nix run nixpkgs#mkpasswd -- -m yescrypt -s) \
      && [ "${hash#\$y\$}" != "$hash" ]; then
-  printf '%s\n' "$hash" > <keys-dir>/var/lib/secrets/shishi-password-hash
-  chmod 600 <keys-dir>/var/lib/secrets/shishi-password-hash
+  printf '%s\n' "$hash" > secrets/extra-files/var/lib/secrets/shishi-password-hash
+  chmod 600 secrets/extra-files/var/lib/secrets/shishi-password-hash
 else
   echo 'mkpasswd failed -- 生成しない'
 fi
@@ -388,7 +390,7 @@ find /mnt/var/lib/sbctl /mnt/var/lib/initrd-ssh -printf '%M %u:%g %p\n'
 ```
 nix run .#nixos-anywhere -- --flake .#jupiter \
   --target-host root@<target> --ssh-port <port> \
-  --extra-files <keys-dir> --chown home/shishi 1000:100 \
+  --extra-files secrets/extra-files --chown home/shishi 1000:100 \
   --phases install
 ```
 
@@ -459,9 +461,15 @@ installer の ISO / USB を外してディスクから起動する。**`--phases
 
 **手順 5: 後始末**
 
-ワークステーション側の `/tmp/luks.key` と `<keys-dir>` を消す。
-`secrets/luks-passphrase` は §6 の遠隔復旧で要る値なので、消すなら先に
-別の場所へ控える。
+ワークステーション側の `/tmp/luks.key` と `secrets/extra-files` を消す。
+
+```
+shred -u /tmp/luks.key
+rm -rf secrets/extra-files
+```
+
+`secrets/luks-passphrase` は §6 の遠隔復旧で要る値なので残す。捨てるなら先に
+別の場所へ控える。**`secrets/` を丸ごと消すとパスフレーズも消える。**
 
 初回起動後、対象機で GPG 秘密鍵を import して置いたファイルを消す。
 

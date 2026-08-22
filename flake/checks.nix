@@ -446,7 +446,7 @@
             rel = lib.removePrefix "/" u.home;
             # --extra-files まで含めて 1 つの塊で見る。--chown だけを見ると、
             # --extra-files を落として鍵が一切コピーされない変更が素通りする。
-            chownArgs = "--extra-files <keys-dir> --chown ${rel} ${toString u.uid}:${toString gid}";
+            chownArgs = "--extra-files secrets/extra-files --chown ${rel} ${toString u.uid}:${toString gid}";
             # 固定文字列の部分一致では、gid を 100 から 1000 へ書き換えた誤りを
             # 検出できない(1000:1000 は 1000:100 を部分文字列として含む)。
             # ユーザー私用グループを使う流儀からコピーすると実際に起きる形なので、
@@ -454,7 +454,7 @@
             chownPattern = "${chownArgs}([^0-9]|$)";
             # 手順 0b のディレクトリ構成。home を変えたとき --chown 側だけ直して
             # ここが古いままだと、chown が存在しないパスを指して鍵は root 所有で残る。
-            layoutPattern = "<keys-dir>/${rel}/\\.ssh/id_ed25519([^.]|$)";
+            layoutPattern = "secrets/extra-files/${rel}/\\.ssh/id_ed25519([^.]|$)";
             # この repo は public なので、shishi のパスワードを構成に書かない
             # (見ているのは shishi の分だけで、他ユーザーは対象外)。
             # hashedPasswordFile が埋まっているかだけを見ると、initialPassword を
@@ -480,7 +480,7 @@
             # 手順ごと消す変更や、複数ある言及のうち 1 つだけがずれる形は
             # 検出しない。右端に識別子が続かないことまで見るのは、期待するパスが
             # 手順書のより長いパスの接頭辞になっている形を素通りさせないため。
-            hashPattern = "<keys-dir>/${lib.escapeRegex hashRel}([^A-Za-z0-9._-]|$)";
+            hashPattern = "secrets/extra-files/${lib.escapeRegex hashRel}([^A-Za-z0-9._-]|$)";
           in
           pkgs.runCommand "install-keys-contract"
             {
@@ -494,7 +494,7 @@
                 ok=0
               }
               grep -qE -- '${layoutPattern}' "$runbookPath" || {
-                echo "runbook の手順 0b の構成が config と食い違っている。期待: <keys-dir>/${rel}/.ssh/id_ed25519"
+                echo "runbook の手順 0b の構成が config と食い違っている。期待: secrets/extra-files/${rel}/.ssh/id_ed25519"
                 ok=0
               }
               ${lib.optionalString literalPassword ''
@@ -507,7 +507,7 @@
               ''}
               ${lib.optionalString (hashRel != null) ''
                 grep -qE -- '${hashPattern}' "$runbookPath" || {
-                  echo "runbook の手順 0b にパスワードハッシュの置き場が無い。期待: <keys-dir>/${hashRel}"
+                  echo "runbook の手順 0b にパスワードハッシュの置き場が無い。期待: secrets/extra-files/${hashRel}"
                   ok=0
                 }
               ''}
