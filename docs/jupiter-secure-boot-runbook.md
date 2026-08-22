@@ -7,11 +7,18 @@
 に基づく。実機固有の手順(firmware メニューの操作、NIC ドライバ名など)で
 未確認のものは、その場で「未確認」と明記する。
 
+パス表記は 2 系統ある。`/mnt/c/...` は WSL 側のシェル、`/c/...` は §3.x の
+`VBoxManage` を Windows 側のシェルで実行するもの。
+
 現在の到達点: Secure Boot 有効化と PCR7 での TPM2 enroll(フェーズ A)は
 VM で成立している。カーネル更新に追従させる `systemd-pcrlock`(フェーズ B)は
 §8 の理由により未対応で、`hosts/jupiter/default.nix` に該当の宣言は入っていない。
 
 ## 1. 何が宣言済みで、何を手で打つのか
+
+installer 自体も宣言済み(`hosts/installer/default.nix` / `nix build .#installer-iso`)。
+公開鍵を焼き込んであるので、起動しただけで `root@` に鍵で入れる。詳細は §2 の
+ゲート 4 手順 0。
 
 `hosts/jupiter/default.nix` と `hosts/jupiter/disko.nix` に宣言済み。**既に
 インストール済みのホストでは**、§3.1・§3.2 の鍵生成を先に済ませたうえで
@@ -113,6 +120,11 @@ basename $(readlink /sys/class/net/<iface>/device/driver)
 **2026-08-21 に検証用 VM で通しリハーサル済み。** 以下は実際に実行して
 結果を確認した手順である(確認できていない箇所はその旨を明記する)。
 
+**ただし手順 0 はその後に書き換えられている。** リハーサル時の手順 0 は
+「素の ISO を起動してコンソールで鍵を手打ちする」だった。現行の手順 0
+(鍵を焼き込んだ ISO を自分でビルドする)は、ISO の生成とファイル名までしか
+実測していない。
+
 ### なぜ素直に流すと失敗するか
 
 `boot.lanzaboote.enable = true;` と
@@ -148,35 +160,82 @@ basename $(readlink /sys/class/net/<iface>/device/driver)
 
 ### 手順
 
-**手順 0: installer に SSH 鍵を置く**
+**手順 0: installer USB を作って起動する**
 
-**先に USB イーサネットアダプタを挿す。** この機体に有線 LAN ポートは無く、
-`nixos-anywhere` はワークステーションから対象機の sshd へ繋ぐので、対象機が
-先に IP を持っている必要がある。無線しか無い状態で installer を起動すると、
-コンソールで `wpa_supplicant` を手で叩くまでネットワークに出られない。
+**素の `nixos-minimal` ISO を使わない。** 素の ISO には root の
+`authorized_keys` が無く、`nixos-anywhere` は disko と install の実行時に必ず
+`root@` へ接続する(installer の `root` と `nixos` は空パスワードで、空パスワード
+での SSH ログインは sshd 側で許可されていない)。そのため素の ISO では、
+インストールのたびにコンソールで公開鍵を手打ちすることになる。
 
-対象マシンを NixOS の installer から起動し、**コンソールで一度だけ**次を
-実行する。
+`hosts/installer/default.nix` が、`shared/authorized-keys.nix` の公開鍵を
+焼き込んだ ISO を宣言してある。ワークステーション側で作る。
 
 ```
-sudo mkdir -p /root/.ssh
-echo '<自分の SSH 公開鍵>' | sudo tee /root/.ssh/authorized_keys
-sudo chmod 600 /root/.ssh/authorized_keys
+nix build .#installer-iso --out-link /tmp/installer-iso
+ls -lL /tmp/installer-iso/iso/nixos-installer-shishi.iso
 ```
 
-installer の `root` と `nixos` は**空パスワード**で、空パスワードでの SSH
-ログインは sshd 側で許可されていない。鍵を置かないと `nixos-anywhere` が
-接続できない。`nixos-anywhere` は disko と install の実行時には必ず
-`root@` へ接続するので、鍵は `root` に置く。
+USB への書き込みは Windows 側で行うので、Windows のファイルシステムへコピーする
+(ISO は約 1.4 GB)。
 
-以降のコマンドの `<port>` は対象機の sshd のポート。既定の 22 なら
-`--ssh-port` / `-p` は省いてよい。リハーサルでは VM の NAT ポート転送を
-挟んだため明示した。
+```
+cp -L /tmp/installer-iso/iso/nixos-installer-shishi.iso /mnt/c/Users/shishi/Downloads/
+```
 
-手順 2 は target 上で `nix run` を使う。**`nix-command` と `flakes` が有効な
-nix を持つ installer を使うこと。** リハーサルに使ったのは
-`nixos-minimal-26.05` の ISO で、有効かどうかに依存しないよう手順 2 では
-`--extra-experimental-features` を明示している。
+Rufus か balenaEtcher で USB へ書く。**Rufus を使う場合は「DD イメージモード」を
+選ぶ。** **この書き込み手順は未確認**(ISO の生成とファイル名までは実測したが、
+書いた USB から実機が起動するところまでは通していない)。
+
+**USB イーサネットアダプタを挿してから起動する。** この機体に有線 LAN ポートは
+無く、`nixos-anywhere` はワークステーションから対象機の sshd へ繋ぐので、対象機が
+先に IP を持っている必要がある。アドレスを配るのは **NetworkManager**
+(上流 `installation-cd-minimal.nix` の既定。生成された toplevel の
+`multi-user.target.wants/` に `NetworkManager.service` があること、`dhcpcd` の
+unit は無いことを実測)なので、アダプタが挿さっていれば DHCP で付く。
+無線しか無い状態だと、コンソールで `nmtui` などを手で叩くまでネットワークに
+出られない。
+
+起動したらコンソールで IP を確認する。**手順 0〜3 で画面を見るのは通常ここ
+だけ**(途中で再起動してアドレスが変わった疑いが出たら、手順 3 でもう一度要る)。
+手順 0 より前の firmware での Secure Boot 無効化(§2「実機で違うところ」)、
+手順 4 の初回起動での LUKS パスフレーズ入力、§3.5 / §3.7 の firmware 操作には
+別途コンソールが要る。
+
+```
+ip -brief addr show
+```
+
+以降の `<target>` はこの IP。`<port>` は対象機の sshd のポートで、既定の 22 なら
+`--ssh-port` / `-p` は省いてよい(リハーサルでは VM の NAT ポート転送を挟んだ
+ため明示した)。
+
+疎通を確認してから先へ進む。
+
+```
+ssh -p <port> -o BatchMode=yes -o StrictHostKeyChecking=no \
+  -o UserKnownHostsFile=/dev/null root@<target> true && echo ok
+```
+
+**`StrictHostKeyChecking=no` と `UserKnownHostsFile=/dev/null` は、この手順書で
+installer へ繋ぐ `ssh` すべてに付ける**(手順 1〜4 の各コマンドにも書いてある)。
+ISO の `/etc/ssh` は tmpfs で **installer の host key は起動のたびに作り直される**
+ため(焼き込んであるのは `authorized_keys` であって host key ではない)、
+`known_hosts` に記録すると installer の 2 回目の起動でも、インストール後の
+jupiter へ同じアドレスで繋ぐときにも `REMOTE HOST IDENTIFICATION HAS CHANGED`
+になる。記録しなければどちらも起きない。`nixos-anywhere` も内部で同じ 2 つを
+使う。
+
+**`BatchMode=yes` は疎通確認にだけ付ける。** 鍵が拒否されたときに ssh が
+パスワード入力へフォールバックして無言に待ち続けるのを防ぐため(実測: 付けずに
+5 分ハングした)。`Permission denied (publickey)` の原因は 2 つ — ISO に鍵が
+焼けていない場合と、ワークステーション側の秘密鍵が passphrase 付きで
+`ssh-agent` に入っていない場合(`BatchMode=yes` は passphrase 入力も封じる)。
+後者なら `ssh-add -l` に鍵が出ない。
+
+手順 2 は target 上で `nix run` を使う。この ISO は
+`nix.settings.experimental-features` に `nix-command` と `flakes` を宣言して
+あるのでそのまま動く。
 
 **手順 0b: 鍵を用意する(ワークステーション側)**
 
@@ -290,18 +349,20 @@ nix run .#nixos-anywhere -- --flake .#jupiter \
 状態で止まる。確認:
 
 ```
-ssh -p <port> root@<target> 'findmnt -R /mnt -o TARGET,SOURCE,FSTYPE'
+ssh -p <port> -o StrictHostKeyChecking=no -o UserKnownHostsFile=/dev/null \
+  root@<target> 'findmnt -R /mnt -o TARGET,SOURCE,FSTYPE'
 ```
 
 期待: `/mnt`(`@root`)・`/mnt/boot`(vfat)・`/mnt/home`・`/mnt/nix`・`/mnt/.swap`。
 
 **手順 2: 鍵を `/mnt` に作る**
 
-`ssh -p <port> root@<target>` で入り、target 上で実行する。
+`ssh -p <port> -o StrictHostKeyChecking=no -o UserKnownHostsFile=/dev/null root@<target>` で入り、
+target 上で実行する。
 
 ```
 rm -rf /var/lib/sbctl   # 手順 2 を 2 回目以降に実行するときだけ必要
-nix --extra-experimental-features "nix-command flakes" run nixpkgs#sbctl -- create-keys
+nix run nixpkgs#sbctl -- create-keys
 mkdir -p /mnt/var/lib
 cp -a /var/lib/sbctl /mnt/var/lib/
 mkdir -p /mnt/var/lib/initrd-ssh
@@ -331,11 +392,17 @@ find /mnt/var/lib/sbctl /mnt/var/lib/initrd-ssh -printf '%M %u:%g %p\n'
 
 **先に手順 1 の `findmnt -R /mnt` をもう一度実行し、`/mnt` と `cryptroot` が
 生きていることを確かめる。** 手順 1〜3 の間に対象機が再起動・電源断していると
-マウントも `cryptroot` も失われる。**そのときは手順 1 ではなく手順 0 から
-やり直す。** installer は RAM 上で動いているので、再起動すると手順 0 で置いた
-`/root/.ssh/authorized_keys` も一緒に消えており、手順 1 だけの再実行は
-そもそも SSH が通らない。`findmnt` の再確認自体が接続エラーになった場合も、
-まず再起動を疑うこと。
+マウントも `cryptroot` も失われる。**そのときは手順 1(disko phase)から
+やり直す。** `authorized_keys` は ISO に焼き込んであるので、鍵を置き直すために
+手順 0 まで戻る必要は無い。
+
+**`findmnt` が期待どおりのマウントを返さなかったとき(接続エラーを含む)は、
+手順 1 を再実行する前に相手を確かめる。** 対象機のコンソールで
+`ip -brief addr show` を見て、`<target>` がその installer の現在のアドレスで
+あることを確認する。DHCP でアドレスが移り、旧アドレスを別のホストが取って
+いることがある。そのとき `findmnt` は接続エラーではなく「ssh は通るが
+マウントが出ない」形になる。**手順 1 は disko = 再フォーマットなので、別の
+ホストに対して実行してはならない。**
 
 ワークステーション側で実行する。
 
@@ -366,7 +433,8 @@ config 側だけを見る check では、この行を書き換えたときに落
 確認(手順 4 の停止前に):
 
 ```
-ssh -p <port> root@<target> 'find /mnt/home -printf "%M %U:%G %p\n" | sort; \
+ssh -p <port> -o StrictHostKeyChecking=no -o UserKnownHostsFile=/dev/null \
+  root@<target> 'find /mnt/home -printf "%M %U:%G %p\n" | sort; \
   ls -ld /mnt/var /mnt/var/lib /mnt/var/lib/secrets \
          /mnt/var/lib/secrets/shishi-password-hash'
 ```
@@ -382,7 +450,8 @@ mode だけでは 0 バイトのファイルを見分けられないので、中
 (**値そのものは表示しない**)。
 
 ```
-ssh -p <port> root@<target> \
+ssh -p <port> -o StrictHostKeyChecking=no -o UserKnownHostsFile=/dev/null \
+  root@<target> \
   'test -s /mnt/var/lib/secrets/shishi-password-hash && echo hash-ok || echo hash-EMPTY;
    test -s /mnt/home/shishi/.ssh/id_ed25519 && echo sshkey-ok || echo sshkey-EMPTY;
    test -s /mnt/home/shishi/gpg-secret.asc && echo gpg-ok || echo gpg-EMPTY'
@@ -398,7 +467,8 @@ ssh -p <port> root@<target> \
 **手順 4: 停止して installer メディアを外す**
 
 ```
-ssh -p <port> root@<target> 'swapoff -a; umount -R /mnt && cryptsetup close cryptroot'
+ssh -p <port> -o StrictHostKeyChecking=no -o UserKnownHostsFile=/dev/null \
+  root@<target> 'swapoff -a; umount -R /mnt && cryptsetup close cryptroot'
 ```
 
 `umount` と `cryptsetup close` が成功したことを確認してから電源を落とし、
@@ -438,7 +508,7 @@ PK / KEK / db もまとめて消える。不要に実行すると §3.6 から�
 
 ### リハーサルで確認した終状態
 
-新規作成した検証用 VM で手順 0〜4 を実行し、続けて §3.6 → §3.7 →
+新規作成した検証用 VM で手順 1〜4 を実行し、続けて §3.6 → §3.7 →
 §4.1〜§4.4 → §5.1 を通した結果(**§4.5 の wipe → 再 enroll は通していない**。
 §4.5 自身の未確認注記はそのまま残る):
 

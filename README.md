@@ -8,7 +8,7 @@ WSL Ubuntu(standalone HM)/ NixOS 実機 jupiter / NixOS-WSL(スケルトン)。
 - `home/` … 可搬レイヤー(全ホスト共有の home-manager モジュール)
 - `nixos/` … NixOS 専用レイヤー(system 設定)
 - `hosts/` … マシンごとの束ね(フラグ値はここだけ)
-- `shared/` … 層をまたぐ純データ(キャッシュ定義)
+- `shared/` … 層をまたぐ純データ(キャッシュ定義・SSH 公開鍵)
 
 ## WSL Ubuntu(earth)
 
@@ -79,8 +79,10 @@ ssh -N -L 13389:127.0.0.1:3389 shishi@<jupiter>
   SSH から `sudo systemctl restart display-manager` で戻す
 - 証明書は初回起動時に `~/.local/share/krdp/` へ自己署名で作られる。自己署名なので
   クライアントは証明書の警告を出す
-- **`nixos/users.nix` の初期パスワードのままだと、それがそのまま RDP のパスワード
-  になる。** 初回ログイン後に `passwd` を実行しておくこと
+- **RDP のパスワードは shishi のログインパスワードそのもの。** 出所は
+  インストール時に `--extra-files` で置くハッシュ(runbook 手順 0b)で、
+  `nixos/users.nix` はパスワードを宣言しない(public repo のため)。置き忘れると
+  shadow が `!` になり、RDP もロック解除も通らない
 - 音声・クリップボード・マルチモニタの挙動は未確認
 
 ## 更新

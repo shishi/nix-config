@@ -57,6 +57,8 @@
         ];
     in
     {
+      # 鍵を焼き込んだ installer ISO。nix build .#installer-iso で作る。
+      installer = mkNixos [ ../hosts/installer ];
       jupiter = mkNixos [ ../hosts/jupiter ];
       nixos-wsl = mkNixos [ ../hosts/nixos-wsl ];
       synth-gnome = mkSynth "gnome";
