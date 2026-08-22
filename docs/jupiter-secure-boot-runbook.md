@@ -491,11 +491,29 @@ rm -rf secrets/extra-files
 `secrets/luks-passphrase` は §6 の遠隔復旧で要る値なので残す。捨てるなら先に
 別の場所へ控える。**`secrets/` を丸ごと消すとパスフレーズも消える。**
 
-初回起動後、対象機で GPG 秘密鍵を import して置いたファイルを消す。
+初回起動後、対象機で GPG 秘密鍵を import する。ワークステーションから
+`ssh <target> 'bash -s' < script` の形で流す(`shishi` のログインシェルは fish
+なので、変数代入やヒアドキュメントを `ssh <target> '...'` へ直接渡すと壊れる)。
 
 ```
-gpg --import ~/gpg-secret.asc && shred -u ~/gpg-secret.asc
+gpg --batch --import ~/gpg-secret.asc
+gpg --list-secret-keys --keyid-format=long | grep -E '^(sec|ssb)'
+if echo test | gpg --batch --pinentry-mode loopback -u <signingkey> --clearsign >/dev/null 2>&1; then
+  shred -u ~/gpg-secret.asc
+  echo 'import して署名できることを確認。エクスポートを消した'
+else
+  echo '署名できない -- shred しない。原因を調べてから消すこと'
+fi
 ```
+
+**`--batch` を省かない。** 非対話の ssh では pinentry が出せず、プロンプトで
+止まる。
+
+**import の成功だけで shred しない。** `gpg --import` は使えない鍵でも成功する。
+このワークステーションの主鍵は `sec#`(秘密鍵がローカルに無い)なので、
+エクスポートに入るのは署名・暗号のサブキーだけになる。`commit.gpgsign` は
+署名サブキーで通る(実機で `SIGN-OK` を実測)が、それは**実際に署名させて
+確かめないと分からない**。確かめる前に消すと、運べる材料が無くなる。
 
 ### この後どこへ進むか
 
