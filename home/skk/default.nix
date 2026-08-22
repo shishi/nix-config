@@ -37,11 +37,14 @@ in
     # (VM リハーサルで実測: dictionary_list もシステム辞書も存在しなかった)。
     # 並び順が引き当ての優先順位。
     #   1. ユーザー辞書(readwrite): 変換の学習と単語登録の保存先
-    #   2. yaskkserv2(server): Google 日本語入力連携を含む主辞書
+    #   2. yaskkserv2(server): Google 日本語入力連携を含む主辞書。
+    #      サーバー側は 127.0.0.1 だけを listen するので、宛先も IP で書く。
+    #      localhost は /etc/hosts で ::1 にも解決するため、クライアントが
+    #      IPv6 を先に試して静かに退避辞書へ縮退する余地を残さない。
     #   3. SKK-JISYO.L(readonly): server 不在時でも変換できるための退避
     xdg.dataFile."fcitx5/skk/dictionary_list".text = ''
       type=file,file=${skkUserDict},mode=readwrite
-      type=server,host=localhost,port=1178
+      type=server,host=127.0.0.1,port=1178
       type=file,file=${skkDictL},mode=readonly,encoding=EUC-JP
     '';
 
@@ -135,7 +138,10 @@ in
       };
       Service = {
         Type = "simple";
-        ExecStart = "${pkgs.yaskkserv2}/bin/yaskkserv2 --no-daemonize --port 1178 --google-japanese-input=last --google-suggest --google-cache-filename=${yaskkservCache} ${yaskkservDict}";
+        # --listen-address の既定は 0.0.0.0。SKK の変換要求はこの機の中からしか
+        # 来ないので loopback に絞る。firewall が 1178 を閉じているぶんには
+        # 外から届かないが、口を開ける側の設定に依存させない。
+        ExecStart = "${pkgs.yaskkserv2}/bin/yaskkserv2 --no-daemonize --listen-address 127.0.0.1 --port 1178 --google-japanese-input=last --google-suggest --google-cache-filename=${yaskkservCache} ${yaskkservDict}";
         Restart = "always";
         RestartSec = 3;
       };
