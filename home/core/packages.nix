@@ -11,6 +11,7 @@
     fd
     fish
     fish-lsp
+    fzf
     gh
     git
     git-wt
