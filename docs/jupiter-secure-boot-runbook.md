@@ -170,23 +170,43 @@ dotfiles の `setup.sh` は private repo(`agent-memory`)を clone し、
 `.gitconfig.linux` は `commit.gpgsign = true` を宣言する。初回起動後の作業には
 SSH 秘密鍵と GPG 秘密鍵が要るので、手順 3 で一緒に置く。
 
+初回ログイン用のパスワードハッシュも同じ経路で置く。`nixos/users.nix` は
+public repo なのでパスワードを宣言しておらず、このファイルが無いと shishi は
+パスワード未設定のまま起動する。**その状態では autoLogin で上がったセッションの
+ロックを解除できない**(SSH 鍵で入って `sudo passwd shishi` で入れ直せる)。
+
 受け渡し用のディレクトリを作る。中の構成は**インストール先の `/` からの相対パス**で、
 先頭に `/` を付けない。
 
 ```
-<keys-dir>/home/shishi/.ssh/id_ed25519       (0600)
-<keys-dir>/home/shishi/.ssh/id_ed25519.pub   (0644)
-<keys-dir>/home/shishi/gpg-secret.asc        (0600)
+<keys-dir>/home/shishi/.ssh/id_ed25519            (0600)
+<keys-dir>/home/shishi/.ssh/id_ed25519.pub        (0644)
+<keys-dir>/home/shishi/gpg-secret.asc             (0600)
+<keys-dir>/var/lib/secrets/shishi-password-hash   (0600)
 ```
 
 **mode はそのまま保存されるので、ここで正しくしておく**(所有者は保存されない。
 手順 3 参照)。**`<keys-dir>` 全体に `chmod -R 700` をかけないこと。**
-`<keys-dir>/home` の mode はインストール後の `/home` の mode になるため、
-0700 にすると shishi が自分の home へ辿れずログインが壊れる。
+`<keys-dir>` の下のディレクトリの mode は、そのままインストール後の同じパスの
+mode になる。`<keys-dir>/home` を 0700 にすると shishi が自分の home へ辿れず
+ログインが壊れる。`<keys-dir>/var` と `<keys-dir>/var/lib` も同じで、
+0700 にすると /var 配下を読む全サービスが壊れる。
 
 ```
-chmod 755 <keys-dir> <keys-dir>/home
+mkdir -p <keys-dir>/home/shishi/.ssh <keys-dir>/var/lib/secrets
+chmod 755 <keys-dir> <keys-dir>/home <keys-dir>/var <keys-dir>/var/lib
 chmod 700 <keys-dir>/home/shishi <keys-dir>/home/shishi/.ssh
+chmod 700 <keys-dir>/var/lib/secrets
+```
+
+SSH 鍵はコピーする。構成表には載っているが、GPG やパスワードと違って
+生成コマンドが無いので置き忘れやすい。置き忘れると初回起動後に
+`setup.sh` の private repo clone が認証できない。
+
+```
+cp ~/.ssh/id_ed25519 ~/.ssh/id_ed25519.pub <keys-dir>/home/shishi/.ssh/
+chmod 600 <keys-dir>/home/shishi/.ssh/id_ed25519
+chmod 644 <keys-dir>/home/shishi/.ssh/id_ed25519.pub
 ```
 
 GPG は keyring を丸ごと運ばず、armored のエクスポートを 1 ファイル置いて初回起動後に
@@ -195,7 +215,45 @@ import する。
 ```
 gpg --export-secret-keys --armor <signingkey> > <keys-dir>/home/shishi/gpg-secret.asc
 chmod 600 <keys-dir>/home/shishi/gpg-secret.asc
+test -s <keys-dir>/home/shishi/gpg-secret.asc || echo 'gpg export が空 -- <signingkey> を確認する'
 ```
+
+`<signingkey>` を打ち間違えても `gpg` は非 0 で終わるが、リダイレクトが先に
+空ファイルを作るので、mode だけを見る確認では気づけない。
+
+パスワードハッシュは `mkpasswd` で作る。`-s` は標準入力から読む指定で、
+これが無いと端末のない環境では入力待ちのまま止まる。平文を端末に出さないため、
+入力はシェルの silent read で受けてパイプで渡す。末尾の改行は NixOS 側が
+chomp するので残ってよい。
+
+**このブロックは bash で実行する。** fish は `IFS= read -rsp` も `if ... fi` も
+解釈できないので途中で止まる(ハッシュは作られない)。**`bash` の 1 行を先に
+実行し、プロンプトが出てから残りを貼ること。** まとめて貼ると、後続行が
+親シェルの入力バッファに残ったまま `read` に食われる。
+
+書き込みは生成に成功したときだけ行う。リダイレクトはコマンドの実行前に
+ファイルを truncate するので、`nix run` が失敗すると **0 バイトのファイルが
+mode 600 で残る**。それは手順 3 の mode 確認を通ってしまう。
+
+```
+bash                       # fish 等から実行する場合は先に bash へ入る
+IFS= read -rsp 'new password: ' pw; echo
+IFS= read -rsp 'retype: ' pw2; echo
+if [ -z "$pw" ] || [ "$pw" != "$pw2" ]; then
+  echo 'empty or mismatched -- 生成しない'
+elif hash=$(printf '%s' "$pw" | nix run nixpkgs#mkpasswd -- -m yescrypt -s) \
+     && [ "${hash#\$y\$}" != "$hash" ]; then
+  printf '%s\n' "$hash" > <keys-dir>/var/lib/secrets/shishi-password-hash
+  chmod 600 <keys-dir>/var/lib/secrets/shishi-password-hash
+else
+  echo 'mkpasswd failed -- 生成しない'
+fi
+unset pw pw2 hash
+exit
+```
+
+出力は `$y$` で始まる 1 行になる。**このファイルの中身をこの手順書や
+レビュー用の記録に貼らないこと。**
 
 **手順 1: ディスクを作る(disko phase だけ)**
 
@@ -294,12 +352,30 @@ config 側だけを見る check では、この行を書き換えたときに落
 確認(手順 4 の停止前に):
 
 ```
-ssh -p <port> root@<target> 'find /mnt/home -printf "%M %U:%G %p\n" | sort'
+ssh -p <port> root@<target> 'find /mnt/home -printf "%M %U:%G %p\n" | sort; \
+  ls -ld /mnt/var /mnt/var/lib /mnt/var/lib/secrets \
+         /mnt/var/lib/secrets/shishi-password-hash'
 ```
 
 期待: `/mnt/home` は `drwxr-xr-x` の `0:0`(**ここが `drwx------` ならログインが
 壊れる**)、その下の `home/shishi` 以下がすべて `1000:100` で、
 `.ssh` が `drwx------`、秘密鍵が `-rw-------`。
+
+`/mnt/var` と `/mnt/var/lib` は `drwxr-xr-x` の `root root`、
+`/mnt/var/lib/secrets` は `drwx------`、その下のハッシュは `-rw-------`。
+
+mode だけでは 0 バイトのファイルを見分けられないので、中身が空でないことも見る
+(**値そのものは表示しない**)。
+
+```
+ssh -p <port> root@<target> \
+  'test -s /mnt/var/lib/secrets/shishi-password-hash && echo hash-ok || echo hash-EMPTY;
+   test -s /mnt/home/shishi/.ssh/id_ed25519 && echo sshkey-ok || echo sshkey-EMPTY;
+   test -s /mnt/home/shishi/gpg-secret.asc && echo gpg-ok || echo gpg-EMPTY'
+```
+`--chown` は home 側にしか効かないので、こちらは root 所有のままで正しい。
+**ここを見ないと、鍵は置いたのにハッシュを置き忘れた状態が初回起動まで
+表に出ない**(shishi の shadow が `!` になり、どのパスワードも通らなくなる)。
 
 **この手順が失敗して手順 1 をやり直した場合は、必ず手順 2 も実行し直すこと。**
 `--phases disko` は再フォーマットなので、`/mnt` 上に作った鍵は消えている。

@@ -431,6 +431,32 @@
             # 手順 0b のディレクトリ構成。home を変えたとき --chown 側だけ直して
             # ここが古いままだと、chown が存在しないパスを指して鍵は root 所有で残る。
             layoutPattern = "<keys-dir>/${rel}/\\.ssh/id_ed25519([^.]|$)";
+            # この repo は public なので、shishi のパスワードを構成に書かない
+            # (見ているのは shishi の分だけで、他ユーザーは対象外)。
+            # hashedPasswordFile が埋まっているかだけを見ると、initialPassword を
+            # 足し戻した変更を捕まえられないので、値を保持する option を直接見る。
+            # 値を保持するのはこの 4 つで、hashedPasswordFile はパスなので入らない。
+            #
+            # ただし hashedPasswordFile に pkgs.writeText や ./secret のような
+            # store path を渡すと、この 4 つはすべて null のままリテラルが
+            # public repo へ入る。store の下を指していないことも見る。
+            literalPassword =
+              u.initialPassword != null
+              || u.initialHashedPassword != null
+              || u.hashedPassword != null
+              || u.password != null
+              || (
+                u.hashedPasswordFile != null && lib.hasPrefix builtins.storeDir (toString u.hashedPasswordFile)
+              );
+            # 初回ログイン用のパスワードハッシュ。鍵と同じ経路で運ぶ。これが欠けた
+            # ままインストールすると shishi の shadow は `!` になり、autoLogin で
+            # 上がったセッションのロックもコンソールログインも通らなくなる。
+            hashRel = if u.hashedPasswordFile == null then null else lib.removePrefix "/" u.hashedPasswordFile;
+            # 錨の作り方は上の 2 本に揃える。手順書に現れることまでを見て、
+            # 手順ごと消す変更や、複数ある言及のうち 1 つだけがずれる形は
+            # 検出しない。右端に識別子が続かないことまで見るのは、期待するパスが
+            # 手順書のより長いパスの接頭辞になっている形を素通りさせないため。
+            hashPattern = "<keys-dir>/${lib.escapeRegex hashRel}([^A-Za-z0-9._-]|$)";
           in
           pkgs.runCommand "install-keys-contract"
             {
@@ -447,6 +473,20 @@
                 echo "runbook の手順 0b の構成が config と食い違っている。期待: <keys-dir>/${rel}/.ssh/id_ed25519"
                 ok=0
               }
+              ${lib.optionalString literalPassword ''
+                echo "users.users.shishi のパスワードが repo の中にある(値を持つ option か、store path を指す hashedPasswordFile)。この repo は public"
+                ok=0
+              ''}
+              ${lib.optionalString (hashRel == null) ''
+                echo "users.users.shishi.hashedPasswordFile が無いので、鍵と一緒に運ぶ対象が config から決まらず、手順書との対応を検査できない"
+                ok=0
+              ''}
+              ${lib.optionalString (hashRel != null) ''
+                grep -qE -- '${hashPattern}' "$runbookPath" || {
+                  echo "runbook の手順 0b にパスワードハッシュの置き場が無い。期待: <keys-dir>/${hashRel}"
+                  ok=0
+                }
+              ''}
               [ "$ok" = 1 ] || exit 1
               touch $out
             '';

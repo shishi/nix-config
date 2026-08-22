@@ -145,6 +145,22 @@ in
   # 共有モジュール側に置かないのは、nixos-wsl も ../../nixos を読むため。
   users.users.shishi.uid = 1000;
 
+  # 初回ログイン用のパスワード。値は repo に置かず、SSH / GPG 鍵と同じ
+  # nixos-anywhere --extra-files の経路でインストール時に置く。
+  #
+  # mutableUsers = true なので、これが効くのはユーザーが新規に作られるときだけで、
+  # 以後 passwd で変えた値は switch しても戻らない(update-users-groups.pl が
+  # 既存ユーザーの shadow を上書きするのは mutableUsers = false のときだけ)。
+  # つまり initialPassword と同じ役割で、値だけが public repo から出る。
+  #
+  # ファイルが無いと activation は警告を出して続行し、新規に作られた
+  # ユーザーの shadow は `!` になる(実測: passwd -S が L)。既知の文字列が
+  # 残るよりは安全側だが、**どのパスワードも通らないので autoLogin で上がった
+  # セッションのロックを解除できず、コンソールからも入れない**。
+  # 復旧は SSH 鍵で入って `sudo passwd shishi`(sudo.nix によりパスワード不要)。
+  # 手順書との対応は flake/checks.nix の install-keys-contract が固定する。
+  users.users.shishi.hashedPasswordFile = "/var/lib/secrets/shishi-password-hash";
+
   # KRdp は動作中の KWin セッションに寄生するため、セッションが無い時間帯は
   # 遠隔から入れない。この機体は常にモニタを持つノート PC 型なので、
   # 画面を常時立ち上げたままにして遠隔の入口を確保する。
