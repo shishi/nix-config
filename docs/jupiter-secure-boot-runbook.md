@@ -701,8 +701,25 @@ sudo nix run nixpkgs#sbctl -- enroll-keys --microsoft
 `--microsoft` は省略できない。省略すると Microsoft の option ROM 検証鍵が
 入らず、環境によっては起動しなくなる。
 
-確認: `sudo nix run nixpkgs#sbctl -- status` で `Setup Mode: Disabled` /
-`Vendor Keys: microsoft` を確認する。
+確認は **`sbctl status` の `Setup Mode` を当てにしない。** 実機(2026-08-22)では
+`enroll-keys` が成功して `Vendor Keys: microsoft` になった後も、`Setup Mode` は
+`Enabled` のままだった。EFI 変数を直接見ると PK は書けている。
+
+```
+for v in PK KEK db; do
+  f=$(ls /sys/firmware/efi/efivars/${v}-* 2>/dev/null | head -1)
+  echo "$v: $(stat -c%s "$f" 2>/dev/null || echo 変数なし) bytes"
+done
+```
+
+期待: PK / KEK / db がいずれも数百バイト以上で存在すること(実機の実測値は
+PK 1258 / KEK 4332 / db 8895)。**`SetupMode` が 1 のままでも、PK が非空なら
+§3.7 へ進んでよい。** この firmware は Secure Boot を有効化する時点で
+Setup Mode を降ろす。
+
+`shishi` のログインシェルは fish なので、上のような変数代入を含むブロックを
+`ssh <target> '...'` に直接渡すと fish が解釈して失敗する。
+`ssh <target> 'bash -s' < script` の形で渡す。
 
 ### 3.7 Secure Boot を有効化する
 
