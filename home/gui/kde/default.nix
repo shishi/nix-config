@@ -72,6 +72,21 @@ in
         General.SystemUserEnabled = true;
       };
 
+      # 既定ブラウザ。**KDE は xdg-mime とは別の経路で決める。**
+      #
+      # 実機(2026-08-23)では `xdg-settings get default-web-browser` も
+      # `xdg-mime query default x-scheme-handler/https` も brave-browser.desktop を
+      # 返すのに、ChatGPT Desktop からリンクを開くと Edge が起動した。KDE の
+      # kioclient は kdeglobals の BrowserApplication を先に見て、未設定なら
+      # ksycoca の関連付け順で選ぶ。brave と edge はどちらも .desktop を 2 つ
+      # (brave-browser / com.brave.Browser、microsoft-edge / com.microsoft.Edge)
+      # 持ち、InitialPreference はどれにも無いので、順位が何で決まるかは
+      # 上流依存になる。**明示すれば依存しなくなる**ので明示する。
+      #
+      # mimeapps.list 側(XDG 経路)は home/gui/default.nix の xdg.mimeApps で
+      # 宣言している。両方書くのは、どちらの経路で開かれるかがアプリ次第だから。
+      configFile."kdeglobals".General.BrowserApplication = "brave-browser.desktop";
+
       # Plasma は /etc/locale.conf とは別に plasma-localerc を見る。
       # NixOS 側(nixos/locale.nix)だけ変えても Plasma 配下のアプリに届かない
       # 可能性があるため、同じ値をここにも置いて曖昧さを消す。
@@ -95,7 +110,18 @@ in
             "org.kde.plasma.showdesktop"
             "org.kde.plasma.kickoff"
             "org.kde.plasma.pager"
-            "org.kde.plasma.icontasks"
+            {
+              # taskbar に固定するもの。並び順はこのリストの順。
+              # .desktop の実名は実機で確認した(brave は brave-browser.desktop と
+              # com.brave.Browser.desktop の 2 つを持つ。前者を使う)。
+              iconTasks.launchers = [
+                "applications:systemsettings.desktop"
+                "applications:org.kde.dolphin.desktop"
+                "applications:brave-browser.desktop"
+                "applications:chatgpt.desktop"
+                "applications:claude-desktop.desktop"
+              ];
+            }
             "org.kde.plasma.marginsseparator"
             "org.kde.plasma.kimpanel"
             "org.kde.plasma.systemtray"
