@@ -243,7 +243,25 @@ in
     # 通す。**allowedTCPPorts は使っていない**(全インタフェースで開くため)。
     #
     # --username を渡すと krdpserverrc の SystemUserEnabled が読まれなくなる。
-    # --plasma を落とすと Portal 経路になり、初回接続時に画面上での許可が要る。
+    #
+    # **--plasma は使わない(Portal 経路を使う)。** KRdp 6.7.4 の
+    # PlasmaScreencastV1Session::setClipboardData は `Q_UNUSED(data);` の空実装で、
+    # clipboardDataChanged を emit するのも PortalSession だけ。つまり --plasma では
+    # clipboard が両方向とも動かない(ソースで確認)。Portal 経路はテキストのみ
+    # 転送する(PortalSession.cpp が「テキストだけコピーする」と明記)。
+    #
+    # Portal は初回接続時に画面上での許可を求める。その許可は
+    # ~/.local/state/krdp-serverstaterc の restorationToken として保存され、以後は
+    # 再利用されるので聞かれない。**この token は実機の前に立たなくても取れる** —
+    # --plasma で動いている RDP 画面越しにダイアログを押せばよい(2026-08-22 に
+    # 実際にそうした)。token が失効・不一致になった場合の代替は
+    # xdg-desktop-portal-kde の mega-auth で、PermissionStore の
+    # kde-authorized / remote-desktop に "yes" を書くとダイアログが出なくなる
+    # (上流が headless 用に用意している口。remotedesktop.cpp の
+    # isAppMegaAuthorized)。
+    #
+    # 復旧手段: この行に --plasma を戻せば、clipboard を失う代わりに許可なしで
+    # 必ず動く。SSH が生きていれば数秒で戻せる。
     systemd.user.services.krdpserver = {
       Unit = {
         Description = "KRDP server for the running Plasma session";
@@ -253,7 +271,7 @@ in
       Service = {
         Type = "exec";
         ExecStartPre = "${krdpCertScript} ${krdpCert} ${krdpCertKey}";
-        ExecStart = "${pkgs.kdePackages.krdp}/bin/krdpserver --plasma";
+        ExecStart = "${pkgs.kdePackages.krdp}/bin/krdpserver";
         Restart = "on-failure";
         RestartSec = 3;
       };
