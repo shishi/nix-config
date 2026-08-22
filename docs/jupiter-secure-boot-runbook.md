@@ -295,10 +295,24 @@ exit
 
 **手順 1: ディスクを作る(disko phase だけ)**
 
+**LUKS のパスフレーズは `secrets/luks-passphrase` に置く。** `secrets/` は
+`.gitignore` 済みなのでコミットされない。**値をこの手順書にも、チャットにも、
+レビュー用の記録にも書かない。**
+
+```
+mkdir -p secrets
+install -m 600 /dev/null secrets/luks-passphrase
+# エディタで開いてパスフレーズを 1 行書く
+```
+
+エディタが付ける末尾の改行は下の `$(cat ...)` が落とす。改行を含んだまま鍵に
+すると、initrd の対話プロンプトからは入力できない値になる。
+
 ワークステーション側(nix-config のチェックアウト内)で実行する。
 
 ```
-printf '%s' '<LUKSパスフレーズ>' > /tmp/luks.key
+[ -s secrets/luks-passphrase ] || { echo 'パスフレーズが空'; exit 1; }
+printf '%s' "$(cat secrets/luks-passphrase)" > /tmp/luks.key
 chmod 600 /tmp/luks.key
 nix run .#nixos-anywhere -- --flake .#jupiter \
   --target-host root@<target> --ssh-port <port> \
@@ -446,6 +460,8 @@ installer の ISO / USB を外してディスクから起動する。**`--phases
 **手順 5: 後始末**
 
 ワークステーション側の `/tmp/luks.key` と `<keys-dir>` を消す。
+`secrets/luks-passphrase` は §6 の遠隔復旧で要る値なので、消すなら先に
+別の場所へ控える。
 
 初回起動後、対象機で GPG 秘密鍵を import して置いたファイルを消す。
 
