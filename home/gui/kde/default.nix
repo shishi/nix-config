@@ -315,7 +315,7 @@ in
       Service = {
         Type = "exec";
         ExecStartPre = "${krdpCertScript} ${krdpCert} ${krdpCertKey}";
-        ExecStart = "${pkgs.kdePackages.krdp}/bin/krdpserver --plasma";
+        ExecStart = "${pkgs.kdePackages.krdp}/bin/krdpserver";
         Restart = "on-failure";
         RestartSec = 3;
       };
