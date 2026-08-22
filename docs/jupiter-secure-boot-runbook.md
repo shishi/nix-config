@@ -825,7 +825,12 @@ sudo cryptsetup luksDump /dev/disk/by-partlabel/disk-main-luks
 sudo cryptsetup token export --token-id=<N> /dev/disk/by-partlabel/disk-main-luks
 ```
 
-期待(該当部分): `"tpm2-pcrs":[7],"tpm2-pcr-bank":"sha256","tpm2-primary-alg":"ecc"`。
+期待(該当部分): `"tpm2-pcrs":[7]` と `"tpm2-pcr-bank":"sha256"`。
+
+**`tpm2-primary-alg` は見ない。** VM では `"ecc"`、実機(Minisforum V3 / 2026-08-22)
+では `"rsa"` になった。`systemd-cryptenroll` が TPM の対応に合わせて選ぶ値で、
+封印が PCR 7 に縛られているかとは無関係。ここを期待値に含めると、正しく enroll
+できているのに失敗と判断して §4.5 の wipe → 再 enroll をやり直すことになる。
 
 ### 4.5 wipe と enroll は別コマンドに分ける
 
