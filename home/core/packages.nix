@@ -24,6 +24,7 @@
     neovim # neovim-nightly-overlay 経由
     p7zip
     pass
+    ghq
     pkg-config
     pyright
     rclone

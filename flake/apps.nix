@@ -19,6 +19,16 @@
         ];
         text = builtins.readFile ../scripts/check-env.sh;
       };
+      # secrets/ の検査。nixos-anywhere の前に必ず走らせる。
+      check-install-secrets = pkgs.writeShellApplication {
+        name = "check-install-secrets";
+        runtimeInputs = with pkgs; [
+          coreutils
+          gnugrep
+          gnused
+        ];
+        text = builtins.readFile ../scripts/check-install-secrets.sh;
+      };
       mkScriptApp = name: script: {
         type = "app";
         program = "${pkgs.writeShellScript name ''
@@ -77,10 +87,26 @@
         };
         default = self'.apps.update;
 
-        # インストーラの pin(リハーサルと本番を同一 rev に。flake input 版を使用)
+        # インストーラの pin(リハーサルと本番を同一 rev に。flake input 版を使用)。
+        #
+        # **素の nixos-anywhere は公認経路にしない。** secrets/ の検査を先に走らせる
+        # ラッパ経由にする。README に「これを置け」と書くだけでは、読まないまま
+        # 実行できてしまい、欠けたことに気づくのは初回起動後になる
+        # (パスワードハッシュが無いと shadow が `!` になり、autoLogin で上がった
+        # セッションのロックも RDP も通らない)。実行の瞬間に止める。
         nixos-anywhere = {
           type = "app";
-          program = "${inputs'.nixos-anywhere.packages.default}/bin/nixos-anywhere";
+          program = "${pkgs.writeShellScript "nixos-anywhere-checked" ''
+            set -euo pipefail
+            ${check-install-secrets}/bin/check-install-secrets
+            exec ${inputs'.nixos-anywhere.packages.default}/bin/nixos-anywhere "$@"
+          ''}";
+        };
+
+        # 検査だけを単独で回したいとき
+        check-install-secrets = {
+          type = "app";
+          program = "${check-install-secrets}/bin/check-install-secrets";
         };
 
         setup-sudo-nopasswd = mkScriptApp "setup-sudo-nopasswd" ../scripts/setup-sudo-nopasswd.sh;
