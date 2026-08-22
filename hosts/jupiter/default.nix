@@ -134,6 +134,39 @@ in
   programs.nix-ld.enable = true;
   users.users.shishi.extraGroups = [ "docker" ]; # non-root で docker run(受け入れゲート)
 
+  # Steam。unfree なので flake/default.nix の allowUnfree = true が前提。
+  #
+  # この 1 行が連れてくるもの(すべて eval で確認):
+  # - steam と steam-run(FHS 環境。NixOS では Steam 自身が FHS を要求する)
+  # - hardware.graphics.enable32Bit = true。32bit のゲームと Proton に要る。
+  #   明示しなくても module 側が立てる
+  # - hardware.steam-hardware.enable = true。コントローラ用の udev ルール
+  #
+  # **firewall の口は増えない。** remotePlay / dedicatedServer /
+  # localNetworkGameTransfers の openFirewall はいずれも既定 false で、
+  # allowedTCPPorts は 22 のままである(eval で確認)。Remote Play や
+  # LAN 転送を使う段になったら、そのとき明示的に開ける。
+  #
+  # 32bit の Vulkan ICD(radeon_icd.i686.json)は enable32Bit だけで入る。
+  # hardware.graphics.extraPackages32 は要らない。ここが欠けると 64bit の
+  # タイトルは動くのに 32bit タイトルだけが Vulkan デバイス 0 個で落ちる、
+  # という切り分けにくい壊れ方をするので実際に見て確かめてある。
+  #
+  # 音声は plasma6 が立てる pipewire に乗る(alsa / pulse の互換も有効)。
+  # Steam 側は音声について何も設定しない。
+  #
+  # gamescope と gamemode は入れない。option としては存在するが、
+  # 要るという根拠がまだ無い。必要になってから測って足す。
+  #
+  # **未検証: ゲームが実際に動くこと。** VM には GPU が無いので、確かめてあるのは
+  # ビルドとバイナリの存在とドライバの配置までである。実機で最初に見るのは
+  # RADV が出るか(Ryzen 8840U の iGPU)。vulkan-tools は入れていないので
+  # 一時的に持ってくる。**`nix run` では起動しない** — このパッケージは
+  # bin/vulkan-tools を持たないため、引数から vulkaninfo は選ばれない。
+  #
+  #   nix shell nixpkgs#vulkan-tools -c vulkaninfo --summary
+  programs.steam.enable = true;
+
   # 初回インストールで nixos-anywhere --extra-files に渡した鍵は、tar が
   # --no-same-owner で展開されるため所有者が root になる(mode だけが保存される)。
   # ユーザーの存在有無とは無関係で、--chown home/shishi <uid>:<gid> で直すしかない。
