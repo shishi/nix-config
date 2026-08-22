@@ -67,6 +67,22 @@ nh os switch
 ビルドした結果が同一 store path で、構成と実機にドリフトが無い(post-install
 成功基準)。以後の更新も `nh os switch`。
 
+### 生体認証(顔・指紋)の登録
+
+宣言(`hosts/jupiter/default.nix`)が入れるのは仕組みまで。顔モデルと指紋は
+生体データなので repo に入れず、本人が実機の前で 1 回登録する。
+再インストール後も同様にやり直す:
+
+```
+sudo linux-enable-ir-emitter configure   # IR エミッタの点灯設定(対話)
+sudo howdy add                           # 顔の登録(/var/lib/howdy/models)
+fprintd-enroll                           # 指紋の登録(/var/lib/fprint)
+```
+
+効く先はロック画面(顔・指紋)と polkit の認証ダイアログ(顔・指紋)。
+sudo には効かない(NOPASSWD が auth フェーズを飛ばす。効かせる手順は
+`nixos/sudo.nix` の選択肢 (d))。
+
 ### リモートデスクトップ(RDP)
 
 KRdp が動作中の Plasma セッションに寄生して RDP を話す。`0.0.0.0:3389` に bind し、

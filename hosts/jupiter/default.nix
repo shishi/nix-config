@@ -264,6 +264,63 @@ in
   # KDE 側の UI は plasma6 が bluedevil を入れるので追加の宣言は要らない。
   hardware.bluetooth.enable = true;
 
+  # ── 生体認証: 顔(Howdy)+ 指紋(fprintd)──────────────────────
+  #
+  # ハード(実測 2026-08-23):
+  # - IR カメラ = /dev/video2(Kingcome UVC 2b7e:c705 の interface 1.2。
+  #   GREY 8-bit 640x360)。services.howdy の device_path 既定と一致するので
+  #   settings は既定のまま使う。
+  # - 指紋 = Goodix 27c6:6092。libfprint の goodixmoc(match-on-chip)が対応
+  #   (libfprint の hwdb に usb:v27C6p6092 が載っていることを確認)。
+  #
+  # 効く先はロック画面と polkit の認証ダイアログ。SDDM は autoLogin なので
+  # 実質出番が無い。sudo は NOPASSWD が auth フェーズを飛ばすため効かない
+  # (account/session フェーズは通るので「PAM 全体が無関係」ではない。効かせる
+  # 場合の手順は nixos/sudo.nix の選択肢 (d) に記録してある)。
+  #
+  # ロック画面の PAM 配線(生成される text を nix eval で確認済み 2026-08-23):
+  # - "kde"(パスワード経路)= howdy(11500)→ pam_unix。指紋は乗らない。
+  #   howdy の顔スキャン(timeout 4 秒 = settings.video.timeout の既定値。
+  #   nixpkgs モジュール定義で確認)が
+  #   パスワード照合の前に直列で入るため、実機の前に誰もいない RDP からの
+  #   解除は最大 4 秒待ってからパスワードが照合される。
+  # - "kde-fingerprint"(fprintd 11400 → howdy 11500 → pam_unix)は
+  #   kscreenlocker がパスワード経路と並行して使う指紋専用の別サービスで、
+  #   指紋待ちがパスワード入力を塞ぐことはない。
+  #
+  # control = "sufficient": 既定の "required"(nixpkgs モジュール定義で確認)は
+  # 「顔 AND パスワード」の
+  # 2 要素になる。sufficient なら顔・指紋のどれか 1 つで通り、失敗すれば
+  # パスワードに落ちる。上流の注意書きどおり顔認証は写真で騙されうるが、
+  # このカメラは IR(可視光の印刷物が写らない)であり、受け入れる。
+  #
+  # 顔モデルは /var/lib/howdy/models(nixpkgs がパッチ済み)、指紋は
+  # /var/lib/fprint に保存される。生体データなので repo には入れない =
+  # 再インストール後は登録し直す。登録は本人が実機の前で 1 回:
+  #   sudo linux-enable-ir-emitter configure   # IR エミッタの点灯設定(対話)
+  #   sudo howdy add                           # 顔の登録
+  #   fprintd-enroll                           # 指紋の登録
+  services.howdy = {
+    enable = true;
+    control = "sufficient";
+  };
+  # 別の USB カメラ類を挿したまま起動すると /dev/videoN の番号はずれうる。
+  # 症状(顔認証が常時失敗し、各認証点に 4 秒待ちだけ残る)が出たら
+  # services.howdy.settings.video.device_path に /dev/v4l/by-id/ の安定パスを
+  # 指定する。
+  services.linux-enable-ir-emitter.enable = true; # device 既定 "video2" が実機と一致
+  services.fprintd.enable = true;
+
+  # krdp(RDP)は PAM サービス "login" を使う(journal の
+  # pam_unix(login:account): setuid failed が krdp 由来であることを実測)。
+  # login に howdy と fprintd が乗ると、RDP 接続のたびに顔スキャン(上記の
+  # 4 秒)と指紋待ちを直列で消化してからパスワード照合へ進み、
+  # 接続が遅くなるだけなので外す。TTY ログインも巻き添えで生体認証なしに
+  # なるが、使っていないので許容。SSH は鍵認証で PAM の auth スタックを
+  # 通らないため元から影響しない。
+  security.pam.services.login.howdy.enable = false;
+  security.pam.services.login.fprintAuth = false;
+
   programs.steam.enable = true;
 
   # pipewire は plasma6 が既に立てているが、rtkit が無いとリアルタイム優先度を

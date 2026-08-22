@@ -26,6 +26,24 @@
 # (b) sudo にパスワードを要求する。nh の非対話経路と runbook §4 の
 #     systemd-cryptenroll(標準入力でパスフレーズを渡す)が壊れる
 # (c) RDP をやめて SSH トンネルへ戻す
+# (d) 生体認証 + SSH agent 認証に切り替える(2026-08-23 調査。採用せず (a) を
+#     継続 —— ただし将来効かせたくなったときの手順として残す):
+#     1. 下の extraRules(shishi の NOPASSWD)を消す
+#     2. jupiter は howdy(顔)と fprintd(指紋)が有効なので、ローカルの
+#        sudo は顔か指紋で通るようになる。howdy は abort_if_ssh = true(既定)
+#        なので SSH 経由の sudo で顔認証待ちは起きないが、fprintd は SSH から
+#        でも指を待つ。リモートの体感が悪ければ
+#        security.pam.services.sudo.fprintAuth = false にする
+#     3. (b) の「nh の非対話経路が壊れる」への対処として
+#        security.pam.sshAgentAuth.enable = true と
+#        security.pam.services.sudo.sshAgentAuth = true を足すと、転送された
+#        SSH agent の鍵で sudo が通る。対象は宣言済みの鍵だけ
+#        (authorizedKeysFiles の既定は /etc/ssh/authorized_keys.d/%u で、
+#        users.users.*.openssh.authorizedKeys から作られる。
+#        ~/.ssh/authorized_keys への手動追記分は対象外)。
+#        接続側に ssh -A(または ForwardAgent yes)が要る。agent 転送は
+#        「接続元マシンの侵害 = sudo 可」を意味するので、その等価交換を
+#        受け入れられる場合のみ
 { ... }:
 {
   security.sudo.extraRules = [
