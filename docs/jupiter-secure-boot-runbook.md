@@ -769,17 +769,22 @@ LUKS2 は新規 keyslot の追加時にも既存の資格情報での認証を�
 無期限にハングする。`--unlock-key-file=/dev/stdin` で現在のパスフレーズを
 渡す。
 
+パスフレーズは手順 1 と同じ `secrets/luks-passphrase` から読む。**コマンド
+ラインに直に書かない** — shell history と `/proc/<pid>/cmdline` に残る。
+ワークステーション側から実行する。
+
 ```
-printf '%s' '<現在のLUKSパスフレーズ>' | sudo systemd-cryptenroll \
-  --unlock-key-file=/dev/stdin \
-  --tpm2-device=auto --tpm2-pcrs=7 \
-  /dev/disk/by-partlabel/disk-main-luks
+printf '%s' "$(cat secrets/luks-passphrase)" \
+  | ssh <target> 'sudo systemd-cryptenroll --unlock-key-file=/dev/stdin \
+      --tpm2-device=auto --tpm2-pcrs=7 /dev/disk/by-partlabel/disk-main-luks'
 ```
 
-（`disk-main-luks` は `hosts/jupiter/disko.nix` の `disko.devices.disk.main`
-とパーティション `luks` から disko の命名規則で決まる partlabel で、実機でも
-同名になる。パスフレーズそのものはこのファイルに書かない。実行時に現在の
-LUKS パスフレーズへ読み替えること。）
+`sudo` は NOPASSWD(`nixos/sudo.nix`)なので標準入力を奪わない。奪う設定に
+変えると、パスフレーズが sudo に食われて enroll が既存鍵の入力待ちでハングする。
+
+（`disk-main-luks` は `hosts/jupiter/disko.nix` の `disko.devices.disk.main` と
+パーティション `luks` から disko の命名規則で決まる partlabel で、実機でも
+同名になる。）
 
 期待: `New TPM2 token enrolled as key slot 1.`
 
@@ -814,11 +819,16 @@ sudo cryptsetup token export --token-id=<N> /dev/disk/by-partlabel/disk-main-luk
 新規に enroll するコマンドを分けて実行する。
 
 ```
-sudo systemd-cryptenroll --wipe-slot=tpm2 /dev/disk/by-partlabel/disk-main-luks
-printf '%s' '<現在のLUKSパスフレーズ>' | sudo systemd-cryptenroll \
-  --unlock-key-file=/dev/stdin --tpm2-device=auto --tpm2-pcrs=7 \
-  /dev/disk/by-partlabel/disk-main-luks
+ssh <target> 'sudo systemd-cryptenroll --wipe-slot=tpm2 \
+  /dev/disk/by-partlabel/disk-main-luks'
+printf '%s' "$(cat secrets/luks-passphrase)" \
+  | ssh <target> 'sudo systemd-cryptenroll --unlock-key-file=/dev/stdin \
+      --tpm2-device=auto --tpm2-pcrs=7 /dev/disk/by-partlabel/disk-main-luks'
 ```
+
+**wipe した状態で再起動すると initrd の解錠待ちになる。** そこを抜けるには
+§6 の initrd SSH でパスフレーズを入れる必要があるので、`secrets/luks-passphrase`
+を消した後に wipe しないこと。
 
 **この 2 コマンド構成を VM で通した。** `--wipe-slot=tpm2` の直後に
 `luksDump` の `Tokens:` が空になり、再起動すると initrd で解錠待ちになる。
@@ -908,9 +918,17 @@ ssh -tt -p <port> root@<host>
 
 ### 6.3 パスフレーズ投入
 
+パスフレーズはここでも `secrets/luks-passphrase` から読む。ワークステーション
+側(nix-config のチェックアウト内)で実行する。
+
 ```
-( printf '%s\n' '<現在のLUKSパスフレーズ>'; sleep 90 ) | timeout 150 ssh -tt -p <port> root@<host>
+( printf '%s\n' "$(cat secrets/luks-passphrase)"; sleep 90 ) \
+  | timeout 150 ssh -tt -p <port> root@<host>
 ```
+
+`sleep 90` は、プロンプトが出るより先に標準入力が閉じて ssh が終了するのを
+防ぐため。`-tt` は擬似端末を強制する指定で、これが無いと
+`systemd-tty-ask-password-agent` がプロンプトを出さない。
 
 次のプロンプトが出力される。
 
