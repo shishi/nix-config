@@ -262,6 +262,46 @@ in
     #
     # 復旧手段: この行に --plasma を戻せば、clipboard を失う代わりに許可なしで
     # 必ず動く。SSH が生きていれば数秒で戻せる。
+    # Portal の RemoteDesktop を無人で使えるようにする。
+    #
+    # xdg-desktop-portal-kde は許可を出す前に PermissionStore の
+    # kde-authorized / remote-desktop を引き、その app_id に "yes" があれば
+    # ダイアログの分岐に入らず通知だけ出して続行する(remotedesktop.cpp の
+    # isAppMegaAuthorized。上流のコメントに "Particularly useful for headless
+    # setups and when the user is not physically at the machine" と書かれている、
+    # そのための口)。
+    #
+    # **宣言で入れないと意味がない。** 手で 1 回叩く運用にすると、再インストール
+    # した直後に「RDP が無いとダイアログを押せない / ダイアログを押さないと RDP が
+    # 使えない」へ戻る。インストール時に自動で入る必要がある。
+    #
+    # app_id は org.kde.krdpserver(portal の debug ログで実測)。空文字は
+    # app_id を持たないホストアプリ用の別枠なので、ここでは効かない。
+    #
+    # restorationToken には頼らない。実測ではダイアログを許可して保存されても
+    # 次の接続の SelectDevices に載らず、載ったとしてもセッション毎に書き換わる
+    # 値なので、新規インストール直後の 1 回目を無人で通す役に立たない。
+    #
+    # **これは「krdpserver が無確認で入力とスクリーンを掌握してよい」という許可**
+    # である。RDP の口が PAM 認証で、その先が NOPASSWD の sudo であることと
+    # 合わせて評価すること(nixos/sudo.nix)。
+    systemd.user.services.krdp-portal-permission = {
+      Unit = {
+        Description = "Pre-authorize krdpserver for the RemoteDesktop portal";
+        # krdpserver より先に走らせる。target との間に順序を張らないのは、
+        # target が Wants する unit の後ろに順序付けられる性質で循環を作らない
+        # ため(このセッションで一度その循環を作って RDP を落としている)。
+        Before = [ "krdpserver.service" ];
+      };
+      Service = {
+        Type = "oneshot";
+        RemainAfterExit = true;
+        # PermissionStore は D-Bus activatable なので、先に起動しておく必要はない。
+        ExecStart = "${pkgs.systemd}/bin/busctl --user call org.freedesktop.impl.portal.PermissionStore /org/freedesktop/impl/portal/PermissionStore org.freedesktop.impl.portal.PermissionStore SetPermission sbsas kde-authorized true remote-desktop org.kde.krdpserver 1 yes";
+      };
+      Install.WantedBy = [ "plasma-workspace.target" ];
+    };
+
     systemd.user.services.krdpserver = {
       Unit = {
         Description = "KRDP server for the running Plasma session";
@@ -271,7 +311,7 @@ in
       Service = {
         Type = "exec";
         ExecStartPre = "${krdpCertScript} ${krdpCert} ${krdpCertKey}";
-        ExecStart = "${pkgs.kdePackages.krdp}/bin/krdpserver";
+        ExecStart = "${pkgs.kdePackages.krdp}/bin/krdpserver --plasma";
         Restart = "on-failure";
         RestartSec = 3;
       };
