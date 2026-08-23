@@ -259,6 +259,9 @@ in
       powerdevil.lowBattery = {
         autoSuspend.action = "nothing";
       };
+      # 通知トーストは通知ウィジェットの近くではなく、画面右上へ固定する。
+      # Plasma の PopupPosition 列挙で TopRight は 3。
+      configFile.plasmanotifyrc.Notifications.PopupPosition = 3;
     };
 
     # KRdp は動作中の KWin セッションに寄生する。同梱の

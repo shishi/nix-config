@@ -160,6 +160,25 @@
             touch $out
           '';
 
+        # 通知トーストはパネル上の通知ウィジェット位置ではなく、固定した画面右上へ出す。
+        # Plasma の PopupPosition 列挙では TopRight が 3。
+        notification-contract =
+          let
+            configFile =
+              self.nixosConfigurations.jupiter.config.home-manager.users.shishi.programs.plasma.configFile;
+            notificationConfig = configFile.plasmanotifyrc or { };
+            notifications = notificationConfig.Notifications or { };
+            popupPosition = (notifications.PopupPosition or { }).value or null;
+            show = value: if value == null then "null" else toString value;
+          in
+          pkgs.runCommand "notification-contract" { } ''
+            if [ "${show popupPosition}" != "3" ]; then
+              echo "notifications.popupPosition: expected '3' but got '${show popupPosition}'"
+              exit 1
+            fi
+            touch $out
+          '';
+
         # ブート契約: lanzaboote が systemd-boot を置き換えていること。
         # bootloader の取り違えは起動して初めて分かるので、eval で固定する。
         boot-contract =
