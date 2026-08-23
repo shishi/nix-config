@@ -249,12 +249,15 @@ in
         passwordRequiredDelay = 0;
       };
       powerdevil.AC = {
-        autoSuspend.action = "sleep";
-        autoSuspend.idleTimeout = 7200;
+        # アイドル中でも自動 sleep はしない。自動ロックは上の
+        # kscreenlocker が継続し、手動 sleep とふた閉じの動作も変えない。
+        autoSuspend.action = "nothing";
       };
       powerdevil.battery = {
-        autoSuspend.action = "sleep";
-        autoSuspend.idleTimeout = 3600;
+        autoSuspend.action = "nothing";
+      };
+      powerdevil.lowBattery = {
+        autoSuspend.action = "nothing";
       };
     };
 

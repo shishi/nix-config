@@ -103,6 +103,33 @@
             touch $out
           '';
 
+        # アイドル時の自動 sleep は、AC / バッテリーのどちらでも行わない。
+        # action だけを nothing にして timeout を残すと plasma-manager の
+        # アサーションにより評価が失敗するので、両方をこの契約で固定する。
+        sleep-contract =
+          let
+            powerdevil =
+              self.nixosConfigurations.jupiter.config.home-manager.users.shishi.programs.plasma.powerdevil;
+            show = value: if value == null then "null" else toString value;
+          in
+          pkgs.runCommand "sleep-contract" { } ''
+            ok=1
+            check() {
+              if [ "$2" != "$3" ]; then
+                echo "$1: expected '$3' but got '$2'"
+                ok=0
+              fi
+            }
+            check AC.autoSuspend.action "${show powerdevil.AC.autoSuspend.action}" "0"
+            check AC.autoSuspend.idleTimeout "${show powerdevil.AC.autoSuspend.idleTimeout}" "null"
+            check battery.autoSuspend.action "${show powerdevil.battery.autoSuspend.action}" "0"
+            check battery.autoSuspend.idleTimeout "${show powerdevil.battery.autoSuspend.idleTimeout}" "null"
+            check lowBattery.autoSuspend.action "${show powerdevil.lowBattery.autoSuspend.action}" "0"
+            check lowBattery.autoSuspend.idleTimeout "${show powerdevil.lowBattery.autoSuspend.idleTimeout}" "null"
+            [ "$ok" = 1 ] || exit 1
+            touch $out
+          '';
+
         # ブート契約: lanzaboote が systemd-boot を置き換えていること。
         # bootloader の取り違えは起動して初めて分かるので、eval で固定する。
         boot-contract =
