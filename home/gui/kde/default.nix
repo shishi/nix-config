@@ -336,10 +336,45 @@ in
       configFile.plasmanotifyrc.Notifications.PopupPosition = 3;
     };
 
+    # RDP 越しの視認性・操作性のため、実機パネル(eDP-1)を既定のネイティブ
+    # 解像度(2560x1600, scale 1.25)とは別の解像度に固定する(実測して決めた
+    # 値。2026-08-23)。KWin は出力設定を ~/.config/kwinoutputconfig.json に
+    # 自動保存して次回セッションにも引き継ぐが、そのファイルは home-manager
+    # 管理外の実ファイルなので、再インストールすると消えて既定値に戻る。
+    # ここで宣言してセッション開始のたびに強制することで、再インストール後も
+    # 再現させる。
+    #
+    # mode は kscreen-doctor の内部モード ID ではなく WIDTHxHEIGHT@REFRESH の
+    # 名前文字列で指定する。ID はモニタの接続構成(krdpserver の仮想出力が
+    # 同時に存在するかどうか等)によって番号が振り直されるため不安定。
+    # REFRESH は kscreen-doctor -j の "name" フィールドが整数に丸めた表記
+    # ("2560x1440@165"、実際のリフレッシュレートは 164.898Hz)を使う必要が
+    # あり、丸めていない値(@164.90 や @164)は一致せず無視される(実測)。
+    systemd.user.services.krdp-display-preset = {
+      Unit = {
+        Description = "Pin eDP-1 resolution/scale for RDP readability";
+        After = [ "plasma-core.target" ];
+        PartOf = [ "plasma-workspace.target" ];
+      };
+      Service = {
+        Type = "oneshot";
+        RemainAfterExit = true;
+        ExecStart = "${pkgs.kdePackages.libkscreen}/bin/kscreen-doctor output.eDP-1.mode.2560x1440@165 output.eDP-1.scale.1.25";
+      };
+      Install.WantedBy = [ "plasma-workspace.target" ];
+    };
+
     # KRdp は動作中の KWin セッションに寄生する。同梱の
     # share/systemd/user/app-org.kde.krdpserver.service は NixOS の generateUnits が
     # etc/ と lib/ しか走査しないため拾われず、拾えたとしても引数を一切渡さないので
     # Portal 経路・0.0.0.0 bind・証明書パス空になり起動しない。自分で書く。
+    #
+    # unit 名を krdpserver ではなく app-org.kde.krdpserver にしてあるのは
+    # System Settings の Remote Desktop KCM(kcmkrdpserver.cpp)が
+    # /org/freedesktop/systemd1/unit/app_2dorg_2ekde_2ekrdpserver_2eservice
+    # (= app-org.kde.krdpserver.service)を決め打ちで見に行くため。別名だと
+    # 実際には動いていても KCM 上は「停止中」に見え、KCM からの
+    # 起動/停止/自動起動トグルも効かない(実測 2026-08-23)。
     #
     # NixOS 側の systemd.user.* にしないのは、そちらだと SDDM greeter を含む
     # 全ユーザーに unit が配られるため。
@@ -380,16 +415,16 @@ in
     # 復旧手段: krdpserver を --plasma 付きで起動し直せば、clipboard を失う
     # 代わりに許可なしで必ず動く。unit 実体は store への read-only symlink
     # なので直接編集はできない。SSH から:
-    #   systemctl --user edit krdpserver
+    #   systemctl --user edit app-org.kde.krdpserver
     # で drop-in を開き、次の 3 行を書いて保存する(値が空の
     # ExecStart= が既存の ExecStart を打ち消す。空行では打ち消せない):
     #   [Service]
     #   ExecStart=
-    #   ExecStart=<systemctl cat krdpserver で見える現 ExecStart> --plasma
-    # そのあと systemctl --user restart krdpserver
+    #   ExecStart=<systemctl cat app-org.kde.krdpserver で見える現 ExecStart> --plasma
+    # そのあと systemctl --user restart app-org.kde.krdpserver
     # 恒久反映はこのファイルを直して rebuild。**drop-in は rebuild では
     # 消えない**(home-manager 管理外)ので、`systemctl --user revert
-    # krdpserver` で drop-in を消してから restart する。消し忘れると
+    # app-org.kde.krdpserver` で drop-in を消してから restart する。消し忘れると
     # --plasma のまま走り続け、drop-in が固定した旧 store パスが GC された
     # 時点で unit 自体が起動しなくなる。
     #
@@ -424,8 +459,8 @@ in
         # 張ると、target が Wants する unit へ暗黙の After= が付く性質と
         # 衝突して循環になり、RDP が丸ごと起動しなくなる(実際に起きた)。
         # Before= 方向なら循環しないが krdpserver との相対順序を保証しない
-        # ので、krdpserver.service へ直接張る。
-        Before = [ "krdpserver.service" ];
+        # ので、app-org.kde.krdpserver.service へ直接張る。
+        Before = [ "app-org.kde.krdpserver.service" ];
       };
       Service = {
         Type = "oneshot";
@@ -440,7 +475,7 @@ in
       Install.WantedBy = [ "plasma-workspace.target" ];
     };
 
-    systemd.user.services.krdpserver = {
+    systemd.user.services."app-org.kde.krdpserver" = {
       Unit = {
         Description = "KRDP server for the running Plasma session";
         After = [ "plasma-core.target" ];
@@ -449,6 +484,13 @@ in
       Service = {
         Type = "exec";
         ExecStartPre = "${krdpCertScript} ${krdpCert} ${krdpCertKey}";
+        # --virtual-monitor は使わない。Portal 経路(PortalSession.cpp)では
+        # SelectSources に types=VIRTUAL とだけ渡してサイズを一切伝えない
+        # ため、実際のサイズは xdg-desktop-portal-kde 側のハードコード
+        # (remotedesktop.cpp, {1920, 1080})で決まり、指定は無視される
+        # (実測 2026-08-23)。解像度が固定されるのは既定動作(物理モニタを
+        # そのままキャプチャする)の仕様であって、この nix-config では
+        # 直せない上流の制約として受け入れる。
         ExecStart = "${pkgs.kdePackages.krdp}/bin/krdpserver";
         Restart = "on-failure";
         RestartSec = 3;
