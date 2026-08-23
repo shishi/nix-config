@@ -15,6 +15,7 @@
     gh
     git
     git-wt
+    gitleaks
     gnupg
     jq
     less
