@@ -4,6 +4,7 @@
     _1password-cli
     bat
     bottom
+    bun
     curl
     deno
     emacs
@@ -21,6 +22,7 @@
     less
     llm-agents.claude-code
     llm-agents.codex
+    llm-agents.herdr
     lua-language-server
     luajit
     neovim # neovim-nightly-overlay 経由
@@ -32,6 +34,7 @@
     rclone
     ripgrep
     tailscale
+    tree-sitter
     typescript-language-server
     unar
     unzip
