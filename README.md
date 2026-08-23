@@ -71,13 +71,35 @@ nh os switch
 
 宣言(`hosts/jupiter/default.nix`)が入れるのは仕組みまで。顔モデルと指紋は
 生体データなので repo に入れず、本人が実機の前で 1 回登録する。
-再インストール後も同様にやり直す:
+再インストール後も同様にやり直す。顔認証は次の順で設定・確認する:
 
 ```
-sudo linux-enable-ir-emitter configure   # IR エミッタの点灯設定(対話)
-sudo howdy add                           # 顔の登録(/var/lib/howdy/models)
-fprintd-enroll                           # 指紋の登録(/var/lib/fprint)
+sudo linux-enable-ir-emitter configure   # IR エミッタの動作を確認する(対話)
+sudo howdy add                           # 顔モデルを 1 件追加する(/var/lib/howdy/models)
+sudo howdy -U shishi list                # 顔モデルの登録を確認する
+sudo fprintd-enroll shishi               # 指紋を登録する(/var/lib/fprint)
+fprintd-list shishi                      # 指紋の登録を確認する
 ```
+
+`linux-enable-ir-emitter configure` が点滅を問い、`Yes` の後に
+`The emitter is already working, skipping the configuration.` と出た場合、IR エミッタは
+既に動作しているため追加設定は不要です。
+
+`sudo howdy -U shishi test` はカメラ映像のプレビューです。顔照合の成否は確認しません。
+顔認証は `Super+L` でロックして確認します。KDE は `Unlock` のクリックで
+ロック解除の PAM 認証を開始します。Howdy は PAM 認証が
+始まってからカメラを使うため、ロック直後に顔だけで自動解除はしません。顔が一致すると
+その認証を通過して解除します。失敗時はパスワードで解除できます。
+
+指紋の登録は `sudo fprintd-enroll shishi` を使います。通常の `fprintd-enroll` は
+この構成では polkit に拒否されることがあります。
+
+顔認証が通らない場合は、まず `sudo howdy -U shishi add` を追加で実行します。正面、
+少し左、少し右などで複数のモデルを登録します。ロック時に
+`Failure, not possible to open camera at configured path` と
+`Failure, timeout reached` が続けて出る場合、この端末では顔照合の
+タイムアウトでも
+同じ表示を確認しています。このメッセージだけでカメラ故障とは判断しません。
 
 効く先はロック画面(顔・指紋)と polkit の認証ダイアログ(顔・指紋)。
 sudo には効かない(NOPASSWD が auth フェーズを飛ばす。効かせる手順は
