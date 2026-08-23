@@ -45,6 +45,49 @@ let
     ${pkgs.coreutils}/bin/mv "$tmpk" "$key"
     ${pkgs.coreutils}/bin/mv "$tmpc" "$cert"
   '';
+  # WezTerm は Wayland クライアントとしてパネルを除いた作業領域を取得できない。
+  # そのため KWin が新規ウィンドウの frameGeometry を MaximizeArea と比較し、
+  # はみ出すときだけ最大化する。KWin は XDG data path から Script を見つける。
+  # kpackagetool や個別の D-Bus 呼び出しは足さず、kwinrc の反映は plasma-manager
+  # の既存 activation 経路へ任せる。
+  fitWezTermWindowScript = ''
+    function isWezTerm(window) {
+      return /wezterm/i.test(`''${window.resourceName} ''${window.resourceClass}`);
+    }
+
+    function fitsMaximizeArea(window) {
+      const area = workspace.clientArea(KWin.MaximizeArea, window);
+      const frame = window.frameGeometry;
+
+      return frame.x >= area.x
+        && frame.y >= area.y
+        && frame.x + frame.width <= area.x + area.width
+        && frame.y + frame.height <= area.y + area.height;
+    }
+
+    function maximizeIfNeeded(window) {
+      if (isWezTerm(window) && !fitsMaximizeArea(window)) {
+        window.setMaximize(true, true);
+      }
+    }
+
+    if (workspace.supportInformation().includes("KWin::Wayland")) {
+      workspace.windowAdded.connect((window) => {
+        if (!isWezTerm(window)) {
+          return;
+        }
+
+        maximizeIfNeeded(window);
+
+        const maximizeAfterInitialConfigure = () => {
+          maximizeIfNeeded(window);
+          window.frameGeometryChanged.disconnect(maximizeAfterInitialConfigure);
+        };
+        window.frameGeometryChanged.connect(maximizeAfterInitialConfigure);
+        setTimeout(() => window.frameGeometryChanged.disconnect(maximizeAfterInitialConfigure), 1000);
+      });
+    }
+  '';
 
 in
 {
@@ -55,6 +98,23 @@ in
       kdePackages.yakuake
       kdePackages.kzones
     ];
+    xdg.dataFile = {
+      "kwin/scripts/fit-wezterm-window/metadata.json".text = builtins.toJSON {
+        KPlugin = {
+          Name = "Fit WezTerm Window";
+          Description = "Maximize new WezTerm windows only when they exceed KWin's maximize area";
+          Id = "fit-wezterm-window";
+          Version = "1.0";
+          License = "MIT";
+        };
+        "X-Plasma-API" = "javascript";
+        "X-Plasma-MainScript" = "code/main.js";
+        KPackageStructure = "KWin/Script";
+      };
+      "kwin/scripts/fit-wezterm-window/contents/code/main.js".text = fitWezTermWindowScript;
+      "kwin/scripts/fit-wezterm-window/metadata.json".force = true;
+      "kwin/scripts/fit-wezterm-window/contents/code/main.js".force = true;
+    };
 
     programs.plasma = {
       enable = true;
@@ -186,7 +246,10 @@ in
       # 組み込みのカスタムタイリング(Meta+T のゾーンエディタと Shift ドラッグ)は
       # 無効化しない。KZones が期待どおりでなかったときの退避経路として残す。
       configFile."kwinrc" = {
-        Plugins.kzonesEnabled = true;
+        Plugins = {
+          kzonesEnabled = true;
+          "fit-wezterm-windowEnabled" = true;
+        };
         "Script-kzones" = {
           # 上流の既定と同じ値だが、意図を宣言として残す
           # (既定が変わってもドラッグ即表示を維持するため)。
