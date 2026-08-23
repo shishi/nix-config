@@ -59,6 +59,15 @@ in
     programs.plasma = {
       enable = true;
 
+      # 既定でダークテーマ。Global Theme を切り替えると配下の
+      # colorScheme / plasma-theme / カーソルなどが一括で揃う。
+      #
+      # 適用は autostart script(apply_themes)経由で、overrideConfig が
+      # 既定の false の間は初回ログイン時に一度だけ走る(plasma-manager の
+      # modules/workspace.nix)。GUI からライトテーマへ戻された場合、この
+      # 宣言自体を変えない限り rebuild しても再適用されない。
+      workspace.lookAndFeel = "org.kde.breezedark.desktop";
+
       # KRdp の設定。--address だけは krdpserverrc に対応キーが無く、渡すなら
       # unit 側のコマンドラインになるが、指定せず既定の 0.0.0.0 に bind させる
       # (理由は下の krdpserver unit のコメント参照)。
