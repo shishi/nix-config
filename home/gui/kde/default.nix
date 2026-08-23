@@ -71,7 +71,9 @@ let
       }
     }
 
-    if (workspace.supportInformation().includes("KWin::Wayland")) {
+    // KWin 6.7.4 の supportInformation() に "KWin::Wayland" という文字列は無く、
+    // 判定が常に false になる。実際に出る行は "Operation Mode: Wayland"。
+    if (workspace.supportInformation().includes("Operation Mode: Wayland")) {
       workspace.windowAdded.connect((window) => {
         if (!isWezTerm(window)) {
           return;
