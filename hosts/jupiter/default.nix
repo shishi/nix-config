@@ -42,6 +42,11 @@ in
   };
   boot.loader.efi.canTouchEfiVariables = true;
 
+  # Minisforum V3 の eDP パネルでは amdgpu の EDID 由来 custom brightness
+  # curve が高輝度域を実際より暗くする。曲線を無効化して、パネルの
+  # バックライト値を線形に扱う。
+  boot.kernelParams = [ "amdgpu.dcdebugmask=0x40000" ];
+
   # TPM2 自動解錠(systemd-cryptenroll)は systemd initrd が前提。
   # 無いと enroll しても起動時に解錠されず、遠隔無人再起動が不達になる
   boot.initrd.systemd.enable = true;
