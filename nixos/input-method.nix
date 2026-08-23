@@ -37,15 +37,32 @@
       # 裏返しとして、一度ユーザー profile ができると以後ここを変えても届かない
       # (直すなら ~/.config/fcitx5/profile を削除する)。
       # 入力メソッド名 skk は fcitx5-skk が置く inputmethod/skk.conf に対応する。
+      # SKK の Latin モードで英数入力へ切り替えるため、profile の入力メソッドは
+      # SKK だけにする。US 配列は SKK 項目の Layout として保持する。
       settings.inputMethod = {
         "Groups/0" = {
           Name = "Default";
           "Default Layout" = "us";
           DefaultIM = "skk";
         };
-        "Groups/0/Items/0".Name = "keyboard-us";
-        "Groups/0/Items/1".Name = "skk";
+        "Groups/0/Items/0" = {
+          Name = "skk";
+          Layout = "us";
+        };
         GroupOrder."0" = "Default";
+      };
+
+      # 現機の Clipboard 設定。入力メソッドには含めず、履歴を 5 件保持して
+      # Ctrl+Alt+Shift+C で呼び出す。新規ユーザーの XDG 既定値として配る。
+      settings.addons.clipboard = {
+        globalSection = {
+          PastePrimaryKey = "";
+          "Number of entries" = 5;
+          IgnorePasswordFromPasswordManager = "False";
+          ShowPassword = "False";
+          ClearPasswordAfter = 30;
+        };
+        sections.TriggerKey."0" = "Control+Alt+Shift+C";
       };
 
       # 現行の ~/.config/fcitx5/conf/skk.conf(GUI 由来)を既定値として宣言する。

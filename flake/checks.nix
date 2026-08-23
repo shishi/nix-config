@@ -103,6 +103,36 @@
             touch $out
           '';
 
+        # 新規インストール時の fcitx5 プロファイル契約。SKK は内部の Latin
+        # モードで英数入力へ切り替えるため、別の keyboard-* 入力メソッドを
+        # profile へ追加しない。Clipboard は有効のまま、現機の呼び出しキーと
+        # 履歴件数を再現する。
+        ime-contract =
+          let
+            fcitx5 = self.nixosConfigurations.jupiter.config.i18n.inputMethod.fcitx5;
+            inputMethod = fcitx5.settings.inputMethod;
+            clipboard = fcitx5.settings.addons.clipboard or { };
+            show = value: if value == null then "null" else toString value;
+          in
+          pkgs.runCommand "ime-contract" { } ''
+            ok=1
+            check() {
+              if [ "$2" != "$3" ]; then
+                echo "$1: expected '$3' but got '$2'"
+                ok=0
+              fi
+            }
+            check defaultIM "${inputMethod."Groups/0".DefaultIM}" "skk"
+            check item0 "${inputMethod."Groups/0/Items/0".Name}" "skk"
+            check item0Layout "${inputMethod."Groups/0/Items/0".Layout}" "us"
+            check profileEntries "${builtins.concatStringsSep "|" (builtins.attrNames inputMethod)}" \
+              "GroupOrder|Groups/0|Groups/0/Items/0"
+            check clipboardHistory "${show clipboard.globalSection."Number of entries"}" "5"
+            check clipboardTrigger "${clipboard.sections.TriggerKey."0"}" "Control+Alt+Shift+C"
+            [ "$ok" = 1 ] || exit 1
+            touch $out
+          '';
+
         # アイドル時の自動 sleep は、AC / バッテリーのどちらでも行わない。
         # action だけを nothing にして timeout を残すと plasma-manager の
         # アサーションにより評価が失敗するので、両方をこの契約で固定する。
