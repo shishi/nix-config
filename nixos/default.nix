@@ -8,5 +8,6 @@
     ./home-manager.nix
     ./sudo.nix
     ./ssh.nix
+    ./bootstrap-reminder.nix
   ];
 }
