@@ -69,6 +69,26 @@
           program = "${self.homeConfigurations."shishi".config.home.path}/bin/rust-bootstrap";
         };
 
+        # 新規マシンの初期設営(clone → dotfiles setup → nix 適用 → 鍵の案内)。
+        # public repo なので鍵の無いマシンからも直接叩ける:
+        #   nix run github:shishi/nix-config#bootstrap
+        bootstrap = {
+          type = "app";
+          program = "${
+            pkgs.writeShellApplication {
+              name = "bootstrap";
+              runtimeInputs = with pkgs; [
+                git
+                openssh
+                coreutils
+                gnugrep
+                bash
+              ];
+              text = builtins.readFile ../scripts/bootstrap.sh;
+            }
+          }/bin/bootstrap";
+        };
+
         update = {
           type = "app";
           program = "${

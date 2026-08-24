@@ -44,10 +44,18 @@ nix run .#switch               # 適用(check-env-critical 内蔵。--force で�
 - インストール前に firmware で Secure Boot を無効にする。installer の ISO は
   署名されていないため、有効なままだと起動しない
 
-初回起動後の手順。**パスは `NH_FLAKE` が指す場所と一致していなければならない**
-(`~/dev/src/github.com/shishi/nix-config`)。`ghq` 自体は宣言済みで入っているが、
-root 設定(gitconfig)は dotfiles の setup 前で未設定のため、`ghq get` は既定の
-`~/ghq` に clone してパスがずれる。素の `git clone` をそのパスに打つ。
+初回起動後の手順は 1 コマンドに畳んである。clone は無認証 HTTPS(両 repo とも
+public)なので、SSH 鍵の有無に関係なく実行でき、鍵の状態は最後に案内が出る:
+
+```
+nix run github:shishi/nix-config#bootstrap
+```
+
+手動でやる場合の同等手順。**パスは `NH_FLAKE` が指す場所と一致していなければ
+ならない**(`~/dev/src/github.com/shishi/nix-config`)。`ghq` 自体は宣言済みで
+入っているが、root 設定(gitconfig)は dotfiles の setup 前で未設定のため、
+`ghq get` は既定の `~/ghq` に clone してパスがずれる。素の `git clone` を
+そのパスに打つ。
 
 ```
 ssh -o StrictHostKeyChecking=accept-new -T git@github.com   # host key を受理する
@@ -58,10 +66,10 @@ bash ~/dev/src/github.com/shishi/dotfiles/setup.sh
 nh os switch
 ```
 
-最初の 1 行を省くと `git clone` が host key 確認の対話で止まる(新規マシンの
-`known_hosts` は空)。`setup.sh` 自身は内部で `GIT_SSH_COMMAND` に
-`accept-new` を入れるが、それは `setup.sh` が始まってからの話で、上の 2 つの
-`git clone` には効かない。
+SSH(git@)で clone する場合、最初の 1 行を省くと `git clone` が host key 確認の
+対話で止まる(新規マシンの `known_hosts` は空)。`setup.sh` 自身は内部で
+`GIT_SSH_COMMAND` に `accept-new` を入れるが、それは `setup.sh` が始まってからの
+話で、上の 2 つの `git clone` には効かない。
 
 `nh os switch` が **`DIFF: 0 bytes`** を返せば、インストールされた世代と repo から
 ビルドした結果が同一 store path で、構成と実機にドリフトが無い(post-install
