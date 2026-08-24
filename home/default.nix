@@ -7,6 +7,7 @@
     ./core/direnv.nix
     ./core/nix-tools.nix
     ./core/rust.nix
+    ./core/herdr.nix
     ./skk
     ./gui
   ];
