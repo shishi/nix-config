@@ -48,8 +48,7 @@ VM で成立している。カーネル更新に追従させる `systemd-pcrlock
   `= [ "tpm2-device=auto" ];`(TPM2 自動解錠の取得口。無いと enroll しても
   起動時にパスフレーズを聞かれる)
 - `hosts/jupiter/disko.nix` の `passwordFile = "/tmp/secret.key";`
-  (インストール時の非対話暗号化。`nixos-anywhere --disk-encryption-keys
-  /tmp/secret.key <src>` とペア。**`settings` の配下に置かないこと** —
+  (インストール時の非対話暗号化。`nixos-anywhere --disk-encryption-keys /tmp/secret.key <src>` とペア。**`settings` の配下に置かないこと** —
   置くと `boot.initrd.luks.devices.cryptroot.keyFile` へ伝播し、
   systemd が LUKS2 ヘッダのトークン探索に到達せず TPM 自動解錠が死ぬ)
 
@@ -75,7 +74,7 @@ VM で成立している。カーネル更新に追従させる `systemd-pcrlock
   `nixos-generate-config --show-hardware-config --no-filesystems` の出力そのもの。
   スタブではない
 - ディスクは `nvme0n1`(KINGSTON OM8PGP41024Q-A0 / 953.9 GB)1 本。
-  `hosts/jupiter/disko.nix` の `device` と一致している。**手順 1 の disko phase は
+  `hosts/jupiter/disko.nix` の `device` と一致している。**手順 2 の disko phase は
   これを実際に消去する。**別のディスクを指していれば取り返しがつかないので、
   機体を変えるときはここだけ確認し直す
 - USB イーサは `enp198s0f3u1` / driver `r8152`。`boot.initrd.availableKernelModules`
@@ -93,13 +92,9 @@ initrd に無線を入れると wpa_supplicant と資格情報を initrd へ持�
 **ゲート 4(初回インストール専用。対象マシンにまだ NixOS がインストール
 されていない場合のみ適用)**
 
-**2026-08-21 に検証用 VM で通しリハーサル済み。** 以下は実際に実行して
-結果を確認した手順である(確認できていない箇所はその旨を明記する)。
-
-**ただし手順 0 はその後に書き換えられている。** リハーサル時の手順 0 は
-「素の ISO を起動してコンソールで鍵を手打ちする」だった。現行の手順 0
-(鍵を焼き込んだ ISO を自分でビルドする)は、ISO の生成とファイル名までしか
-実測していない。
+phase 分割と target 上での鍵生成は 2026-08-21 に検証用 VM で通しリハーサルした。
+SOPS を使う現行 wrapper は fixture で自動テストしているが、実機への現行
+`nixos-anywhere` は未確認である。確認済みの範囲は後段に明記する。
 
 ### なぜ素直に流すと失敗するか
 
@@ -122,12 +117,11 @@ initrd に無線を入れると wpa_supplicant と資格情報を initrd へ持�
 
 **`nixos-anywhere` を `--phases` で 2 回に分け、その間に鍵を `/mnt` へ作る。**
 
-- **sbctl の鍵と initrd host key の先置きには `--extra-files` を使わない**
-  (ユーザーの SSH / GPG 秘密鍵には手順 0b・手順 3 で使う)。先置き自体は
-  これでも間に合う(コピーは disko の後・`nixos-install` の前に行われる)。
-  sbctl に使わないのは、そのディスク上レイアウトをワークステーション側で
-  手作りすることになり、Secure Boot の秘密鍵もワークステーションを経由するため。
-  `sbctl create-keys` に自分の既定パスへ書かせれば、どちらも起きない。
+- 初期インストール用の秘密は SOPS で暗号化して Git 管理する。
+- リポジトリの wrapper は phase ごとに必要な秘密だけを tmpfs へ復号する。
+  手動の秘密配送オプションは受け付けない。
+- sbctl の鍵と initrd host key は target 上で生成する。Secure Boot の秘密鍵を
+  ワークステーションへ経由させず、ディスク上の配置も手作業しない。
 - **任意コマンドを実行するフックは無い**(nixos-anywhere 1.13.0)。target 上で
   処理を挟むには phase を分割するしかない。
 - **`boot.lanzaboote.enable` や `hostKeys` を初回だけ外す案は採らない。**
@@ -136,7 +130,37 @@ initrd に無線を入れると wpa_supplicant と資格情報を initrd へ持�
 
 ### 手順
 
-**手順 0: installer を起動して root に鍵を置く**
+**手順 0: 暗号化済みの秘密を準備する**
+
+この操作は暗号文を初めて作るときだけ行う。既に `.sops.yaml`、
+`secrets/bootstrap.yaml`、`secrets/runtime.yaml` が Git に入っていれば再実行しない。
+`init-secrets` は既存の 3 ファイルを上書きしない。
+
+前提は `~/.ssh/id_ed25519` と、global Git 設定の `user.signingkey` が参照する
+GPG 署名秘密鍵である。リポジトリのルートで実行し、LUKS、ログイン、SMB の
+各パスワードを 2 回ずつ入力する。入力値と秘密鍵は表示しない。
+
+```bash
+nix run .#init-secrets
+```
+
+初回実行は管理用 age 秘密鍵を `~/.config/sops/age/keys.txt` に mode `0600` で
+生成する。この鍵は bootstrap 用秘密と、そこに格納した Jupiter 用 age 秘密鍵の
+信頼の起点である。**パスワードマネージャーへバックアップし、リポジトリには
+入れない。** earth とバックアップの両方を失うと、暗号文から初期インストール用の
+秘密を復旧できない。
+
+次の 3 ファイルは暗号文と公開 recipient だけを含む。3 ファイルを同じ commit に
+含める。wrapper は bootstrap と runtime が Git 追跡済みでなければ停止する。
+
+```bash
+git add .sops.yaml secrets/bootstrap.yaml secrets/runtime.yaml
+git commit -m 'chore(secrets): add encrypted Jupiter inputs'
+```
+
+秘密値、age 秘密鍵、復号結果を `git diff` やチャットへ貼らない。
+
+**手順 1: installer を起動して root に鍵を置く**
 
 **USB イーサネットアダプタを挿してから起動する。** この機体に有線 LAN ポートは
 無く、`nixos-anywhere` はワークステーションから対象機の sshd へ繋ぐので、対象機が
@@ -147,13 +171,13 @@ unit は無いことを実測)なので、アダプタが挿さっていれば D
 無線しか無い状態だと、コンソールで `nmtui` などを手で叩くまでネットワークに
 出られない。
 
-起動したらコンソールで IP を確認する。**手順 0〜3 で画面を見るのは通常ここ
-だけ**(途中で再起動してアドレスが変わった疑いが出たら、手順 3 でもう一度要る)。
-手順 0 より前の firmware での Secure Boot 無効化(§2「実機で違うところ」)、
-手順 4 の初回起動での LUKS パスフレーズ入力、§3.5 / §3.7 の firmware 操作には
+起動したらコンソールで IP を確認する。インストール中に画面を見るのは通常ここ
+だけである。途中で再起動してアドレスが変わった疑いが出たら、install phase の前に
+もう一度確認する。installer 起動前の Secure Boot 無効化、初回起動での LUKS
+パスフレーズ入力、§3.5 / §3.7 の firmware 操作には
 別途コンソールが要る。
 
-```
+```bash
 ip -brief addr show
 ```
 
@@ -168,9 +192,8 @@ ip -brief addr show
 コンソールで `nixos` に `passwd` を 1 回実行してから、**ワークステーション側で**
 次を実行する。
 
-```
-ssh -o StrictHostKeyChecking=no -o UserKnownHostsFile=/dev/null nixos@<target> \
-  'sudo install -d -m700 /root/.ssh; curl -Ls github.com/shishi.keys | sudo tee /root/.ssh/authorized_keys'
+```bash
+ssh -o StrictHostKeyChecking=no -o UserKnownHostsFile=/dev/null nixos@<target> 'sudo install -d -m700 /root/.ssh; curl -Ls github.com/shishi.keys | sudo tee /root/.ssh/authorized_keys'
 ```
 
 **この 1 行にも host key のオプションを付ける。** 付けずに実行すると installer の
@@ -183,9 +206,8 @@ installer の `nixos` は wheel に属し `security.sudo.wheelNeedsPassword` が
 
 疎通を確認してから先へ進む。
 
-```
-ssh -p <port> -o BatchMode=yes -o StrictHostKeyChecking=no \
-  -o UserKnownHostsFile=/dev/null root@<target> true && echo ok
+```bash
+ssh -p <port> -o BatchMode=yes -o StrictHostKeyChecking=no -o UserKnownHostsFile=/dev/null root@<target> true && echo ok
 ```
 
 **`StrictHostKeyChecking=no` と `UserKnownHostsFile=/dev/null` は、この手順書で
@@ -204,153 +226,41 @@ jupiter へ同じアドレスで繋ぐときにも `REMOTE HOST IDENTIFICATION H
 `ssh-agent` に入っていない場合(`BatchMode=yes` は passphrase 入力も封じる)。
 後者なら `ssh-add -l` に鍵が出ない。
 
-手順 2 は target 上で `nix run` を使うので、**`nix-command` と `flakes` を
-コマンドラインで明示する**(手順 2 のコマンドに入れてある)。素の
+手順 3 は target 上で `nix run` を使うので、**`nix-command` と `flakes` を
+コマンドラインで明示する**(手順 3 のコマンドに入れてある)。素の
 `nixos-minimal` ISO ではどちらも有効になっていない(実測: `nix config show` が
 `nix-command` 不足で失敗する)。
 
-**手順 0b: 鍵を用意する(ワークステーション側)**
+**手順 2: ディスクを作る(disko phase)**
 
-dotfiles の `setup.sh` は private repo(`agent-memory`)を clone し、
-`.gitconfig.linux` は `commit.gpgsign = true` を宣言する。初回起動後の作業には
-SSH 秘密鍵と GPG 秘密鍵が要るので、手順 3 で一緒に置く。
+ワークステーション側の nix-config checkout で実行する。wrapper は管理用 age 鍵で
+bootstrap を tmpfs 上へ復号・検証し、disko へ渡すのは LUKS パスフレーズだけである。
+値を引数、ログ、Nix store、永続ファイルへ出さない。検査に失敗した場合は disko を
+開始しない。
 
-初回ログイン用のパスワードハッシュも同じ経路で置く。`nixos/users.nix` は
-public repo なのでパスワードを宣言しておらず、このファイルが無いと shishi は
-パスワード未設定のまま起動する。**その状態では autoLogin で上がったセッションの
-ロックを解除できない**(SSH 鍵で入って `sudo passwd shishi` で入れ直せる)。
-
-受け渡し用のディレクトリは `secrets/extra-files` にする。`secrets/` は
-`.gitignore` 済みなので、鍵もパスフレーズも repo の中の 1 箇所に収まり、
-片付けもそこを消すだけで済む。ホームディレクトリに散らさない。
-中の構成は**インストール先の `/` からの相対パス**で、先頭に `/` を付けない。
-
-```
-secrets/extra-files/home/shishi/.ssh/id_ed25519            (0600)
-secrets/extra-files/home/shishi/.ssh/id_ed25519.pub        (0644)
-secrets/extra-files/home/shishi/gpg-secret.asc             (0600)
-secrets/extra-files/var/lib/secrets/shishi-password-hash   (0600)
+```bash
+nix run .#nixos-anywhere -- --flake .#jupiter --target-host root@<target> --ssh-port <port> --phases disko
 ```
 
-**mode はそのまま保存されるので、ここで正しくしておく**(所有者は保存されない。
-手順 3 参照)。**`secrets/extra-files` 全体に `chmod -R 700` をかけないこと。**
-`secrets/extra-files` の下のディレクトリの mode は、そのままインストール後の同じパスの
-mode になる。`secrets/extra-files/home` を 0700 にすると shishi が自分の home へ辿れず
-ログインが壊れる。`secrets/extra-files/var` と `secrets/extra-files/var/lib` も同じで、
-0700 にすると /var 配下を読む全サービスが壊れる。
-
-```
-mkdir -p secrets/extra-files/home/shishi/.ssh secrets/extra-files/var/lib/secrets
-chmod 755 secrets/extra-files secrets/extra-files/home secrets/extra-files/var secrets/extra-files/var/lib
-chmod 700 secrets/extra-files/home/shishi secrets/extra-files/home/shishi/.ssh
-chmod 700 secrets/extra-files/var/lib/secrets
-```
-
-SSH 鍵はコピーする。構成表には載っているが、GPG やパスワードと違って
-生成コマンドが無いので置き忘れやすい。置き忘れると初回起動後に
-`setup.sh` の private repo clone が認証できない。
-
-```
-cp ~/.ssh/id_ed25519 ~/.ssh/id_ed25519.pub secrets/extra-files/home/shishi/.ssh/
-chmod 600 secrets/extra-files/home/shishi/.ssh/id_ed25519
-chmod 644 secrets/extra-files/home/shishi/.ssh/id_ed25519.pub
-```
-
-GPG は keyring を丸ごと運ばず、armored のエクスポートを 1 ファイル置いて初回起動後に
-import する。
-
-```
-gpg --export-secret-keys --armor <signingkey> > secrets/extra-files/home/shishi/gpg-secret.asc
-chmod 600 secrets/extra-files/home/shishi/gpg-secret.asc
-test -s secrets/extra-files/home/shishi/gpg-secret.asc || echo 'gpg export が空 -- <signingkey> を確認する'
-```
-
-`<signingkey>` を打ち間違えても `gpg` は非 0 で終わるが、リダイレクトが先に
-空ファイルを作るので、mode だけを見る確認では気づけない。
-
-初回ログイン用のパスワードは `secrets/login-password` に平文で置く。LUKS の
-パスフレーズと同じ扱いで、`secrets/` は `.gitignore` 済み。**値をこの手順書にも、
-チャットにも、レビュー用の記録にも書かない。**
-
-```
-install -m 600 /dev/null secrets/login-password
-# エディタで開いてパスワードを 1 行書く
-```
-
-**RDP とコンソールのログインで自分が打つ値**なので、打てる長さにする。ここから
-`mkpasswd` でハッシュを作り、`--extra-files` で運ぶのはハッシュだけ。
-
-```
-[ -s secrets/login-password ] || { echo 'パスワードが空'; exit 1; }
-hash=$(printf '%s' "$(cat secrets/login-password)" | nix run nixpkgs#mkpasswd -- -m yescrypt -s)
-case "$hash" in
-  '$y$'*) printf '%s\n' "$hash" > secrets/extra-files/var/lib/secrets/shishi-password-hash
-          chmod 600 secrets/extra-files/var/lib/secrets/shishi-password-hash
-          echo 'ハッシュを生成した' ;;
-  *)      echo 'mkpasswd が yescrypt のハッシュを返さなかった -- 生成しない' ;;
-esac
-unset hash
-```
-
-`-s` は `mkpasswd` に標準入力から読ませる指定で、これが無いと端末のない環境で
-入力待ちのまま止まる。`$(cat ...)` がエディタの付ける末尾の改行を落とす。
-書き込みを `case` の中に置いてあるのは、リダイレクトがコマンドの実行前に
-ファイルを truncate するため — `nix run` が失敗すると **0 バイトのファイルが
-mode 600 で残り**、手順 3 の mode 確認を素通りする。
-
-**この値はインストール時にしか効かない。** `mutableUsers = true` なので
-`hashedPasswordFile` が使われるのは shishi を新規作成するときだけで、以後は
-実機で `passwd` を実行した値が正になる(`secrets/login-password` を書き換えても
-実機には反映されない)。パスワードを強くしたくなったら実機で `passwd` を叩く。
-
-**手順 1: ディスクを作る(disko phase だけ)**
-
-**LUKS のパスフレーズは `secrets/luks-passphrase` に置く。** `secrets/` は
-`.gitignore` 済みなのでコミットされない。**値をこの手順書にも、チャットにも、
-レビュー用の記録にも書かない。**
-
-```
-mkdir -p secrets
-install -m 600 /dev/null secrets/luks-passphrase
-# エディタで開いてパスフレーズを 1 行書く
-```
-
-エディタが付ける末尾の改行は下の `$(cat ...)` が落とす。改行を含んだまま鍵に
-すると、initrd の対話プロンプトからは入力できない値になる。
-
-ワークステーション側(nix-config のチェックアウト内)で実行する。
-
-```
-[ -s secrets/luks-passphrase ] || { echo 'パスフレーズが空'; exit 1; }
-printf '%s' "$(cat secrets/luks-passphrase)" > /tmp/luks.key
-chmod 600 /tmp/luks.key
-nix run .#nixos-anywhere -- --flake .#jupiter \
-  --target-host root@<target> --ssh-port <port> \
-  --disk-encryption-keys /tmp/secret.key /tmp/luks.key \
-  --phases disko
-```
-
-`--disk-encryption-keys <remote> <local>` の remote 側は
-`hosts/jupiter/disko.nix` の `passwordFile` と一字一句一致させる
-(`/tmp/secret.key`)。ずれると disko が対話パスワードを聞きに行く。
+wrapper は `hosts/jupiter/disko.nix` の `passwordFile = "/tmp/secret.key"` に対応する
+引数を内部で追加する。呼び出し側から秘密配送用の引数を追加してはならない。
 
 `### Done! ###` で終わり、`/mnt` に ESP と btrfs subvolume がマウントされた
 状態で止まる。確認:
 
-```
-ssh -p <port> -o StrictHostKeyChecking=no -o UserKnownHostsFile=/dev/null \
-  root@<target> 'findmnt -R /mnt -o TARGET,SOURCE,FSTYPE'
+```bash
+ssh -p <port> -o StrictHostKeyChecking=no -o UserKnownHostsFile=/dev/null root@<target> 'findmnt -R /mnt -o TARGET,SOURCE,FSTYPE'
 ```
 
 期待: `/mnt`(`@root`)・`/mnt/boot`(vfat)・`/mnt/home`・`/mnt/nix`・`/mnt/.swap`。
 
-**手順 2: 鍵を `/mnt` に作る**
+**手順 3: 鍵を `/mnt` に作る**
 
 `ssh -p <port> -o StrictHostKeyChecking=no -o UserKnownHostsFile=/dev/null root@<target>` で入り、
 target 上で実行する。
 
-```
-rm -rf /var/lib/sbctl   # 手順 2 を 2 回目以降に実行するときだけ必要
+```bash
+rm -rf /var/lib/sbctl
 nix --extra-experimental-features "nix-command flakes" run nixpkgs#sbctl -- create-keys
 mkdir -p /mnt/var/lib
 cp -a /var/lib/sbctl /mnt/var/lib/
@@ -360,106 +270,81 @@ chmod 600 /mnt/var/lib/initrd-ssh/ssh_host_ed25519_key
 ssh-keygen -lf /mnt/var/lib/initrd-ssh/ssh_host_ed25519_key.pub
 ```
 
+最初の `rm` は手順 3 をやり直す場合だけ実行する。初回は不要である。
+
 `sbctl create-keys` は installer 自身の `/var/lib/sbctl` に書く(出力先は
 変えない)。生成されるのは `GUID` と `keys/{PK,KEK,db}/*.{key,pem}`。
 `cp -a` で所有者と mode がそのまま `/mnt` 側へ移る。
 
-最後の `ssh-keygen -lf` が出すフィンガープリントは §6.2 の照合に使うので
-**`secrets/initrd-ssh-fingerprint.txt` に保存する**(`secrets/` は
-`.gitignore` 済み。公開鍵の指紋なので秘密ではないが、機体を特定する情報なので
-public repo には入れない)。`/var/lib` は暗号化された `/` の上にあり、initrd で
-足止めされている状況では未マウントなので、そのときには取りに行けない。
+最後の `ssh-keygen -lf` が出すフィンガープリントは §6.2 の照合に使う。
+パスワードマネージャーなど、復旧時に Jupiter 以外から読める場所へ保存する。
+公開鍵の指紋は秘密ではないが、機体を特定する情報なので public repository には
+入れない。`/var/lib` は暗号化された `/` の上にあり、initrd で止まった状態では
+参照できない。
 
 確認:
 
-```
+```bash
 find /mnt/var/lib/sbctl /mnt/var/lib/initrd-ssh -printf '%M %u:%g %p\n'
 ```
 
 期待: sbctl の鍵 6 本が `-r-------- root:root`、
 `ssh_host_ed25519_key` が `-rw------- root:root`。
 
-**手順 3: インストール(install phase)**
+**手順 4: インストール(install phase)**
 
-**先に手順 1 の `findmnt -R /mnt` をもう一度実行し、`/mnt` と `cryptroot` が
-生きていることを確かめる。** 手順 1〜3 の間に対象機が再起動・電源断していると
-マウントも `cryptroot` も失われる。**そのときは手順 1(disko phase)から
-やり直す。** `authorized_keys` は ISO に焼き込んであるので、鍵を置き直すために
-手順 0 まで戻る必要は無い。
+**先に手順 2 の `findmnt -R /mnt` をもう一度実行し、`/mnt` と `cryptroot` が
+生きていることを確かめる。** 手順 2〜4 の間に対象機が再起動・電源断していると
+マウントも `cryptroot` も失われる。**そのときは手順 2 の disko phase と
+手順 3 の鍵生成を再実行する。**
+`authorized_keys` は ISO に焼き込んであるので、手順 1 まで戻る必要は無い。
 
 **`findmnt` が期待どおりのマウントを返さなかったとき(接続エラーを含む)は、
-手順 1 を再実行する前に相手を確かめる。** 対象機のコンソールで
+手順 2 を再実行する前に相手を確かめる。** 対象機のコンソールで
 `ip -brief addr show` を見て、`<target>` がその installer の現在のアドレスで
 あることを確認する。DHCP でアドレスが移り、旧アドレスを別のホストが取って
 いることがある。そのとき `findmnt` は接続エラーではなく「ssh は通るが
-マウントが出ない」形になる。**手順 1 は disko = 再フォーマットなので、別の
+マウントが出ない」形になる。**手順 2 は disko = 再フォーマットなので、別の
 ホストに対して実行してはならない。**
 
 ワークステーション側で実行する。
 
-```
-nix run .#nixos-anywhere -- --flake .#jupiter \
-  --target-host root@<target> --ssh-port <port> \
-  --extra-files secrets/extra-files --chown home/shishi 1000:100 \
-  --phases install
+```bash
+nix run .#nixos-anywhere -- --flake .#jupiter --target-host root@<target> --ssh-port <port> --phases install
 ```
 
 `Successfully installed Lanzaboote.` と `installation finished!` が出れば、
 ゲート 4 が問題にしていた失敗点は通過している。
 
-`--extra-files` の中身は `nixos-install` の**直前**にコピーされる
-(`### Copying extra files ###` が `### Installing NixOS ###` より前に出る)。
-tar は `--no-same-owner` で展開されるため、**mode は保存されるが所有者は root に
-なる**。`--chown <path> <uid>:<gid>` が `/mnt/<path>` を再帰的に chown して直す。
+wrapper は tmpfs 上で bootstrap を復号し、SSH 鍵、GPG export、ログイン用
+yescrypt ハッシュ、Jupiter 用 age 鍵を構成する。runtime も Jupiter 用鍵で
+復号検証してから、必要な配送引数と `home/shishi` の所有者修正を内部で追加する。
+一時平文は成功時と失敗時の両方で削除する。
 
-**ユーザー名ではなく数値を渡すこと。** chown は installer 環境の名前解決で動くため、
-installer 上で uid 1000 を持つ `nixos` ユーザーの名前が使われてしまう。
-`--chown home/shishi shishi:users` は別人を指す。
+確認(手順 5 の停止前に):
 
-`1000:100` は `hosts/jupiter/default.nix` の `users.users.shishi.uid` と
-`users.users.shishi.group`(= `users`、gid 100)に対応する。この対応は
-`flake/checks.nix` の `install-keys-contract` が**この runbook を grep して**固定する。
-config 側だけを見る check では、この行を書き換えたときに落ちない。
-
-確認(手順 4 の停止前に):
-
-```
-ssh -p <port> -o StrictHostKeyChecking=no -o UserKnownHostsFile=/dev/null \
-  root@<target> 'find /mnt/home -printf "%M %U:%G %p\n" | sort; \
-  ls -ld /mnt/var /mnt/var/lib /mnt/var/lib/secrets \
-         /mnt/var/lib/secrets/shishi-password-hash'
+```bash
+ssh -p <port> -o StrictHostKeyChecking=no -o UserKnownHostsFile=/dev/null root@<target> 'find /mnt/home/shishi/.ssh -maxdepth 1 -printf "%M %U:%G %p\n" | sort; find /mnt/var/lib/secrets /mnt/var/lib/sops-nix -maxdepth 1 -printf "%M %U:%G %p\n" | sort'
 ```
 
-期待: `/mnt/home` は `drwxr-xr-x` の `0:0`(**ここが `drwx------` ならログインが
-壊れる**)、その下の `home/shishi` 以下がすべて `1000:100` で、
-`.ssh` が `drwx------`、秘密鍵が `-rw-------`。
-
-`/mnt/var` と `/mnt/var/lib` は `drwxr-xr-x` の `root root`、
-`/mnt/var/lib/secrets` は `drwx------`、その下のハッシュは `-rw-------`。
+期待: shishi の `.ssh` と秘密鍵は `1000:100`、Jupiter 用 age 鍵とログイン用
+ハッシュは `root:root` である。秘密鍵、age 鍵、GPG export、ハッシュの mode は
+`0600`、SSH 公開鍵は `0644` である。
 
 mode だけでは 0 バイトのファイルを見分けられないので、中身が空でないことも見る
 (**値そのものは表示しない**)。
 
+```bash
+ssh -p <port> -o StrictHostKeyChecking=no -o UserKnownHostsFile=/dev/null root@<target> 'test -s /mnt/var/lib/secrets/shishi-password-hash && test -s /mnt/var/lib/sops-nix/key.txt && test -s /mnt/home/shishi/.ssh/id_ed25519 && test -s /mnt/home/shishi/gpg-secret.asc && echo secrets-ok || echo secrets-INCOMPLETE'
 ```
-ssh -p <port> -o StrictHostKeyChecking=no -o UserKnownHostsFile=/dev/null \
-  root@<target> \
-  'test -s /mnt/var/lib/secrets/shishi-password-hash && echo hash-ok || echo hash-EMPTY;
-   test -s /mnt/home/shishi/.ssh/id_ed25519 && echo sshkey-ok || echo sshkey-EMPTY;
-   test -s /mnt/home/shishi/gpg-secret.asc && echo gpg-ok || echo gpg-EMPTY'
-```
-`--chown` は home 側にしか効かないので、こちらは root 所有のままで正しい。
-**ここを見ないと、鍵は置いたのにハッシュを置き忘れた状態が初回起動まで
-表に出ない**(shishi の shadow が `!` になり、どのパスワードも通らなくなる)。
 
-**この手順が失敗して手順 1 をやり直した場合は、必ず手順 2 も実行し直すこと。**
-`--phases disko` は再フォーマットなので、`/mnt` 上に作った鍵は消えている。
-気づかずに手順 3 だけ再実行すると、このゲートが防いでいる失敗がそのまま再発する。
+**この手順が失敗して手順 2 をやり直した場合は、必ず手順 3 も実行し直す。**
+disko phase は再フォーマットするため、`/mnt` 上に作った鍵も消える。
 
-**手順 4: 停止して installer メディアを外す**
+**手順 5: 停止して installer メディアを外す**
 
-```
-ssh -p <port> -o StrictHostKeyChecking=no -o UserKnownHostsFile=/dev/null \
-  root@<target> 'swapoff -a; umount -R /mnt && cryptsetup close cryptroot'
+```bash
+ssh -p <port> -o StrictHostKeyChecking=no -o UserKnownHostsFile=/dev/null root@<target> 'swapoff -a; umount -R /mnt && cryptsetup close cryptroot'
 ```
 
 `umount` と `cryptsetup close` が成功したことを確認してから再起動する。
@@ -484,73 +369,89 @@ efibootmgr                # BootOrder の先頭が新しい項目であること
 `-l` に渡すパスは ESP からの相対で、区切りはバックスラッシュ。
 
 初回起動では TPM2 がまだ未 enroll なので、コンソールで LUKS パスフレーズを
-聞かれる。手順 1 で使ったものを入力する。
+聞かれる。`init-secrets` で入力した値を使う。
 
-**手順 5: 後始末**
-
-ワークステーション側の `/tmp/luks.key` と `secrets/extra-files` を消す。
-
-```
-shred -u /tmp/luks.key
-rm -rf secrets/extra-files
-```
-
-`secrets/luks-passphrase` は §6 の遠隔復旧で要る値なので残す。捨てるなら先に
-別の場所へ控える。**`secrets/` を丸ごと消すとパスフレーズも消える。**
-
-`secrets/login-password` はインストール後は使われない(上記のとおり以後は
-実機の `passwd` が正)。残すかどうかは、忘れたときに困るかどうかで決める。
+wrapper の一時平文は trap が削除する。ワークステーション側に手動で消す平文
+ファイルは無い。
 
 **`known_hosts` に installer の鍵が残っていたら消す。** インストール後の機体は
 installer とは別の host key を出すので、素の `ssh` は
 `REMOTE HOST IDENTIFICATION HAS CHANGED` で止まる。
 
-```
+```bash
 ssh-keygen -R <target>
 ```
 
 消したあと接続すると新しい鍵の受理を聞かれる。**受理する前に、対象機が出している
 指紋と照合する。**
 
-```
+```bash
 ssh-keyscan <target> | ssh-keygen -lf -
 ```
 
-初回起動後、対象機で GPG 秘密鍵を import する。ワークステーションから
-`ssh <target> 'bash -s' < script` の形で流す(`shishi` のログインシェルは fish
-なので、変数代入やヒアドキュメントを `ssh <target> '...'` へ直接渡すと壊れる)。
+初回起動時に `import-shishi-gpg-secret.service` が GPG export を自動 import する。
+unit は ownertrust を設定して実際の clearsign を検証し、成功した場合だけ export を
+削除する。手動 import は不要である。失敗時は unit を失敗状態にして export を残す。
 
-```
-gpg --batch --import ~/gpg-secret.asc
-printf '%s:6:\n' '<signingkey の指紋>' | gpg --import-ownertrust
-gpg --list-secret-keys --keyid-format=long | grep -E '^(sec|ssb)'
-if echo test | gpg --batch --pinentry-mode loopback -u <signingkey> --clearsign >/dev/null 2>&1; then
-  shred -u ~/gpg-secret.asc
-  echo 'import して署名できることを確認。エクスポートを消した'
-else
-  echo '署名できない -- shred しない。原因を調べてから消すこと'
-fi
+```bash
+systemctl show import-shishi-gpg-secret.service --property=Result --value
+test ! -e ~/gpg-secret.asc
 ```
 
-**`--import-ownertrust` を省かない。** 信頼度は秘密鍵とは別に運ばれるので、
-鍵を import しただけでは付いてこない。省くと**署名は作れるのに検証が通らない**
-状態になり、`git log --format=%G?` が `G` ではなく `U`(good signature, unknown
-validity)を返す(実機で実測)。`gpg --list-secret-keys` を見ても分からない。
-`6` は ultimate。指紋は 40 桁の長い方(`gpg --list-keys --with-colons` の `fpr`)。
+期待値は `success` で、GPG export は存在しない。`failed` の場合は export が残るので、
+unit の journal を調べてから再実行する。
 
-**`--batch` を省かない。** 非対話の ssh では pinentry が出せず、プロンプトで
-止まる。
+ログインパスワードから生成した yescrypt ハッシュを使うのは、shishi の初回作成時だけ
+である。`mutableUsers = true` なので、インストール後の変更は Jupiter 上で `passwd` を
+実行する。暗号文のログインパスワードを変えても、既存ユーザーには反映しない。
 
-**import の成功だけで shred しない。** `gpg --import` は使えない鍵でも成功する。
-このワークステーションの主鍵は `sec#`(秘密鍵がローカルに無い)なので、
-エクスポートに入るのは署名・暗号のサブキーだけになる。`commit.gpgsign` は
-署名サブキーで通る(実機で `SIGN-OK` を実測)が、それは**実際に署名させて
-確かめないと分からない**。確かめる前に消すと、運べる材料が無くなる。
+Jupiter は起動時に SMB 資格情報を `/run/secrets/smb-mars-shishi` へ復号する。
+`/mnt/mars/shishi` へのアクセスが systemd automount を起動するため、NAS が停止中でも
+Jupiter の boot は継続する。資格情報の内容は表示せず、mode と接続だけを確認する。
+
+```bash
+sudo stat -c '%a %U:%G %n' /run/secrets/smb-mars-shishi
+ls /mnt/mars/shishi >/dev/null
+```
+
+期待する mode と所有者は `400 root:root` である。実 NAS 接続は手動確認であり、
+このリポジトリの自動テストでは未確認である。
+
+### SMB パスワードの変更
+
+`secrets/runtime.yaml` は既存の Jupiter 用 age 鍵を維持したまま更新する。
+作業用ディレクトリと SOPS のエディター一時ファイルは `/dev/shm` に限定する。
+次はワークステーション側の nix-config checkout で、`sops` と `jq` が使える
+devShell から実行する。
+
+```bash
+set -o pipefail
+umask 077
+rotation_tmp=$(mktemp -d /dev/shm/jupiter-smb-rotation.XXXXXXXX) && chmod 700 "$rotation_tmp" && trap 'rm -rf -- "$rotation_tmp"' EXIT HUP INT TERM
+SOPS_AGE_KEY_FILE="$HOME/.config/sops/age/keys.txt" sops --decrypt --output-type json secrets/bootstrap.yaml | jq -jer '."jupiter-age-key"' > "$rotation_tmp/jupiter-age-key.txt"
+chmod 600 "$rotation_tmp/jupiter-age-key.txt"
+TMPDIR="$rotation_tmp" SOPS_AGE_KEY_FILE="$rotation_tmp/jupiter-age-key.txt" sops secrets/runtime.yaml
+git add secrets/runtime.yaml && git commit -m 'chore(secrets): rotate SMB credentials'
+rm -rf -- "$rotation_tmp" && trap - EXIT HUP INT TERM
+```
+
+エディターでは `smb-mars-shishi` の値を `username=shishi` と
+`password=<新しい値>` の 2 行で維持する。変更を push し、Jupiter 側で checkout を
+更新して `nh os switch` を実行する。その後、既存 CIFS セッションを切断して
+automount から再接続する。
+
+```bash
+sudo systemctl stop mnt-mars-shishi.mount
+sudo systemctl restart mnt-mars-shishi.automount
+ls /mnt/mars/shishi >/dev/null
+```
+
+実 NAS への接続とパスワード変更後の再接続は、自動テストでは未確認である。
 
 ### この後どこへ進むか
 
 **§3.1(`sbctl create-keys`)と §3.2(`ssh-keygen`)は実行しない。**
-鍵は手順 2 で既に作られている。**§3.3(`nixos-rebuild switch`)も不要**で、
+鍵は手順 3 で既に作られている。**§3.3(`nixos-rebuild switch`)も不要**で、
 lanzaboote は `nixos-install` の時点で既に適用されている。
 
 **次は §3.5 だが、無条件に実行しないこと。** まず §3.5 末尾の
@@ -567,14 +468,14 @@ PK / KEK / db もまとめて消える。不要に実行すると §3.6 から�
 
 ### リハーサルで確認した終状態
 
-新規作成した検証用 VM で手順 1〜4 を実行し、続けて §3.6 → §3.7 →
+新規作成した検証用 VM で phase 分割と鍵の先置きを実行し、続けて §3.6 → §3.7 →
 §4.1〜§4.4 → §5.1 を通した結果(**§4.5 の wipe → 再 enroll は通していない**。
 §4.5 自身の未確認注記はそのまま残る):
 
 - `bootctl status` が §3.7 の「期待:」ブロックと一致
 - LUKS token JSON が §4.4 の「期待(該当部分)」と一致
 - 稼働中の `/var/lib/initrd-ssh/ssh_host_ed25519_key.pub` のフィンガープリントが、
-  手順 2 で `/mnt` に作った鍵のものと一致
+  target の `/mnt` に作った鍵のものと一致
 - ハードリセット後、キー入力ゼロで自動解錠(§5.1)
 
 **§3.5(Setup Mode に入る)は初回のリハーサルでは通していない。** VM が新規作成で
@@ -587,10 +488,14 @@ NVRAM が空だったため、初回起動の時点で既に `Setup Mode: Enable
 `nixos-install` が作った最初の世代(NixOS の generation 1)の UKI が
 検証できなくなる。
 
+SOPS を使う現行 wrapper の fixture テストは自動化している。一方、現行 wrapper での
+実機 `nixos-anywhere` は未確認である。この runbook を使う実インストールは手動確認に
+なる。
+
 ### 実機で違うところ
 
-- **手順 0 の直後、手順 1 に入る前に、ゲート 2 と ゲート 3 を済ませる。**
-  ゲート 2 の `nixos-generate-config` は手順 0 の SSH 経路で実行できるはず
+- **手順 1 の直後、手順 2 に入る前に、ゲート 2 と ゲート 3 を済ませる。**
+  ゲート 2 の `nixos-generate-config` は手順 1 の SSH 経路で実行できるはず
   (**実機で未確認**。リハーサルではスタブのまま通した)。
 - **§3.5 の PK クリアは、実機では実際に必要になることが多い。** 判定基準は
   VM と同じく「この後どこへ進むか」に書いた `sbctl status` の結果であって、
@@ -613,7 +518,7 @@ NVRAM が空だったため、初回起動の時点で既に `Setup Mode: Enable
 `sbctl create-keys` が既存鍵に対してどう振る舞うかは未確認であり、§3.2 の
 `ssh-keygen -f` は既存ファイルに対して `Overwrite (y/n)?` と対話で聞いて
 くる(この runbook の他の手順は非対話実行を前提にしている)。§6.2 の照合に
-使うフィンガープリントは、ゲート 4 の手順 2 で控えたものを使う。
+使うフィンガープリントは、ゲート 4 の手順 3 で控えたものを使う。
 
 以下の §3.1〜§3.3 は、**既に NixOS が動いているマシンに後から lanzaboote を
 導入する場合**の手順である。
@@ -755,11 +660,8 @@ sudo nix run nixpkgs#sbctl -- enroll-keys --microsoft
 `enroll-keys` が成功して `Vendor Keys: microsoft` になった後も、`Setup Mode` は
 `Enabled` のままだった。EFI 変数を直接見ると PK は書けている。
 
-```
-for v in PK KEK db; do
-  f=$(ls /sys/firmware/efi/efivars/${v}-* 2>/dev/null | head -1)
-  echo "$v: $(stat -c%s "$f" 2>/dev/null || echo 変数なし) bytes"
-done
+```bash
+for v in PK KEK db; do f=$(ls /sys/firmware/efi/efivars/${v}-* 2>/dev/null | head -1); echo "$v: $(stat -c%s "$f" 2>/dev/null || echo 変数なし) bytes"; done
 ```
 
 期待: PK / KEK / db がいずれも数百バイト以上で存在すること(実機の実測値は
@@ -836,14 +738,14 @@ LUKS2 は新規 keyslot の追加時にも既存の資格情報での認証を�
 無期限にハングする。`--unlock-key-file=/dev/stdin` で現在のパスフレーズを
 渡す。
 
-パスフレーズは手順 1 と同じ `secrets/luks-passphrase` から読む。**コマンド
-ラインに直に書かない** — shell history と `/proc/<pid>/cmdline` に残る。
-ワークステーション側から実行する。
+管理用 age 鍵で `secrets/bootstrap.yaml` を復号し、`jq` が抽出した LUKS 値だけを
+標準入力で送る。コマンドライン、画面、永続ファイルには出さない。
+ワークステーション側の nix-config checkout で、`sops` と `jq` が使える
+devShell から実行する。
 
-```
-printf '%s' "$(cat secrets/luks-passphrase)" \
-  | ssh <target> 'sudo systemd-cryptenroll --unlock-key-file=/dev/stdin \
-      --tpm2-device=auto --tpm2-pcrs=7 /dev/disk/by-partlabel/disk-main-luks'
+```bash
+set -o pipefail
+SOPS_AGE_KEY_FILE="$HOME/.config/sops/age/keys.txt" sops --decrypt --output-type json secrets/bootstrap.yaml | jq -jer '."luks-passphrase"' | ssh <target> 'sudo systemd-cryptenroll --unlock-key-file=/dev/stdin --tpm2-device=auto --tpm2-pcrs=7 /dev/disk/by-partlabel/disk-main-luks'
 ```
 
 `sudo` は NOPASSWD(`nixos/sudo.nix`)なので標準入力を奪わない。奪う設定に
@@ -890,17 +792,15 @@ sudo cryptsetup token export --token-id=<N> /dev/disk/by-partlabel/disk-main-luk
 作り直すときは、`--wipe-slot=tpm2` で既存の TPM2 keyslot を消すコマンドと、
 新規に enroll するコマンドを分けて実行する。
 
-```
-ssh <target> 'sudo systemd-cryptenroll --wipe-slot=tpm2 \
-  /dev/disk/by-partlabel/disk-main-luks'
-printf '%s' "$(cat secrets/luks-passphrase)" \
-  | ssh <target> 'sudo systemd-cryptenroll --unlock-key-file=/dev/stdin \
-      --tpm2-device=auto --tpm2-pcrs=7 /dev/disk/by-partlabel/disk-main-luks'
+```bash
+ssh <target> 'sudo systemd-cryptenroll --wipe-slot=tpm2 /dev/disk/by-partlabel/disk-main-luks'
+set -o pipefail
+SOPS_AGE_KEY_FILE="$HOME/.config/sops/age/keys.txt" sops --decrypt --output-type json secrets/bootstrap.yaml | jq -jer '."luks-passphrase"' | ssh <target> 'sudo systemd-cryptenroll --unlock-key-file=/dev/stdin --tpm2-device=auto --tpm2-pcrs=7 /dev/disk/by-partlabel/disk-main-luks'
 ```
 
 **wipe した状態で再起動すると initrd の解錠待ちになる。** そこを抜けるには
-§6 の initrd SSH でパスフレーズを入れる必要があるので、`secrets/luks-passphrase`
-を消した後に wipe しないこと。
+§6 の initrd SSH でパスフレーズを入れる必要がある。管理用 age 鍵と
+`secrets/bootstrap.yaml` の両方を復旧可能な状態にしてから wipe する。
 
 **この 2 コマンド構成を VM で通した。** `--wipe-slot=tpm2` の直後に
 `luksDump` の `Tokens:` が空になり、再起動すると initrd で解錠待ちになる。
@@ -913,8 +813,8 @@ enroll し直すと `0: systemd-tpm2` が戻る。
 
 電源断相当のリセット後、スキャンコードを一切送らずに SSH をポーリングして
 到達すれば、自動解錠が成立している。パスフレーズの入力は不要。
-(「スキャンコード」は §3.4 で説明する、`VBoxManage controlvm ...
-keyboardputscancode` で送るキー入力のこと。ここで送らずに到達する、
+(「スキャンコード」は §3.4 で説明する、`VBoxManage controlvm ... keyboardputscancode`
+で送るキー入力のこと。ここで送らずに到達する、
 という意味。)
 
 ### 5.2 カーネル更新後も自動解錠が維持されるか
@@ -984,18 +884,18 @@ ssh -tt -p <port> root@<host>
   は暗号化された `/`(btrfs `@root`)の上にあり、initrd で足止めされている
   状況ではまだマウントされていない。** そこへ読みに行くには、解錠したい
   その当のマシンにログインする必要が生じてしまう(循環)。代わりに §3.2(ゲート 4 で
-  初回インストールした場合はゲート 4 の手順 2)で控えた
-  フィンガープリントを使い、`ssh-keyscan -p <port> <host> |
-  ssh-keygen -lf -` の結果と比較する。
+  初回インストールした場合はゲート 4 の手順 3)で控えた
+  フィンガープリントを使い、`ssh-keyscan -p <port> <host> | ssh-keygen -lf -` の結果と比較する。
 
 ### 6.3 パスフレーズ投入
 
-パスフレーズはここでも `secrets/luks-passphrase` から読む。ワークステーション
-側(nix-config のチェックアウト内)で実行する。
+管理用 age 鍵で bootstrap を復号し、`jq` が抽出した LUKS 値だけを pipe へ流す。
+画面へ表示せず、永続ファイルにも保存しない。ワークステーション側の nix-config
+checkout で、`sops` と `jq` が使える devShell から実行する。
 
-```
-( printf '%s\n' "$(cat secrets/luks-passphrase)"; sleep 90 ) \
-  | timeout 150 ssh -tt -p <port> root@<host>
+```bash
+set -o pipefail
+SOPS_AGE_KEY_FILE="$HOME/.config/sops/age/keys.txt" sops --decrypt --output-type json secrets/bootstrap.yaml | jq -jer '."luks-passphrase" + "\n"' | { cat; sleep 90; } | timeout 150 ssh -tt -p <port> root@<host>
 ```
 
 `sleep 90` は、プロンプトが出るより先に標準入力が閉じて ssh が終了するのを
