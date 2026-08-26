@@ -131,6 +131,61 @@
             touch $out
           '';
 
+        encrypted-secrets-contract = pkgs.runCommand "encrypted-secrets-contract" { } ''
+          fail() {
+            echo "$1"
+            exit 1
+          }
+
+          sops_config=${../.sops.yaml}
+          bootstrap_file=${../secrets/bootstrap.yaml}
+          runtime_file=${../secrets/runtime.yaml}
+
+          if ${pkgs.gnugrep}/bin/grep -q 'AGE-SECRET-KEY-' "$sops_config"; then
+            fail ".sops.yaml contains an age private key"
+          fi
+          [ "$(${pkgs.yq-go}/bin/yq -r '.creation_rules | length' "$sops_config")" = 2 ] || \
+            fail ".sops.yaml must contain exactly two creation rules"
+          rule_paths=$(${pkgs.yq-go}/bin/yq -o=json -I=0 \
+            '[.creation_rules[].path_regex] | sort' "$sops_config")
+          [ "$rule_paths" = '["^secrets/bootstrap\\.yaml$","^secrets/runtime\\.yaml$"]' ] || \
+            fail ".sops.yaml creation rules target unexpected paths"
+
+          management_recipient=$(${pkgs.yq-go}/bin/yq -r \
+            '.creation_rules[] | select(.path_regex | contains("bootstrap")) | .age' "$sops_config")
+          runtime_recipient=$(${pkgs.yq-go}/bin/yq -r \
+            '.creation_rules[] | select(.path_regex | contains("runtime")) | .age' "$sops_config")
+          case "$management_recipient" in age1*) ;; *) fail "bootstrap creation rule has no public age recipient" ;; esac
+          case "$runtime_recipient" in age1*) ;; *) fail "runtime creation rule has no public age recipient" ;; esac
+          [ "$management_recipient" != "$runtime_recipient" ] || fail "bootstrap and runtime recipients must differ"
+
+          check_secret_file() {
+            label=$1
+            file=$2
+            expected_keys=$3
+            expected_recipient=$4
+
+            status=$(${pkgs.sops}/bin/sops filestatus "$file") || fail "$label filestatus failed"
+            [ "$status" = '{"encrypted":true}' ] || fail "$label is not fully encrypted"
+            actual_keys=$(${pkgs.yq-go}/bin/yq -o=json -I=0 \
+              '[keys[] | select(. != "sops")] | sort' "$file")
+            [ "$actual_keys" = "$expected_keys" ] || fail "$label has unexpected top-level secret keys"
+            ${pkgs.yq-go}/bin/yq -e \
+              '[to_entries[] | select(.key != "sops") | .value | (tag == "!!str" and test("^ENC\\["))] | all' \
+              "$file" >/dev/null || fail "$label contains a plaintext secret value"
+            [ "$(${pkgs.yq-go}/bin/yq -r '.sops.age | length' "$file")" = 1 ] || \
+              fail "$label must contain exactly one age recipient"
+            actual_recipient=$(${pkgs.yq-go}/bin/yq -r '.sops.age[].recipient' "$file")
+            [ "$actual_recipient" = "$expected_recipient" ] || fail "$label recipient does not match .sops.yaml"
+          }
+
+          check_secret_file bootstrap "$bootstrap_file" \
+            '["gpg-secret-key","jupiter-age-key","login-password","luks-passphrase","ssh-private-key"]' \
+            "$management_recipient"
+          check_secret_file runtime "$runtime_file" '["smb-mars-shishi"]' "$runtime_recipient"
+          touch $out
+        '';
+
         # ロケール契約: 表示は英語、書式は日本の慣習。
         # SDDM の greeter も同じ値で固定する。nixos/desktop/kde.nix が
         # display-manager.service の environment へ i18n を写しているが、
