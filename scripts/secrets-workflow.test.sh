@@ -371,6 +371,19 @@ run_wrapper() {
   )
 }
 
+run_wrapper_with_default_management_key() {
+  (
+    cd "$repo"
+    env -u SOPS_AGE_KEY_FILE \
+      HOME="$test_home" \
+      GNUPGHOME="$test_home/.gnupg" \
+      NIXOS_ANYWHERE_BIN="$work/fake-bin/nixos-anywhere" \
+      FAKE_ARGS_LOG="$work/fake.args" \
+      FAKE_EXTRA_PATH_LOG="$work/fake.extra-path" \
+        bash scripts/nixos-anywhere-with-secrets.sh "$@"
+  )
+}
+
 assert_args_contain() {
   local expected
   for expected in "$@"; do
@@ -441,6 +454,15 @@ test_install_phase_delivers_checked_extra_files() {
   run_wrapper --phases install >"$work/wrapper.stdout" 2>"$work/wrapper.stderr" || fail "install wrapper run failed"
   assert_args_contain --extra-files --chown home/shishi 1000:100
   assert_args_absent --disk-encryption-keys
+  assert_wrapper_logs_redacted
+  assert_extra_files_cleaned_up
+}
+
+test_default_management_key_path_is_used_when_env_is_unset() {
+  reset_wrapper_fixture
+  run_wrapper_with_default_management_key --phases install >"$work/wrapper.stdout" 2>"$work/wrapper.stderr" || \
+    fail "wrapper did not use the default management key path"
+  assert_args_contain --extra-files --chown home/shishi 1000:100
   assert_wrapper_logs_redacted
   assert_extra_files_cleaned_up
 }
@@ -604,6 +626,7 @@ fi
 if [ "$suite" = wrapper ]; then
   test_disko_phase_only_injects_luks_key
   test_install_phase_delivers_checked_extra_files
+  test_default_management_key_path_is_used_when_env_is_unset
   test_full_run_delivers_both_phase_inputs
   test_manual_secret_arguments_are_rejected
   test_wrong_management_key_is_rejected
