@@ -3,6 +3,8 @@ result-*
 .direnv/
 .worktrees/
 .envrc.local
-secrets/
+secrets/**
+!secrets/bootstrap.yaml
+!secrets/runtime.yaml
 *.swp
 .DS_Store

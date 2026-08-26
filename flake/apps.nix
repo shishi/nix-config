@@ -29,6 +29,22 @@
         ];
         text = builtins.readFile ../scripts/check-install-secrets.sh;
       };
+      init-secrets = pkgs.writeShellApplication {
+        name = "init-secrets";
+        runtimeInputs = with pkgs; [
+          age
+          coreutils
+          findutils
+          git
+          gnugrep
+          gnupg
+          jq
+          openssh
+          sops
+          util-linux
+        ];
+        text = builtins.readFile ../scripts/init-secrets.sh;
+      };
       mkScriptApp = name: script: {
         type = "app";
         program = "${pkgs.writeShellScript name ''
@@ -127,6 +143,11 @@
         check-install-secrets = {
           type = "app";
           program = "${check-install-secrets}/bin/check-install-secrets";
+        };
+
+        init-secrets = {
+          type = "app";
+          program = "${init-secrets}/bin/init-secrets";
         };
 
         setup-sudo-nopasswd = mkScriptApp "setup-sudo-nopasswd" ../scripts/setup-sudo-nopasswd.sh;
