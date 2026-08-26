@@ -566,9 +566,37 @@ test_corrupt_gpg_export_is_preserved_without_secret_output() {
     "$work/gpg-corrupt.stdout" "$work/gpg-corrupt.stderr" || fail "failed GPG import logged private-key material"
 }
 
+test_clearsign_failure_preserves_export() {
+  local export_file="$work/public-gpg-key.asc"
+  local source_gnupg_home="$work/public-source-gnupg"
+  local target_gnupg_home="$work/public-only-gnupg"
+  local fingerprint
+
+  mkdir -m 700 "$source_gnupg_home"
+  gpg --homedir "$source_gnupg_home" --batch --pinentry-mode loopback --passphrase '' \
+    --quick-generate-key 'Public-only Test <public-only@example.test>' default default never
+  fingerprint=$(gpg --homedir "$source_gnupg_home" --batch --with-colons \
+    --list-secret-keys public-only@example.test | \
+    awk -F: '$1 == "fpr" { print $10; exit }')
+  gpg --homedir "$source_gnupg_home" --batch --armor --export "$fingerprint" >"$export_file"
+
+  if bash "$repo_root/scripts/import-gpg-secret.sh" "$export_file" "$target_gnupg_home" \
+    >"$work/gpg-public.stdout" 2>"$work/gpg-public.stderr"; then
+    fail "GPG import unexpectedly signed with a public-only key"
+  fi
+  test -e "$export_file" || fail "clearsign failure removed the export"
+  gpg --homedir "$target_gnupg_home" --batch --list-keys "$fingerprint" >/dev/null 2>&1 || \
+    fail "public key was not imported before clearsign failed"
+  gpg --homedir "$target_gnupg_home" --batch --export-ownertrust | \
+    rg -Fx "$fingerprint:6:" >/dev/null || fail "ownertrust was not set before clearsign failed"
+  ! rg -F -e 'BEGIN PGP PRIVATE KEY BLOCK' -e 'BEGIN PGP PUBLIC KEY BLOCK' \
+    "$work/gpg-public.stdout" "$work/gpg-public.stderr" || fail "clearsign failure logged key material"
+}
+
 if [ "$suite" = gpg-import ]; then
   test_gpg_import_succeeds_and_removes_export
   test_corrupt_gpg_export_is_preserved_without_secret_output
+  test_clearsign_failure_preserves_export
   echo "GPG import tests: PASS"
   exit 0
 fi
