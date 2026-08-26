@@ -403,8 +403,11 @@ rewrite_bootstrap() {
   SOPS_AGE_KEY_FILE="$test_home/.config/sops/age/keys.txt" \
     sops --decrypt --output-type json "$repo/secrets/bootstrap.yaml" >"$work/bootstrap.json"
   jq "$filter" "$work/bootstrap.json" >"$work/bootstrap-mutated.json"
-  sops --encrypt --age "$recipient" --input-type json --output-type yaml \
-    "$work/bootstrap-mutated.json" >"$repo/secrets/bootstrap.yaml"
+  (
+    cd "$work"
+    sops --encrypt --age "$recipient" --input-type json --output-type yaml \
+      "$work/bootstrap-mutated.json"
+  ) >"$repo/secrets/bootstrap.yaml"
   git -C "$repo" add -f secrets/bootstrap.yaml
   git -C "$repo" commit -qm mutated-bootstrap
 }
@@ -480,6 +483,14 @@ test_damaged_bootstrap_mac_is_rejected() {
   assert_wrapper_fails --phases install
 }
 
+test_rewrite_bootstrap_isolated_from_repository_sops_config() {
+  reset_wrapper_fixture
+  rewrite_bootstrap '."login-password" = ""'
+  SOPS_AGE_KEY_FILE="$test_home/.config/sops/age/keys.txt" \
+    sops --decrypt --output-type json "$repo/secrets/bootstrap.yaml" | \
+    jq -e '."login-password" == ""' >/dev/null || fail "fixture bootstrap rewrite did not preserve the requested mutation"
+}
+
 test_malformed_bootstrap_values_are_rejected() {
   local filter
   for filter in \
@@ -519,6 +530,7 @@ if [ "$suite" = wrapper ]; then
   test_manual_secret_arguments_are_rejected
   test_wrong_management_key_is_rejected
   test_damaged_bootstrap_mac_is_rejected
+  test_rewrite_bootstrap_isolated_from_repository_sops_config
   test_malformed_bootstrap_values_are_rejected
   test_untracked_ciphertext_is_rejected
   test_child_status_and_cleanup_are_preserved
