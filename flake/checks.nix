@@ -56,6 +56,7 @@
             secret = cfg.sops.secrets."smb-mars-shishi";
             mount = cfg.fileSystems."/mnt/mars/shishi";
             gpgImport = cfg.systemd.services."import-shishi-gpg-secret" or { };
+            gpgImportPath = pkgs.lib.makeBinPath (gpgImport.path or [ ]);
             requiredOptions = [
               "credentials=/run/secrets/smb-mars-shishi"
               "uid=1000"
@@ -99,6 +100,12 @@
             check gpgImport.coreutilsPath "${
               if builtins.elem pkgs.coreutils (gpgImport.path or [ ]) then "present" else "missing"
             }" "present"
+            check gpgImport.bashPath "${
+              if builtins.elem pkgs.bash (gpgImport.path or [ ]) then "present" else "missing"
+            }" "present"
+            check gpgImport.gawkPath "${
+              if builtins.elem pkgs.gawk (gpgImport.path or [ ]) then "present" else "missing"
+            }" "present"
             check gpgImport.scriptReference "${
               if pkgs.lib.hasInfix "import-gpg-secret.sh" (gpgImport.script or "") then "present" else "missing"
             }" "present"
@@ -116,6 +123,10 @@
                 if builtins.elem option mount.options then "present" else "missing"
               }" "present"
             '') requiredOptions}
+            if ! ${pkgs.coreutils}/bin/env -i PATH="${gpgImportPath}" bash -c 'command -v awk >/dev/null'; then
+              echo "gpgImport.path cannot run the script's bash and awk dependencies"
+              ok=0
+            fi
             [ "$ok" = 1 ] || exit 1
             touch $out
           '';

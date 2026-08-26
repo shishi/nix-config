@@ -43,8 +43,10 @@
     wantedBy = [ "multi-user.target" ];
     unitConfig.ConditionPathExists = "/home/shishi/gpg-secret.asc";
     path = [
-      pkgs.gnupg
+      pkgs.bash
       pkgs.coreutils
+      pkgs.gawk
+      pkgs.gnupg
     ];
     script = ''
       exec ${../../scripts/import-gpg-secret.sh} /home/shishi/gpg-secret.asc /home/shishi/.gnupg
