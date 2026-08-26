@@ -323,15 +323,28 @@ in
         passwordRequiredDelay = 0;
       };
       powerdevil.AC = {
-        # アイドル中でも自動 sleep はしない。自動ロックは上の
-        # kscreenlocker が継続し、手動 sleep とふた閉じの動作も変えない。
+        # 給電中はアイドルでも自動 sleep しない。画面消灯は独立して行い、
+        # 自動ロック、手動 sleep、ふた閉じの動作は変えない。
         autoSuspend.action = "nothing";
+        turnOffDisplay.idleTimeout = 900;
       };
       powerdevil.battery = {
-        autoSuspend.action = "nothing";
+        autoSuspend.action = "sleep";
+        autoSuspend.idleTimeout = 3600;
+        turnOffDisplay.idleTimeout = 900;
       };
       powerdevil.lowBattery = {
-        autoSuspend.action = "nothing";
+        autoSuspend.action = "sleep";
+        autoSuspend.idleTimeout = 300;
+        turnOffDisplay.idleTimeout = 900;
+      };
+      # plasma-manager の turnOffDisplay option は timeout だけを書き、PowerDevil が
+      # 実際に参照する有効フラグを公開していない。overrideConfig = false なので、
+      # KCM が過去に書いた false を残さないよう明示する。
+      configFile.powerdevilrc = {
+        "AC/Display".TurnOffDisplayWhenIdle = true;
+        "Battery/Display".TurnOffDisplayWhenIdle = true;
+        "LowBattery/Display".TurnOffDisplayWhenIdle = true;
       };
       # 通知トーストは通知ウィジェットの近くではなく、画面右上へ固定する。
       # Plasma の PopupPosition 列挙で TopRight は 3。

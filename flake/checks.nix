@@ -133,13 +133,14 @@
             touch $out
           '';
 
-        # アイドル時の自動 sleep は、AC / バッテリーのどちらでも行わない。
-        # action だけを nothing にして timeout を残すと plasma-manager の
-        # アサーションにより評価が失敗するので、両方をこの契約で固定する。
+        # AC では自動 sleep を行わず、バッテリーでは電力を使い切る前に sleep する。
+        # 画面消灯は sleep と独立して全プロファイルで有効にする。
         sleep-contract =
           let
-            powerdevil =
-              self.nixosConfigurations.jupiter.config.home-manager.users.shishi.programs.plasma.powerdevil;
+            plasma = self.nixosConfigurations.jupiter.config.home-manager.users.shishi.programs.plasma;
+            powerdevil = plasma.powerdevil;
+            powerdevilrc = plasma.configFile.powerdevilrc;
+            settingValue = section: key: ((powerdevilrc.${section}.${key} or { }).value or null);
             show = value: if value == null then "null" else toString value;
           in
           pkgs.runCommand "sleep-contract" { } ''
@@ -152,10 +153,16 @@
             }
             check AC.autoSuspend.action "${show powerdevil.AC.autoSuspend.action}" "0"
             check AC.autoSuspend.idleTimeout "${show powerdevil.AC.autoSuspend.idleTimeout}" "null"
-            check battery.autoSuspend.action "${show powerdevil.battery.autoSuspend.action}" "0"
-            check battery.autoSuspend.idleTimeout "${show powerdevil.battery.autoSuspend.idleTimeout}" "null"
-            check lowBattery.autoSuspend.action "${show powerdevil.lowBattery.autoSuspend.action}" "0"
-            check lowBattery.autoSuspend.idleTimeout "${show powerdevil.lowBattery.autoSuspend.idleTimeout}" "null"
+            check AC.turnOffDisplay.idleTimeout "${show powerdevil.AC.turnOffDisplay.idleTimeout}" "900"
+            check AC.turnOffDisplay.enabled "${show (settingValue "AC/Display" "TurnOffDisplayWhenIdle")}" "1"
+            check battery.autoSuspend.action "${show powerdevil.battery.autoSuspend.action}" "1"
+            check battery.autoSuspend.idleTimeout "${show powerdevil.battery.autoSuspend.idleTimeout}" "3600"
+            check battery.turnOffDisplay.idleTimeout "${show powerdevil.battery.turnOffDisplay.idleTimeout}" "900"
+            check battery.turnOffDisplay.enabled "${show (settingValue "Battery/Display" "TurnOffDisplayWhenIdle")}" "1"
+            check lowBattery.autoSuspend.action "${show powerdevil.lowBattery.autoSuspend.action}" "1"
+            check lowBattery.autoSuspend.idleTimeout "${show powerdevil.lowBattery.autoSuspend.idleTimeout}" "300"
+            check lowBattery.turnOffDisplay.idleTimeout "${show powerdevil.lowBattery.turnOffDisplay.idleTimeout}" "900"
+            check lowBattery.turnOffDisplay.enabled "${show (settingValue "LowBattery/Display" "TurnOffDisplayWhenIdle")}" "1"
             [ "$ok" = 1 ] || exit 1
             touch $out
           '';
