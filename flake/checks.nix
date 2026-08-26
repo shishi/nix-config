@@ -36,6 +36,11 @@
     in
     {
       checks = {
+        direnv-contract = pkgs.runCommand "direnv-contract" { } ''
+          ${pkgs.bash}/bin/bash ${../scripts/direnv.test.sh} ${../.envrc}
+          touch $out
+        '';
+
         # 可搬グラフ信号(ビルド)
         home-shishi = self.homeConfigurations."shishi".activationPackage;
         nixos-wsl-toplevel = self.nixosConfigurations.nixos-wsl.config.system.build.toplevel;
