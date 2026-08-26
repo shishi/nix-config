@@ -1,6 +1,7 @@
 result
 result-*
 .direnv/
+.worktrees/
 .envrc.local
 secrets/
 *.swp
