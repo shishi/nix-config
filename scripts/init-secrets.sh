@@ -12,6 +12,9 @@ management_age_recipient=""
 jupiter_age_recipient=""
 installation_started=0
 installation_committed=0
+staged_sops_config=""
+staged_bootstrap=""
+staged_runtime=""
 
 die() {
   printf 'init-secrets: %s\n' "$*" >&2
@@ -128,20 +131,43 @@ encrypt_outputs() {
   SOPS_AGE_KEY_FILE="$tmpdir/jupiter-age-key.txt" sops --decrypt "$tmpdir/runtime.yaml" >"$tmpdir/runtime.verify"
 
   mkdir -p "$repo_root/secrets"
+  staged_sops_config=$(mktemp "$repo_root/.init-secrets-sops.XXXXXXXX")
+  staged_bootstrap=$(mktemp "$repo_root/secrets/.init-secrets-bootstrap.XXXXXXXX")
+  staged_runtime=$(mktemp "$repo_root/secrets/.init-secrets-runtime.XXXXXXXX")
+  cp "$tmpdir/.sops.yaml" "$staged_sops_config"
+  cp "$tmpdir/bootstrap.yaml" "$staged_bootstrap"
+  cp "$tmpdir/runtime.yaml" "$staged_runtime"
+
   installation_started=1
-  mv "$tmpdir/.sops.yaml" "$repo_root/.sops.yaml"
-  mv "$tmpdir/bootstrap.yaml" "$repo_root/secrets/bootstrap.yaml"
-  mv "$tmpdir/runtime.yaml" "$repo_root/secrets/runtime.yaml"
+  ln -T "$staged_sops_config" "$repo_root/.sops.yaml"
+  ln -T "$staged_bootstrap" "$repo_root/secrets/bootstrap.yaml"
+  ln -T "$staged_runtime" "$repo_root/secrets/runtime.yaml"
   installation_committed=1
+}
+
+rollback_published_output() {
+  local staged=$1 final=$2
+
+  if [ -n "$staged" ] && [ -e "$staged" ] && { [ -e "$final" ] || [ -L "$final" ]; } && [ "$final" -ef "$staged" ]; then
+    rm -f -- "$final"
+  fi
+}
+
+remove_staged_outputs() {
+  local staged
+
+  for staged in "$staged_sops_config" "$staged_bootstrap" "$staged_runtime"; do
+    [ -z "$staged" ] || rm -f -- "$staged"
+  done
 }
 
 cleanup() {
   if [ "$installation_started" -eq 1 ] && [ "$installation_committed" -eq 0 ]; then
-    rm -f -- \
-      "$repo_root/.sops.yaml" \
-      "$repo_root/secrets/bootstrap.yaml" \
-      "$repo_root/secrets/runtime.yaml"
+    rollback_published_output "$staged_sops_config" "$repo_root/.sops.yaml"
+    rollback_published_output "$staged_bootstrap" "$repo_root/secrets/bootstrap.yaml"
+    rollback_published_output "$staged_runtime" "$repo_root/secrets/runtime.yaml"
   fi
+  remove_staged_outputs
   if [ -n "${tmpdir:-}" ] && [ -d "$tmpdir" ]; then
     rm -rf -- "$tmpdir"
   fi

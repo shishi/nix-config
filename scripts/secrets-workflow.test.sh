@@ -108,6 +108,42 @@ smb-test-value
 EOF
 }
 
+run_init_with_publish_race() {
+  local real_ln
+
+  real_ln=$(command -v ln)
+  mkdir -p "$work/publish-race-bin"
+  printf '%s\n' \
+    '#!/usr/bin/env bash' \
+    'set -euo pipefail' \
+    'if [ "$1" = -T ] && [ "$3" = "$RACE_FINAL" ]; then' \
+    '  rm -f -- "$RACE_REPLACED_FINAL"' \
+    '  printf "competing-sops-ciphertext\\n" >"$RACE_REPLACED_FINAL"' \
+    '  printf "competing-runtime-ciphertext\\n" >"$3"' \
+    'fi' \
+    'exec "$REAL_LN" "$@"' >"$work/publish-race-bin/ln"
+  chmod 700 "$work/publish-race-bin/ln"
+
+  (
+    cd "$repo"
+    HOME="$test_home" \
+    GNUPGHOME="$test_home/.gnupg" \
+    SOPS_AGE_KEY_FILE="$test_home/.config/sops/age/keys.txt" \
+    PATH="$work/publish-race-bin:$PATH" \
+    REAL_LN="$real_ln" \
+    RACE_FINAL="$repo/secrets/runtime.yaml" \
+    RACE_REPLACED_FINAL="$repo/.sops.yaml" \
+      bash scripts/init-secrets.sh
+  ) <<'EOF'
+luks-test-value
+luks-test-value
+login-test-value
+login-test-value
+smb-test-value
+smb-test-value
+EOF
+}
+
 test_missing_ssh_key_fails_before_input() {
   copy_fixture_repo
   if (
@@ -178,6 +214,17 @@ test_failed_installation_rolls_back_outputs() {
   assert_absent_outputs
 }
 
+test_publish_race_preserves_competing_entry() {
+  copy_fixture_repo
+  prepare_source_keys
+  if run_init_with_publish_race >"$work/stdout" 2>"$work/stderr"; then
+    fail "initializer unexpectedly succeeded despite a publish race"
+  fi
+  test "$(cat "$repo/.sops.yaml")" = competing-sops-ciphertext || fail "replacement entry was deleted or overwritten"
+  test ! -e "$repo/secrets/bootstrap.yaml" || fail "initializer bootstrap output remained after publish race"
+  test "$(cat "$repo/secrets/runtime.yaml")" = competing-runtime-ciphertext || fail "competing entry was overwritten"
+}
+
 test_successful_initialization_encrypts_expected_boundaries() {
   copy_fixture_repo
   prepare_source_keys
@@ -246,6 +293,9 @@ test_xdg_config_home_does_not_change_default_management_key_path
 rm -rf -- "$repo" "$test_home"
 mkdir -p "$repo" "$test_home"
 test_failed_installation_rolls_back_outputs
+rm -rf -- "$repo" "$test_home"
+mkdir -p "$repo" "$test_home"
+test_publish_race_preserves_competing_entry
 rm -rf -- "$repo" "$test_home"
 mkdir -p "$repo" "$test_home"
 test_successful_initialization_encrypts_expected_boundaries
