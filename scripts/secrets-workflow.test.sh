@@ -91,6 +91,23 @@ different-luks-test-value
 EOF
 }
 
+run_init_with_xdg_config_home() {
+  (
+    cd "$repo"
+    HOME="$test_home" \
+    GNUPGHOME="$test_home/.gnupg" \
+    XDG_CONFIG_HOME="$test_home/other-config" \
+      bash scripts/init-secrets.sh
+  ) <<'EOF'
+luks-test-value
+luks-test-value
+login-test-value
+login-test-value
+smb-test-value
+smb-test-value
+EOF
+}
+
 test_missing_ssh_key_fails_before_input() {
   copy_fixture_repo
   if (
@@ -124,6 +141,41 @@ test_existing_ciphertext_is_not_overwritten() {
   test "$(cat "$repo/.sops.yaml")" = 'existing-ciphertext' || fail "existing ciphertext changed"
   test ! -e "$repo/secrets/bootstrap.yaml" || fail "bootstrap was created despite existing output"
   test ! -e "$repo/secrets/runtime.yaml" || fail "runtime was created despite existing output"
+}
+
+test_dangling_symlink_is_not_overwritten() {
+  copy_fixture_repo
+  prepare_source_keys
+  ln -s missing-sops-config "$repo/.sops.yaml"
+  if run_init >"$work/stdout" 2>"$work/stderr"; then
+    fail "initializer unexpectedly overwrote a dangling symlink"
+  fi
+  test -L "$repo/.sops.yaml" || fail "dangling symlink was replaced"
+  test "$(readlink "$repo/.sops.yaml")" = missing-sops-config || fail "dangling symlink changed"
+  test ! -e "$repo/secrets/bootstrap.yaml" || fail "bootstrap was created despite dangling symlink"
+  test ! -e "$repo/secrets/runtime.yaml" || fail "runtime was created despite dangling symlink"
+}
+
+test_xdg_config_home_does_not_change_default_management_key_path() {
+  copy_fixture_repo
+  prepare_source_keys
+  if ! run_init_with_xdg_config_home >"$work/stdout" 2>"$work/stderr"; then
+    fail "initializer failed with XDG_CONFIG_HOME set"
+  fi
+  assert_file "$test_home/.config/sops/age/keys.txt"
+  test ! -e "$test_home/other-config/sops/age/keys.txt" || fail "XDG_CONFIG_HOME changed the default management key path"
+}
+
+test_failed_installation_rolls_back_outputs() {
+  copy_fixture_repo
+  prepare_source_keys
+  mkdir "$repo/secrets"
+  chmod 500 "$repo/secrets"
+  if run_init >"$work/stdout" 2>"$work/stderr"; then
+    fail "initializer unexpectedly succeeded with an unwritable output directory"
+  fi
+  chmod 700 "$repo/secrets"
+  assert_absent_outputs
 }
 
 test_successful_initialization_encrypts_expected_boundaries() {
@@ -185,6 +237,15 @@ test_mismatched_confirmation_leaves_no_outputs
 rm -rf -- "$repo" "$test_home"
 mkdir -p "$repo" "$test_home"
 test_existing_ciphertext_is_not_overwritten
+rm -rf -- "$repo" "$test_home"
+mkdir -p "$repo" "$test_home"
+test_dangling_symlink_is_not_overwritten
+rm -rf -- "$repo" "$test_home"
+mkdir -p "$repo" "$test_home"
+test_xdg_config_home_does_not_change_default_management_key_path
+rm -rf -- "$repo" "$test_home"
+mkdir -p "$repo" "$test_home"
+test_failed_installation_rolls_back_outputs
 rm -rf -- "$repo" "$test_home"
 mkdir -p "$repo" "$test_home"
 test_successful_initialization_encrypts_expected_boundaries

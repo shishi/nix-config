@@ -5,11 +5,13 @@ umask 077
 
 repo_root=""
 tmpdir=""
-management_age_key_file="${SOPS_AGE_KEY_FILE:-${XDG_CONFIG_HOME:-$HOME/.config}/sops/age/keys.txt}"
+management_age_key_file="${SOPS_AGE_KEY_FILE:-$HOME/.config/sops/age/keys.txt}"
 ssh_private_key=""
 gpg_signing_key=""
 management_age_recipient=""
 jupiter_age_recipient=""
+installation_started=0
+installation_committed=0
 
 die() {
   printf 'init-secrets: %s\n' "$*" >&2
@@ -126,12 +128,20 @@ encrypt_outputs() {
   SOPS_AGE_KEY_FILE="$tmpdir/jupiter-age-key.txt" sops --decrypt "$tmpdir/runtime.yaml" >"$tmpdir/runtime.verify"
 
   mkdir -p "$repo_root/secrets"
+  installation_started=1
   mv "$tmpdir/.sops.yaml" "$repo_root/.sops.yaml"
   mv "$tmpdir/bootstrap.yaml" "$repo_root/secrets/bootstrap.yaml"
   mv "$tmpdir/runtime.yaml" "$repo_root/secrets/runtime.yaml"
+  installation_committed=1
 }
 
 cleanup() {
+  if [ "$installation_started" -eq 1 ] && [ "$installation_committed" -eq 0 ]; then
+    rm -f -- \
+      "$repo_root/.sops.yaml" \
+      "$repo_root/secrets/bootstrap.yaml" \
+      "$repo_root/secrets/runtime.yaml"
+  fi
   if [ -n "${tmpdir:-}" ] && [ -d "$tmpdir" ]; then
     rm -rf -- "$tmpdir"
   fi
@@ -144,7 +154,7 @@ repo_root=$(find_repo_root)
 cd "$repo_root"
 
 for output in .sops.yaml secrets/bootstrap.yaml secrets/runtime.yaml; do
-  [ ! -e "$output" ] || die "既存の暗号化出力を上書きしない: $output"
+  [ ! -e "$output" ] && [ ! -L "$output" ] || die "既存の暗号化出力を上書きしない: $output"
 done
 
 tmpdir=$(mktemp -d "$(select_tmpfs_root)/init-secrets.XXXXXXXX")
