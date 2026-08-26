@@ -118,8 +118,8 @@ SOPS を使う現行 wrapper は fixture で自動テストしているが、実
 **`nixos-anywhere` を `--phases` で 2 回に分け、その間に鍵を `/mnt` へ作る。**
 
 - 初期インストール用の秘密は SOPS で暗号化して Git 管理する。
-- リポジトリの wrapper は phase ごとに必要な秘密だけを tmpfs へ復号する。
-  手動の秘密配送オプションは受け付けない。
+- リポジトリの wrapper は bootstrap 全体を tmpfs へ復号・検証し、phase ごとに
+  配送する秘密だけを絞る。手動の秘密配送オプションは受け付けない。
 - sbctl の鍵と initrd host key は target 上で生成する。Secure Boot の秘密鍵を
   ワークステーションへ経由させず、ディスク上の配置も手作業しない。
 - **任意コマンドを実行するフックは無い**(nixos-anywhere 1.13.0)。target 上で
