@@ -23,6 +23,7 @@
     llm-agents.claude-code
     llm-agents.codex
     llm-agents.herdr
+    llm-agents.hunk
     lua-language-server
     luajit
     neovim # neovim-nightly-overlay 経由
@@ -33,6 +34,8 @@
     pyright
     rclone
     ripgrep
+    shfmt
+    stylua
     tailscale
     tree-sitter
     typescript-language-server
