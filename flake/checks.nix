@@ -48,6 +48,50 @@
         # 実 hardware-configuration.nix の commit 後に jupiter-toplevel として既定編入する
         jupiter-stub-eval = evalOnly "jupiter-stub" self.nixosConfigurations.jupiter;
 
+        # 実行時の SMB 資格情報は sops-nix が /run/secrets へ復号し、
+        # NAS は boot を妨げない systemd automount として接続する。
+        jupiter-smb-secrets-contract =
+          let
+            cfg = self.nixosConfigurations.jupiter.config;
+            secret = cfg.sops.secrets."smb-mars-shishi";
+            mount = cfg.fileSystems."/mnt/mars/shishi";
+            requiredOptions = [
+              "credentials=/run/secrets/smb-mars-shishi"
+              "uid=1000"
+              "gid=100"
+              "file_mode=0600"
+              "dir_mode=0700"
+              "_netdev"
+              "noauto"
+              "x-systemd.automount"
+              "x-systemd.idle-timeout=5min"
+              "x-systemd.mount-timeout=10s"
+            ];
+          in
+          pkgs.runCommand "jupiter-smb-secrets-contract" { } ''
+            ok=1
+            check() {
+              if [ "$2" != "$3" ]; then
+                echo "$1: expected '$3' but got '$2'"
+                ok=0
+              fi
+            }
+            check sops.age.keyFile "${cfg.sops.age.keyFile}" "/var/lib/sops-nix/key.txt"
+            check sops.age.generateKey "${if cfg.sops.age.generateKey then "true" else "false"}" "false"
+            check secret.owner "${secret.owner}" "root"
+            check secret.group "${secret.group}" "root"
+            check secret.mode "${secret.mode}" "0400"
+            check mount.device "${mount.device}" "//mars/shishi"
+            check mount.fsType "${mount.fsType}" "cifs"
+            ${pkgs.lib.concatMapStringsSep "\n" (option: ''
+              check "mount.options.${option}" "${
+                if builtins.elem option mount.options then "present" else "missing"
+              }" "present"
+            '') requiredOptions}
+            [ "$ok" = 1 ] || exit 1
+            touch $out
+          '';
+
         # ロケール契約: 表示は英語、書式は日本の慣習。
         # SDDM の greeter も同じ値で固定する。nixos/desktop/kde.nix が
         # display-manager.service の environment へ i18n を写しているが、

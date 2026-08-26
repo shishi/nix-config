@@ -26,6 +26,7 @@ in
     ../../nixos/input-method.nix
     ./disko.nix
     ./hardware-configuration.nix
+    ./secrets.nix
   ];
 
   networking.hostName = "jupiter";
