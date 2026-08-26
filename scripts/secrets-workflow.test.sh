@@ -384,6 +384,18 @@ run_wrapper_with_default_management_key() {
   )
 }
 
+run_wrapper_without_management_key_or_home() {
+  (
+    cd "$repo"
+    env -u HOME -u SOPS_AGE_KEY_FILE \
+      GNUPGHOME="$test_home/.gnupg" \
+      NIXOS_ANYWHERE_BIN="$work/fake-bin/nixos-anywhere" \
+      FAKE_ARGS_LOG="$work/fake.args" \
+      FAKE_EXTRA_PATH_LOG="$work/fake.extra-path" \
+        bash scripts/nixos-anywhere-with-secrets.sh "$@"
+  )
+}
+
 assert_args_contain() {
   local expected
   for expected in "$@"; do
@@ -467,6 +479,18 @@ test_default_management_key_path_is_used_when_env_is_unset() {
   assert_extra_files_cleaned_up
 }
 
+test_missing_home_and_management_key_reports_a_controlled_error() {
+  reset_wrapper_fixture
+  if run_wrapper_without_management_key_or_home --phases install >"$work/wrapper.stdout" 2>"$work/wrapper.stderr"; then
+    fail "wrapper unexpectedly accepted a missing HOME and management key"
+  fi
+  rg -F 'SOPS_AGE_KEY_FILE または HOME を指定すること' "$work/wrapper.stderr" >/dev/null || \
+    fail "missing management key did not report a controlled error"
+  ! rg -F 'unbound variable' "$work/wrapper.stderr" || fail "missing HOME caused an unbound variable error"
+  assert_wrapper_logs_redacted
+  assert_extra_files_cleaned_up
+}
+
 test_full_run_delivers_both_phase_inputs() {
   reset_wrapper_fixture
   run_wrapper >"$work/wrapper.stdout" 2>"$work/wrapper.stderr" || fail "full wrapper run failed"
@@ -488,6 +512,7 @@ test_wrong_management_key_is_rejected() {
   age-keygen -o "$work/wrong-age-key.txt" >/dev/null 2>&1
   if (
     cd "$repo"
+    HOME="$test_home" \
     SOPS_AGE_KEY_FILE="$work/wrong-age-key.txt" \
     NIXOS_ANYWHERE_BIN="$work/fake-bin/nixos-anywhere" \
     FAKE_ARGS_LOG="$work/fake.args" FAKE_EXTRA_PATH_LOG="$work/fake.extra-path" \
@@ -627,6 +652,7 @@ if [ "$suite" = wrapper ]; then
   test_disko_phase_only_injects_luks_key
   test_install_phase_delivers_checked_extra_files
   test_default_management_key_path_is_used_when_env_is_unset
+  test_missing_home_and_management_key_reports_a_controlled_error
   test_full_run_delivers_both_phase_inputs
   test_manual_secret_arguments_are_rejected
   test_wrong_management_key_is_rejected

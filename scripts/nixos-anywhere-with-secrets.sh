@@ -5,7 +5,7 @@ umask 077
 
 repo_root=""
 tmpdir=""
-management_age_key_file="${SOPS_AGE_KEY_FILE:-$HOME/.config/sops/age/keys.txt}"
+management_age_key_file=""
 bootstrap_json=""
 luks_key=""
 login_password=""
@@ -23,6 +23,16 @@ original_args=()
 die() {
   printf 'nixos-anywhere-with-secrets: %s\n' "$*" >&2
   exit 1
+}
+
+resolve_management_age_key_file() {
+  if [ -n "${SOPS_AGE_KEY_FILE:-}" ]; then
+    management_age_key_file="$SOPS_AGE_KEY_FILE"
+  elif [ -n "${HOME:-}" ]; then
+    management_age_key_file="$HOME/.config/sops/age/keys.txt"
+  else
+    die 'SOPS_AGE_KEY_FILE または HOME を指定すること'
+  fi
 }
 
 find_repo_root() {
@@ -125,9 +135,14 @@ require_tracked_ciphertext() {
 }
 
 decrypt_bootstrap() {
+  local sops_home="$tmpdir/sops-home" sops_config_home="$tmpdir/sops-config"
+
   [ -f "$management_age_key_file" ] || die 'management age key が読めない'
+  mkdir -p "$sops_home" "$sops_config_home"
 
   bootstrap_json="$tmpdir/bootstrap.json"
+  HOME="$sops_home" \
+  XDG_CONFIG_HOME="$sops_config_home" \
   SOPS_AGE_KEY_FILE="$management_age_key_file" \
     sops --decrypt --output-type json "$repo_root/secrets/bootstrap.yaml" >"$bootstrap_json" || \
     die 'bootstrap.yaml を復号・検証できない'
@@ -229,6 +244,7 @@ trap 'exit 1' HUP INT TERM
 
 repo_root=$(find_repo_root)
 cd "$repo_root"
+resolve_management_age_key_file
 reject_manual_secret_args "$@"
 parse_phases "$@"
 require_tracked_ciphertext
