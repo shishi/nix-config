@@ -37,7 +37,14 @@ nix run .#switch               # 適用(check-env-critical 内蔵。--force で�
   `nix run .#nixos-anywhere -- --flake .#jupiter root@<target>` を素で打つと、
   disko がディスクを消去・暗号化した後のブートローダ設置段で失敗する
   (`boot.lanzaboote` と initrd SSH の host key が、まだ存在しない鍵を要求するため)
-- SSH 秘密鍵と GPG 秘密鍵は、インストール時に `--extra-files` で置く(ゲート 4 手順 0b)
+- 初期インストール用の秘密は `nix run .#init-secrets` で SOPS 暗号文にする。
+  管理用 age 鍵はパスワードマネージャーへバックアップする
+- `.sops.yaml`、`secrets/bootstrap.yaml`、`secrets/runtime.yaml` の 3 ファイルを
+  Git 管理する。平文の秘密はリポジトリ、ログ、Nix store へ置かない
+- インストールは runbook の disko / install phase に分けた wrapper だけを使う。
+  wrapper が SSH、GPG、ログインハッシュ、Jupiter 用 age 鍵を tmpfs から配送する
+- `//mars/shishi` は `/mnt/mars/shishi` への systemd automount である。
+  実 NAS への接続は手動確認が必要
 - TPM2 自動解錠は runbook §4。**`--tpm2-pcrs=7` を省略しない。** systemd 258 以降
   `--tpm2-device=auto` の既定 PCR 集合は空で、省略すると何にも縛られない鍵が入る。
   解錠は成功し続けるので気づけない
@@ -160,7 +167,7 @@ jupiter へは**ホスト名か IP で**繋ぐこと。SSH トンネルを張る
 - 証明書は初回起動時に `~/.local/share/krdp/` へ自己署名で作られる。自己署名なので
   クライアントは証明書の警告を出す
 - **RDP のパスワードは shishi のログインパスワードそのもの。** 出所は
-  インストール時に `--extra-files` で置くハッシュ(runbook 手順 0b)で、
+  `secrets/bootstrap.yaml` の暗号文から install wrapper が生成・配送するハッシュで、
   `nixos/users.nix` はパスワードを宣言しない(public repo のため)。置き忘れると
   shadow が `!` になり、RDP もロック解除も通らない
 - 音声・クリップボード・マルチモニタの挙動は未確認

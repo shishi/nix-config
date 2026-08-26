@@ -7,8 +7,8 @@
 # 確認して案内を出すに留める。全手順は再実行して安全(冪等)。
 #
 # 動作前提: nix が導入済みであること(nix run で叩く時点で満たされる)。
-# NixOS 実機は nixos-anywhere --extra-files で鍵が既に配られている想定
-# (README の初回インストール手順)。その場合 [4/4] は認証 OK 側を通る。
+# NixOS 実機は checked nixos-anywhere wrapper が SSH / GPG 鍵を配送する。
+# その経路でインストール済みなら [4/4] は認証 OK 側を通る。
 
 # パスは NH_FLAKE / check-env の契約と一致していなければならないため固定
 # (README「初回起動後の手順」参照)
@@ -68,9 +68,8 @@ push と private repo(agent-memory)には鍵が要る。
 共有鍵(shared/authorized-keys.nix の 1 本)を earth から持ち込む:
   install -d -m 700 ~/.ssh
   scp earth:.ssh/id_ed25519 ~/.ssh/id_ed25519 && chmod 600 ~/.ssh/id_ed25519
-  # NixOS 実機は nixos-anywhere --extra-files で配布済みのはず。ここに来たら
-  # インストール手順のゲート 4 手順 0b(README 参照)が抜けている
-  # pass / agent-memory の GPG 秘密鍵も使うマシンなら同様に持ち込む
+  # NixOS 実機では checked nixos-anywhere wrapper が SSH / GPG 鍵を配送する。
+  # ここに来た場合は docs/jupiter-secure-boot-runbook.md の暗号化 install workflow を確認する
 
 代替(earth に届かない等): このマシン専用の鍵を作って GitHub に登録する
 (既存の ~/.ssh/id_ed25519 が居る場合は keygen を飛ばして登録だけ行う。

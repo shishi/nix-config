@@ -2,7 +2,7 @@
 
 | | |
 |---|---|
-| **Status** | proposed |
+| **Status** | accepted |
 | **Date** | 2026-08-26 |
 | **Decision-makers** | shishi |
 | **Consulted** | Codex |
@@ -83,7 +83,8 @@ SMB 資格情報だけを格納します。
 `.gitignore` は暗号化済み YAML だけを許可し、復号物と一時ファイルを除外します。
 
 `nix run .#nixos-anywhere` のラッパーは、処理開始前に管理用 age 鍵と
-SOPS の MAC を検証します。disko phase では LUKS パスフレーズだけを復号します。
+SOPS の MAC を検証します。bootstrap 全体を tmpfs 上へ復号・検証し、
+disko phase へ配送するのは LUKS パスフレーズだけに限定します。
 install phase では次の `extra-files` を tmpfs 上に構成します。
 
 * SSH 秘密鍵と、秘密鍵から導出した公開鍵
