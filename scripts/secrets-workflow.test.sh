@@ -3,9 +3,9 @@
 set -euo pipefail
 
 case "${1:-}" in
-  init) ;;
+  init|wrapper) suite=$1 ;;
   *)
-    echo "usage: $0 init" >&2
+    echo "usage: $0 {init|wrapper}" >&2
     exit 64
     ;;
 esac
@@ -40,6 +40,13 @@ copy_fixture_repo() {
   cp "$repo_root/flake.nix" "$repo/flake.nix"
   cp "$repo_root/scripts/init-secrets.sh" "$repo/scripts/init-secrets.sh"
   chmod +x "$repo/scripts/init-secrets.sh"
+}
+
+copy_wrapper_script_if_present() {
+  if [ -f "$repo_root/scripts/nixos-anywhere-with-secrets.sh" ]; then
+    cp "$repo_root/scripts/nixos-anywhere-with-secrets.sh" "$repo/scripts/nixos-anywhere-with-secrets.sh"
+    chmod +x "$repo/scripts/nixos-anywhere-with-secrets.sh"
+  fi
 }
 
 prepare_source_keys() {
@@ -276,6 +283,248 @@ test_successful_initialization_encrypts_expected_boundaries() {
     fail "Jupiter key decrypted bootstrap ciphertext"
   fi
 }
+
+prepare_wrapper_fixture() {
+  copy_fixture_repo
+  copy_wrapper_script_if_present
+  prepare_source_keys
+  run_init >"$work/init.stdout" 2>"$work/init.stderr" || fail "failed to prepare wrapper fixture"
+  (
+    cd "$repo"
+    git init -q
+    git config user.email secrets-workflow@example.test
+    git config user.name 'Secrets Workflow Test'
+    git add flake.nix scripts/init-secrets.sh .sops.yaml
+    git add -f secrets/bootstrap.yaml secrets/runtime.yaml
+    git commit -qm fixture
+  )
+}
+
+make_fake_nixos_anywhere() {
+  mkdir -p "$work/fake-bin"
+  cat >"$work/fake-bin/nixos-anywhere" <<'EOF'
+#!/usr/bin/env bash
+set -euo pipefail
+
+args_log=${FAKE_ARGS_LOG:?}
+extra_path_log=${FAKE_EXTRA_PATH_LOG:?}
+: >"$args_log"
+: >"$extra_path_log"
+
+check_extra_files() {
+  local extra=$1 path mode hash
+  printf '%s\n' "$extra" >"$extra_path_log"
+  while IFS=: read -r path mode; do
+    test "$(stat -c %a "$extra/$path")" = "$mode" || { printf '%s\n' 'fake extra-files mode mismatch' >&2; exit 91; }
+  done <<'MODES'
+home/shishi/.ssh/id_ed25519:600
+home/shishi/.ssh/id_ed25519.pub:644
+home/shishi/gpg-secret.asc:600
+var/lib/secrets/shishi-password-hash:600
+var/lib/sops-nix/key.txt:600
+MODES
+  hash=$(head -c 3 "$extra/var/lib/secrets/shishi-password-hash")
+  test "$hash" = '$y$' || { printf '%s\n' 'fake password hash is not yescrypt' >&2; exit 92; }
+}
+
+while [ "$#" -gt 0 ]; do
+  case "$1" in
+    --extra-files)
+      printf '%s\n' --extra-files >>"$args_log"
+      check_extra_files "$2"
+      shift 2
+      ;;
+    --disk-encryption-keys)
+      printf '%s\n' --disk-encryption-keys "$2" >>"$args_log"
+      test "$(stat -c %a "$3")" = 600 || exit 93
+      shift 3
+      ;;
+    --chown)
+      printf '%s\n' --chown "$2" "$3" >>"$args_log"
+      shift 3
+      ;;
+    --phases)
+      printf '%s\n' --phases "$2" >>"$args_log"
+      shift 2
+      ;;
+    *)
+      shift
+      ;;
+  esac
+done
+
+exit "${FAKE_NIXOS_ANYWHERE_STATUS:-0}"
+EOF
+  chmod 700 "$work/fake-bin/nixos-anywhere"
+}
+
+run_wrapper() {
+  (
+    cd "$repo"
+    HOME="$test_home" \
+    GNUPGHOME="$test_home/.gnupg" \
+    SOPS_AGE_KEY_FILE="$test_home/.config/sops/age/keys.txt" \
+    NIXOS_ANYWHERE_BIN="$work/fake-bin/nixos-anywhere" \
+    FAKE_ARGS_LOG="$work/fake.args" \
+    FAKE_EXTRA_PATH_LOG="$work/fake.extra-path" \
+      bash scripts/nixos-anywhere-with-secrets.sh "$@"
+  )
+}
+
+assert_args_contain() {
+  local expected
+  for expected in "$@"; do
+    rg -Fx -- "$expected" "$work/fake.args" >/dev/null || fail "missing wrapper argument: $expected"
+  done
+}
+
+assert_args_absent() {
+  local unwanted
+  for unwanted in "$@"; do
+    ! rg -Fx -- "$unwanted" "$work/fake.args" >/dev/null || fail "unexpected wrapper argument: $unwanted"
+  done
+}
+
+assert_wrapper_logs_redacted() {
+  ! rg -F -e 'luks-test-value' -e 'login-test-value' -e 'smb-test-value' \
+    "$work/wrapper.stdout" "$work/wrapper.stderr" || fail "wrapper logs contain a fixture secret"
+}
+
+assert_extra_files_cleaned_up() {
+  local extra
+  test -s "$work/fake.extra-path" || return 0
+  extra=$(cat "$work/fake.extra-path")
+  test ! -e "$extra" || fail "wrapper tmpfs extra-files tree was not removed"
+}
+
+rewrite_bootstrap() {
+  local filter=$1 recipient
+  recipient=$(age-keygen -y "$test_home/.config/sops/age/keys.txt")
+  SOPS_AGE_KEY_FILE="$test_home/.config/sops/age/keys.txt" \
+    sops --decrypt --output-type json "$repo/secrets/bootstrap.yaml" >"$work/bootstrap.json"
+  jq "$filter" "$work/bootstrap.json" >"$work/bootstrap-mutated.json"
+  sops --encrypt --age "$recipient" --input-type json --output-type yaml \
+    "$work/bootstrap-mutated.json" >"$repo/secrets/bootstrap.yaml"
+  git -C "$repo" add -f secrets/bootstrap.yaml
+  git -C "$repo" commit -qm mutated-bootstrap
+}
+
+assert_wrapper_fails() {
+  if run_wrapper "$@" >"$work/wrapper.stdout" 2>"$work/wrapper.stderr"; then
+    fail "wrapper unexpectedly succeeded: $*"
+  fi
+  assert_wrapper_logs_redacted
+  assert_extra_files_cleaned_up
+}
+
+reset_wrapper_fixture() {
+  rm -rf -- "$repo" "$test_home"
+  mkdir -p "$repo" "$test_home"
+  prepare_wrapper_fixture
+  make_fake_nixos_anywhere
+}
+
+test_disko_phase_only_injects_luks_key() {
+  reset_wrapper_fixture
+  run_wrapper --phases disko >"$work/wrapper.stdout" 2>"$work/wrapper.stderr" || fail "disko wrapper run failed"
+  assert_args_contain --disk-encryption-keys /tmp/secret.key
+  assert_args_absent --extra-files
+  assert_wrapper_logs_redacted
+  assert_extra_files_cleaned_up
+}
+
+test_install_phase_delivers_checked_extra_files() {
+  reset_wrapper_fixture
+  run_wrapper --phases install >"$work/wrapper.stdout" 2>"$work/wrapper.stderr" || fail "install wrapper run failed"
+  assert_args_contain --extra-files --chown home/shishi 1000:100
+  assert_args_absent --disk-encryption-keys
+  assert_wrapper_logs_redacted
+  assert_extra_files_cleaned_up
+}
+
+test_full_run_delivers_both_phase_inputs() {
+  reset_wrapper_fixture
+  run_wrapper >"$work/wrapper.stdout" 2>"$work/wrapper.stderr" || fail "full wrapper run failed"
+  assert_args_contain --disk-encryption-keys /tmp/secret.key --extra-files --chown home/shishi 1000:100
+  assert_wrapper_logs_redacted
+  assert_extra_files_cleaned_up
+}
+
+test_manual_secret_arguments_are_rejected() {
+  reset_wrapper_fixture
+  assert_wrapper_fails --extra-files arbitrary --phases install
+  rg -F 'remove --extra-files' "$work/wrapper.stderr" >/dev/null || fail "manual extra-files rejection did not explain remediation"
+  assert_wrapper_fails --disk-encryption-keys /tmp/secret.key arbitrary --phases disko
+  rg -F 'remove --disk-encryption-keys' "$work/wrapper.stderr" >/dev/null || fail "manual disk key rejection did not explain remediation"
+}
+
+test_wrong_management_key_is_rejected() {
+  reset_wrapper_fixture
+  age-keygen -o "$work/wrong-age-key.txt" >/dev/null 2>&1
+  if (
+    cd "$repo"
+    SOPS_AGE_KEY_FILE="$work/wrong-age-key.txt" \
+    NIXOS_ANYWHERE_BIN="$work/fake-bin/nixos-anywhere" \
+    FAKE_ARGS_LOG="$work/fake.args" FAKE_EXTRA_PATH_LOG="$work/fake.extra-path" \
+      bash scripts/nixos-anywhere-with-secrets.sh --phases install
+  ) >"$work/wrapper.stdout" 2>"$work/wrapper.stderr"; then
+    fail "wrapper accepted a wrong management key"
+  fi
+  assert_wrapper_logs_redacted
+  assert_extra_files_cleaned_up
+}
+
+test_damaged_bootstrap_mac_is_rejected() {
+  reset_wrapper_fixture
+  sed -i '/^    mac:/c\    mac: ENC[AES256_GCM,data:broken,type:str]' "$repo/secrets/bootstrap.yaml"
+  assert_wrapper_fails --phases install
+}
+
+test_malformed_bootstrap_values_are_rejected() {
+  local filter
+  for filter in \
+    '."ssh-private-key" = "not-an-ssh-private-key"' \
+    '."gpg-secret-key" = "not-an-armored-gpg-key"' \
+    '."jupiter-age-key" = "not-an-age-key"' \
+    '."luks-passphrase" = ""' \
+    '."login-password" = ""'; do
+    reset_wrapper_fixture
+    rewrite_bootstrap "$filter"
+    assert_wrapper_fails --phases install
+  done
+}
+
+test_untracked_ciphertext_is_rejected() {
+  reset_wrapper_fixture
+  git -C "$repo" rm --cached -q secrets/runtime.yaml
+  assert_wrapper_fails --phases install
+  rg -F 'Git で追跡されていない' "$work/wrapper.stderr" >/dev/null || fail "untracked ciphertext was not explained"
+}
+
+test_child_status_and_cleanup_are_preserved() {
+  reset_wrapper_fixture
+  if FAKE_NIXOS_ANYWHERE_STATUS=37 run_wrapper --phases install >"$work/wrapper.stdout" 2>"$work/wrapper.stderr"; then
+    fail "wrapper unexpectedly hid child failure"
+  else
+    test "$?" -eq 37 || fail "wrapper did not preserve child exit status"
+  fi
+  assert_wrapper_logs_redacted
+  assert_extra_files_cleaned_up
+}
+
+if [ "$suite" = wrapper ]; then
+  test_disko_phase_only_injects_luks_key
+  test_install_phase_delivers_checked_extra_files
+  test_full_run_delivers_both_phase_inputs
+  test_manual_secret_arguments_are_rejected
+  test_wrong_management_key_is_rejected
+  test_damaged_bootstrap_mac_is_rejected
+  test_malformed_bootstrap_values_are_rejected
+  test_untracked_ciphertext_is_rejected
+  test_child_status_and_cleanup_are_preserved
+  echo "secrets wrapper tests: PASS"
+  exit 0
+fi
 
 test_missing_ssh_key_fails_before_input
 rm -rf -- "$repo" "$test_home"
