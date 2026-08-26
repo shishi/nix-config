@@ -3,9 +3,16 @@
 set -euo pipefail
 
 case "${1:-}" in
+  all)
+    for suite in init wrapper gpg-import; do
+      bash "${BASH_SOURCE[0]}" "$suite"
+    done
+    echo "all secrets workflow tests: PASS"
+    exit 0
+    ;;
   init|wrapper|gpg-import) suite=$1 ;;
   *)
-    echo "usage: $0 {init|wrapper|gpg-import}" >&2
+    echo "usage: $0 {all|init|wrapper|gpg-import}" >&2
     exit 64
     ;;
 esac
