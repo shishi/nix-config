@@ -10,13 +10,6 @@
     nixpkgs-ruby.url = "github:bobvanderlinden/nixpkgs-ruby";
   };
 
-  nixConfig = {
-    extra-substituters = [ "https://nixpkgs-ruby.cachix.org" ];
-    extra-trusted-public-keys = [
-      "nixpkgs-ruby.cachix.org-1:vrcdi50fTolOxWCZZkw0jakOnUI1T19oYJ+PRYdK4SM="
-    ];
-  };
-
   outputs =
     inputs@{ flake-parts, systems, ... }:
     flake-parts.lib.mkFlake { inherit inputs; } {

@@ -11,8 +11,6 @@
         pkgs.writeText "${name}-eval" (
           builtins.unsafeDiscardStringContext cfg.config.system.build.toplevel.drvPath
         );
-      caches = import ../shared/nix-caches.nix;
-
       skkRules = import ../home/skk/rules.nix { inherit (pkgs) lib; };
       # libskk はルールを ~/.config/libskk/rules から読む。
       # home/skk/rules.nix と同じ定義でルールディレクトリを組み立てる。
@@ -735,21 +733,36 @@
               touch $out
             '';
 
-        # flake.nix の nixConfig(リテラル)と shared/nix-caches.nix の同期検証
-        nix-caches-sync =
-          pkgs.runCommand "nix-caches-sync"
-            {
-              flakeNix = builtins.readFile ../flake.nix;
-              passAsFile = [ "flakeNix" ];
-            }
-            ''
-              ok=1
-              ${pkgs.lib.concatMapStringsSep "\n" (s: ''
-                grep -qF "${s}" "$flakeNixPath" || { echo "missing in flake.nix nixConfig: ${s}"; ok=0; }
-              '') (builtins.tail caches.substituters ++ builtins.tail caches.trustedPublicKeys)}
-              [ "$ok" = 1 ] || exit 1
-              touch $out
-            '';
+        # cd しただけで未信頼の flake 設定への同意を求めない。
+        flake-config-boundary =
+          let
+            findFlakes =
+              dir:
+              let
+                entries = builtins.readDir dir;
+              in
+              pkgs.lib.concatMap (
+                name:
+                let
+                  path = dir + "/${name}";
+                in
+                if entries.${name} == "directory" then
+                  findFlakes path
+                else
+                  pkgs.lib.optional (entries.${name} == "regular" && name == "flake.nix") path
+              ) (builtins.attrNames entries);
+            violations = builtins.filter (flake: builtins.hasAttr "nixConfig" (import flake)) (findFlakes ../.);
+          in
+          pkgs.runCommand "flake-config-boundary" { } ''
+            ${pkgs.lib.optionalString (violations != [ ]) ''
+              echo "repository flakes must not define nixConfig; configure trusted caches outside the repository flake"
+              ${pkgs.lib.concatMapStringsSep "\n" (
+                flake: "echo ${pkgs.lib.escapeShellArg (toString flake)}"
+              ) violations}
+              exit 1
+            ''}
+            touch $out
+          '';
       };
     };
 }
