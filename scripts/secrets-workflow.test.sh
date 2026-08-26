@@ -3,9 +3,9 @@
 set -euo pipefail
 
 case "${1:-}" in
-  init|wrapper) suite=$1 ;;
+  init|wrapper|gpg-import) suite=$1 ;;
   *)
-    echo "usage: $0 {init|wrapper}" >&2
+    echo "usage: $0 {init|wrapper|gpg-import}" >&2
     exit 64
     ;;
 esac
@@ -522,6 +522,56 @@ test_child_status_and_cleanup_are_preserved() {
   assert_wrapper_logs_redacted
   assert_extra_files_cleaned_up
 }
+
+test_gpg_import_succeeds_and_removes_export() {
+  local export_file="$work/gpg-secret.asc"
+  local target_gnupg_home="$work/imported-gnupg"
+  local fingerprint
+
+  prepare_source_keys
+  cp "$work/fixture-gpg-secret.asc" "$export_file"
+  fingerprint=$(HOME="$test_home" GNUPGHOME="$test_home/.gnupg" \
+    gpg --batch --with-colons --list-secret-keys secrets-workflow@example.test | \
+    awk -F: '$1 == "fpr" { print $10; exit }')
+
+  bash "$repo_root/scripts/import-gpg-secret.sh" "$export_file" "$target_gnupg_home" \
+    >"$work/gpg-import.stdout" 2>"$work/gpg-import.stderr" || fail "GPG import failed"
+
+  test ! -e "$export_file" || fail "successful GPG import retained the export"
+  gpg --homedir "$target_gnupg_home" --batch --list-secret-keys "$fingerprint" >/dev/null 2>&1 || \
+    fail "imported secret key is missing"
+  printf 'test\n' | gpg --homedir "$target_gnupg_home" --batch --pinentry-mode loopback \
+    --local-user "$fingerprint" --clearsign >/dev/null 2>&1 || fail "imported key cannot clearsign"
+  gpg --homedir "$target_gnupg_home" --batch --export-ownertrust | \
+    rg -Fx "$fingerprint:6:" >/dev/null || fail "imported key does not have ultimate ownertrust"
+  ! rg -F 'BEGIN PGP PRIVATE KEY BLOCK' "$work/gpg-import.stdout" "$work/gpg-import.stderr" || \
+    fail "GPG import logs contain private-key armor"
+}
+
+test_corrupt_gpg_export_is_preserved_without_secret_output() {
+  local export_file="$work/corrupt-gpg-secret.asc"
+  local target_gnupg_home="$work/corrupt-imported-gnupg"
+
+  printf '%s\n' \
+    '-----BEGIN PGP PRIVATE KEY BLOCK-----' \
+    'corrupt-private-body' \
+    '-----END PGP PRIVATE KEY BLOCK-----' >"$export_file"
+
+  if bash "$repo_root/scripts/import-gpg-secret.sh" "$export_file" "$target_gnupg_home" \
+    >"$work/gpg-corrupt.stdout" 2>"$work/gpg-corrupt.stderr"; then
+    fail "GPG import unexpectedly accepted a corrupt export"
+  fi
+  test -e "$export_file" || fail "failed GPG import removed the export"
+  ! rg -F -e 'BEGIN PGP PRIVATE KEY BLOCK' -e 'corrupt-private-body' \
+    "$work/gpg-corrupt.stdout" "$work/gpg-corrupt.stderr" || fail "failed GPG import logged private-key material"
+}
+
+if [ "$suite" = gpg-import ]; then
+  test_gpg_import_succeeds_and_removes_export
+  test_corrupt_gpg_export_is_preserved_without_secret_output
+  echo "GPG import tests: PASS"
+  exit 0
+fi
 
 if [ "$suite" = wrapper ]; then
   test_disko_phase_only_injects_luks_key

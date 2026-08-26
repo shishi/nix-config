@@ -1,6 +1,7 @@
 {
   config,
   inputs,
+  pkgs,
   ...
 }:
 {
@@ -35,5 +36,24 @@
       "x-systemd.idle-timeout=5min"
       "x-systemd.mount-timeout=10s"
     ];
+  };
+
+  systemd.services.import-shishi-gpg-secret = {
+    description = "Import shishi's GPG signing key";
+    wantedBy = [ "multi-user.target" ];
+    unitConfig.ConditionPathExists = "/home/shishi/gpg-secret.asc";
+    path = [
+      pkgs.gnupg
+      pkgs.coreutils
+    ];
+    script = ''
+      exec ${../../scripts/import-gpg-secret.sh} /home/shishi/gpg-secret.asc /home/shishi/.gnupg
+    '';
+    serviceConfig = {
+      Type = "oneshot";
+      User = "shishi";
+      Group = "users";
+      UMask = "0077";
+    };
   };
 }

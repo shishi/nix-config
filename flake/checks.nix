@@ -55,6 +55,7 @@
             cfg = self.nixosConfigurations.jupiter.config;
             secret = cfg.sops.secrets."smb-mars-shishi";
             mount = cfg.fileSystems."/mnt/mars/shishi";
+            gpgImport = cfg.systemd.services."import-shishi-gpg-secret" or { };
             requiredOptions = [
               "credentials=/run/secrets/smb-mars-shishi"
               "uid=1000"
@@ -83,6 +84,33 @@
             check secret.mode "${secret.mode}" "0400"
             check mount.device "${mount.device}" "//mars/shishi"
             check mount.fsType "${mount.fsType}" "cifs"
+            check gpgImport.wantedBy "${
+              if builtins.elem "multi-user.target" (gpgImport.wantedBy or [ ]) then "present" else "missing"
+            }" "present"
+            check gpgImport.conditionPathExists "${gpgImport.unitConfig.ConditionPathExists or ""}" \
+              "/home/shishi/gpg-secret.asc"
+            check gpgImport.type "${gpgImport.serviceConfig.Type or ""}" "oneshot"
+            check gpgImport.user "${gpgImport.serviceConfig.User or ""}" "shishi"
+            check gpgImport.group "${gpgImport.serviceConfig.Group or ""}" "users"
+            check gpgImport.umask "${gpgImport.serviceConfig.UMask or ""}" "0077"
+            check gpgImport.gnupgPath "${
+              if builtins.elem pkgs.gnupg (gpgImport.path or [ ]) then "present" else "missing"
+            }" "present"
+            check gpgImport.coreutilsPath "${
+              if builtins.elem pkgs.coreutils (gpgImport.path or [ ]) then "present" else "missing"
+            }" "present"
+            check gpgImport.scriptReference "${
+              if pkgs.lib.hasInfix "import-gpg-secret.sh" (gpgImport.script or "") then "present" else "missing"
+            }" "present"
+            check gpgImport.exportArgument "${
+              if pkgs.lib.hasInfix "/home/shishi/gpg-secret.asc" (gpgImport.script or "") then
+                "present"
+              else
+                "missing"
+            }" "present"
+            check gpgImport.homeArgument "${
+              if pkgs.lib.hasInfix "/home/shishi/.gnupg" (gpgImport.script or "") then "present" else "missing"
+            }" "present"
             ${pkgs.lib.concatMapStringsSep "\n" (option: ''
               check "mount.options.${option}" "${
                 if builtins.elem option mount.options then "present" else "missing"
