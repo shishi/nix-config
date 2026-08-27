@@ -35,8 +35,8 @@ source_url() {
 }
 
 use() {
-  if [ "$#" -ne 1 ] || [ "$1" != flake ]; then
-    echo "FAIL: .envrc called use with unexpected arguments" >&2
+  if [ "$#" -ne 3 ] || [ "$1" != flake ] || [ "$2" != . ] || [ "$3" != --accept-flake-config ]; then
+    echo "FAIL: .envrc must accept its root flake config explicitly" >&2
     return 1
   fi
 

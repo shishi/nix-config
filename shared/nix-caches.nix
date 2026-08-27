@@ -1,5 +1,7 @@
 # substituters / trusted-public-keys の唯一の真実。
 # 写像もここに集約する(各消費者で手書きさせない — ドリフト防止)。
+# flake.nix の nixConfig はリテラル必須のため、
+# checks.flake-config-boundary が本ファイルとの一致を検証する。
 rec {
   substituters = [
     "https://cache.nixos.org"

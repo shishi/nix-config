@@ -11,6 +11,7 @@
         pkgs.writeText "${name}-eval" (
           builtins.unsafeDiscardStringContext cfg.config.system.build.toplevel.drvPath
         );
+      caches = import ../shared/nix-caches.nix;
       skkRules = import ../home/skk/rules.nix { inherit (pkgs) lib; };
       # libskk はルールを ~/.config/libskk/rules から読む。
       # home/skk/rules.nix と同じ定義でルールディレクトリを組み立てる。
@@ -36,6 +37,7 @@
       checks = {
         direnv-contract = pkgs.runCommand "direnv-contract" { } ''
           ${pkgs.bash}/bin/bash ${../scripts/direnv.test.sh} ${../.envrc}
+          ${pkgs.bash}/bin/bash ${../scripts/direnv.test.sh} ${../templates/ruby/.envrc}
           touch $out
         '';
 
@@ -733,7 +735,7 @@
               touch $out
             '';
 
-        # cd しただけで未信頼の flake 設定への同意を求めない。
+        # direnv allow を root flake の cache 設定に対する信頼境界にする。
         flake-config-boundary =
           let
             findFlakes =
@@ -751,16 +753,80 @@
                 else
                   pkgs.lib.optional (entries.${name} == "regular" && name == "flake.nix") path
               ) (builtins.attrNames entries);
-            violations = builtins.filter (flake: builtins.hasAttr "nixConfig" (import flake)) (findFlakes ../.);
+            flakes = map (path: {
+              inherit path;
+              config = (import path).nixConfig or { };
+            }) (findFlakes ../.);
+            selfApprovalViolations = builtins.filter (
+              flake: builtins.hasAttr "accept-flake-config" flake.config
+            ) flakes;
+            approvedConfigPaths = map toString [
+              ../flake.nix
+              ../templates/ruby/flake.nix
+            ];
+            unexpectedConfigViolations = builtins.filter (
+              flake: flake.config != { } && !(builtins.elem (toString flake.path) approvedConfigPaths)
+            ) flakes;
+            rootConfig = (import ../flake.nix).nixConfig or { };
+            rubyConfig = (import ../templates/ruby/flake.nix).nixConfig or { };
+            expectedKeys = [
+              "extra-substituters"
+              "extra-trusted-public-keys"
+            ];
           in
           pkgs.runCommand "flake-config-boundary" { } ''
-            ${pkgs.lib.optionalString (violations != [ ]) ''
-              echo "repository flakes must not define nixConfig; configure trusted caches outside the repository flake"
-              ${pkgs.lib.concatMapStringsSep "\n" (
-                flake: "echo ${pkgs.lib.escapeShellArg (toString flake)}"
-              ) violations}
-              exit 1
+            ok=1
+            ${pkgs.lib.optionalString (builtins.attrNames rootConfig != expectedKeys) ''
+              echo "root flake nixConfig must contain only project cache settings"
+              ok=0
             ''}
+            ${pkgs.lib.optionalString
+              (rootConfig."extra-substituters" or [ ] != builtins.tail caches.substituters)
+              ''
+                echo "root flake substituters do not match shared cache settings"
+                ok=0
+              ''
+            }
+            ${pkgs.lib.optionalString
+              (rootConfig."extra-trusted-public-keys" or [ ] != builtins.tail caches.trustedPublicKeys)
+              ''
+                echo "root flake public keys do not match shared cache settings"
+                ok=0
+              ''
+            }
+            ${pkgs.lib.optionalString (builtins.attrNames rubyConfig != expectedKeys) ''
+              echo "Ruby template nixConfig must contain only its project cache settings"
+              ok=0
+            ''}
+            ${pkgs.lib.optionalString
+              (rubyConfig."extra-substituters" or [ ] != [ (pkgs.lib.last caches.substituters) ])
+              ''
+                echo "Ruby template substituter does not match its project cache"
+                ok=0
+              ''
+            }
+            ${pkgs.lib.optionalString
+              (rubyConfig."extra-trusted-public-keys" or [ ] != [ (pkgs.lib.last caches.trustedPublicKeys) ])
+              ''
+                echo "Ruby template public key does not match its project cache"
+                ok=0
+              ''
+            }
+            ${pkgs.lib.optionalString (selfApprovalViolations != [ ]) ''
+              echo "flake nixConfig must not approve itself with accept-flake-config"
+              ${pkgs.lib.concatMapStringsSep "\n" (
+                flake: "echo ${pkgs.lib.escapeShellArg (toString flake.path)}"
+              ) selfApprovalViolations}
+              ok=0
+            ''}
+            ${pkgs.lib.optionalString (unexpectedConfigViolations != [ ]) ''
+              echo "only the root and Ruby template flakes may define nixConfig"
+              ${pkgs.lib.concatMapStringsSep "\n" (
+                flake: "echo ${pkgs.lib.escapeShellArg (toString flake.path)}"
+              ) unexpectedConfigViolations}
+              ok=0
+            ''}
+            [ "$ok" = 1 ] || exit 1
             touch $out
           '';
       };
