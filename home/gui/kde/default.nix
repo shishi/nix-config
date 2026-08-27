@@ -202,7 +202,7 @@ in
                 "applications:org.kde.dolphin.desktop"
                 "applications:org.wezfurlong.wezterm.desktop"
                 "applications:brave-browser.desktop"
-                "applications:chatgpt.desktop"
+                "applications:codex-desktop.desktop"
                 "applications:claude-desktop.desktop"
               ];
             }

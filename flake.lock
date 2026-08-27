@@ -33,24 +33,24 @@
         "type": "github"
       }
     },
-    "chatgpt-desktop-app": {
+    "codex-desktop-linux": {
       "inputs": {
+        "flake-utils": "flake-utils",
         "nixpkgs": [
           "nixpkgs"
         ]
       },
       "locked": {
-        "lastModified": 1787684258,
-        "narHash": "sha256-9RxrT7NaVA2kIg9w6OxI+dBcWAWxhICFPCoFw6gY5iE=",
-        "owner": "poeck",
-        "repo": "chatgpt-desktop-app-nix-flake",
-        "rev": "3e6391df857a08e273e3e5a70eee286f7a06f731",
+        "lastModified": 1787807281,
+        "narHash": "sha256-+4JV4WZ9OD1YXu/q8z2KAosKCdaSa2OKUyHWRgKbvYA=",
+        "owner": "ilysenko",
+        "repo": "codex-desktop-linux",
+        "rev": "b95f2f569f6031ef640e689066d108d40677d697",
         "type": "github"
       },
       "original": {
-        "owner": "poeck",
-        "ref": "main",
-        "repo": "chatgpt-desktop-app-nix-flake",
+        "owner": "ilysenko",
+        "repo": "codex-desktop-linux",
         "type": "github"
       }
     },
@@ -221,7 +221,25 @@
     },
     "flake-utils": {
       "inputs": {
-        "systems": "systems_2"
+        "systems": "systems"
+      },
+      "locked": {
+        "lastModified": 1731533236,
+        "narHash": "sha256-l0KFg5HjrsfsO/JpG+r7fRrqm12kzFHyUHqHCVpMMbI=",
+        "owner": "numtide",
+        "repo": "flake-utils",
+        "rev": "11707dc2f618dd54ca8739b309ec4fc024de578b",
+        "type": "github"
+      },
+      "original": {
+        "owner": "numtide",
+        "repo": "flake-utils",
+        "type": "github"
+      }
+    },
+    "flake-utils_2": {
+      "inputs": {
+        "systems": "systems_3"
       },
       "locked": {
         "lastModified": 1731533236,
@@ -310,7 +328,7 @@
         "nixpkgs": [
           "nixpkgs"
         ],
-        "systems": "systems",
+        "systems": "systems_2",
         "treefmt-nix": "treefmt-nix"
       },
       "locked": {
@@ -525,7 +543,7 @@
     "nixpkgs-ruby": {
       "inputs": {
         "flake-compat": "flake-compat_3",
-        "flake-utils": "flake-utils",
+        "flake-utils": "flake-utils_2",
         "nixpkgs": "nixpkgs_3"
       },
       "locked": {
@@ -622,7 +640,7 @@
     },
     "root": {
       "inputs": {
-        "chatgpt-desktop-app": "chatgpt-desktop-app",
+        "codex-desktop-linux": "codex-desktop-linux",
         "disko": "disko",
         "flake-parts": "flake-parts",
         "home-manager": "home-manager",
@@ -696,6 +714,21 @@
       }
     },
     "systems_2": {
+      "locked": {
+        "lastModified": 1681028828,
+        "narHash": "sha256-Vy1rq5AaRuLzOxct8nz4T6wlgyUR7zLU309k9mBC768=",
+        "owner": "nix-systems",
+        "repo": "default",
+        "rev": "da67096a3b9bf56a91d16901293e51ba5b49a27e",
+        "type": "github"
+      },
+      "original": {
+        "owner": "nix-systems",
+        "repo": "default",
+        "type": "github"
+      }
+    },
+    "systems_3": {
       "locked": {
         "lastModified": 1681028828,
         "narHash": "sha256-Vy1rq5AaRuLzOxct8nz4T6wlgyUR7zLU309k9mBC768=",

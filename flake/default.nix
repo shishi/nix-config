@@ -23,13 +23,6 @@
           self.overlays.default
           inputs.neovim-nightly-overlay.overlays.default
           inputs.llm-agents.overlays.shared-nixpkgs
-          # 第三者個人の flake なので overlay をそのまま噛ませない。この pkgs は
-          # 全ターゲット共通なので、上流が次の版で openssh 等を上書きしたら
-          # 無条件に全ホストへ入る。取り出す attr を 1 つに固定しておくと、
-          # 名前が変わったときも黙って別物になるのではなく eval が落ちる。
-          (final: prev: {
-            inherit (inputs.chatgpt-desktop-app.overlays.default final prev) chatgpt-desktop-app;
-          })
           # nightly overlay が neovim-unwrapped を定義したあとに被せる必要がある
           (import ../overlays/neovim-desktop.nix)
         ];

@@ -1,5 +1,6 @@
 {
   config,
+  inputs,
   pkgs,
   lib,
   ...
@@ -8,6 +9,7 @@
   imports = [
     ./gnome
     ./kde
+    inputs.codex-desktop-linux.homeManagerModules.default
   ];
 
   # セッション不要・WSLg でも動く GUI 共通セット
@@ -42,10 +44,22 @@
     xdg.configFile."mimeapps.list".force = true;
     xdg.dataFile."applications/mimeapps.list".force = true;
 
+    # OpenAI の公式 Linux package を NixOS 向けに包む community distribution。
+    # package の再現性を優先して version 付き upstream URL を使う。
+    # community 独自機能は必要になるまで有効にしない。
+    programs.codexDesktopLinux = {
+      enable = true;
+      linuxFeatures = [ ];
+    };
+
+    # launcher は既定で 1 日 1 回、community の GoatCounter へ起動を通知する。
+    # login session と systemd user 経由のどちらでも無効になるよう両方へ設定する。
+    home.sessionVariables.CODEX_LINUX_DISABLE_USAGE_REPORTING = "1";
+    systemd.user.sessionVariables.CODEX_LINUX_DISABLE_USAGE_REPORTING = "1";
+
     home.packages = with pkgs; [
       _1password-gui
       brave
-      chatgpt-desktop-app
       discord
       firefox
       flameshot

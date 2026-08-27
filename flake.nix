@@ -52,16 +52,13 @@
       url = "github:nix-community/lanzaboote/v1.1.0";
       inputs.nixpkgs.follows = "nixpkgs";
     };
-    # ChatGPT Desktop。取ってくる .deb は OpenAI 配布の公式ビルドだが、
-    # **この flake 自体は第三者個人の wrapper** で、信頼の対象は別。
-    # nixpkgs の chatgpt は macOS 専用なので、nixpkgs からは入れられない
-    # (他の入手経路は未調査)。overlay は flake/default.nix で 1 attr に絞る。
-    # ref=main が捕まえるのは既定ブランチの改名だけ(消えれば update が失敗する)。
-    # owner/repo の transfer は GitHub の redirect で追随されるので検出できない。
-    # 実際に版を固定しているのは lock の rev + narHash であり、それが効くのは
-    # 次の nix flake update までである。update のたびに上流の diff を見ること。
-    chatgpt-desktop-app = {
-      url = "github:poeck/chatgpt-desktop-app-nix-flake?ref=main";
+    # ChatGPT Desktop。OpenAI の署名済み APT metadata から version 付き .deb を
+    # 固定する第三者 distribution。旧 wrapper の /latest/ URL は上流更新のたびに
+    # 同じ lock が別内容を指して固定 hash と衝突したため使わない。
+    # 任意の Linux 拡張は無効にし、独自 usage reporting も home/gui/default.nix で
+    # 無効化する。lock 更新時は、この第三者 wrapper の diff を確認すること。
+    codex-desktop-linux = {
+      url = "github:ilysenko/codex-desktop-linux";
       inputs.nixpkgs.follows = "nixpkgs";
     };
   };

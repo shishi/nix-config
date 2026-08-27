@@ -1,4 +1,4 @@
-{ self, ... }:
+{ inputs, self, ... }:
 {
   perSystem =
     { pkgs, ... }:
@@ -52,6 +52,54 @@
         # jupiter はスタブ hardware のため隔離名(「実機 OK」と誤読させない)。
         # 実 hardware-configuration.nix の commit 後に jupiter-toplevel として既定編入する
         jupiter-stub-eval = evalOnly "jupiter-stub" self.nixosConfigurations.jupiter;
+
+        # ChatGPT Desktop は OpenAI の version 付き Linux package を使う。
+        # /latest/ は同じ lock の取得物が上流更新で変わり、固定 hash と衝突するため禁止する。
+        chatgpt-desktop-contract =
+          let
+            hm = self.nixosConfigurations.jupiter.config.home-manager.users.shishi;
+            desktop = hm.programs.codexDesktopLinux;
+            package = inputs.codex-desktop-linux.packages.${pkgs.stdenv.hostPlatform.system}.codex-desktop;
+            upstreamUrl = package.passthru.upstreamDeb.url;
+            expectedUpstreamUrl = "https://persistent.oaistatic.com/codex-app-prod/linux/deb/pool/main/c/chatgpt/chatgpt_${package.version}_amd64.deb";
+            packageInstalled = builtins.any (candidate: candidate.drvPath == package.drvPath) hm.home.packages;
+            widgets = builtins.concatMap (panel: panel.widgets) hm.programs.plasma.panels;
+            iconTasks = pkgs.lib.findFirst (widget: widget.name == "org.kde.plasma.icontasks") { } widgets;
+            launchers = iconTasks.config.General.launchers or [ ];
+          in
+          pkgs.runCommand "chatgpt-desktop-contract" { } ''
+            fail() {
+              echo "$1"
+              exit 1
+            }
+
+            [ "${if desktop.enable then "true" else "false"}" = true ] || \
+              fail "codexDesktopLinux is disabled"
+            [ "${builtins.toJSON desktop.linuxFeatures}" = '[]' ] || \
+              fail "optional codex-desktop Linux features are enabled"
+            [ "${if desktop.computerUseUi.enable then "true" else "false"}" = false ] || \
+              fail "codex-desktop Computer Use UI is enabled"
+            [ "${if desktop.remoteMobileControl.enable then "true" else "false"}" = false ] || \
+              fail "codex-desktop remote mobile control is enabled"
+            [ "${if desktop.remoteControl.enable then "true" else "false"}" = false ] || \
+              fail "codex-desktop remote control service is enabled"
+            ${if packageInstalled then "true" else "false"} || \
+              fail "Home Manager does not install the pinned codex-desktop package"
+            [ "${hm.home.sessionVariables.CODEX_LINUX_DISABLE_USAGE_REPORTING or ""}" = 1 ] || \
+              fail "community usage reporting is not disabled for login sessions"
+            [ "${hm.systemd.user.sessionVariables.CODEX_LINUX_DISABLE_USAGE_REPORTING or ""}" = 1 ] || \
+              fail "community usage reporting is not disabled for systemd user services"
+            [ "${upstreamUrl}" = "${expectedUpstreamUrl}" ] || \
+              fail "ChatGPT package does not use its exact versioned official CDN URL"
+            CODEX_LINUX_DISABLE_USAGE_REPORTING=1 ${pkgs.lib.getExe package} --diagnose >/dev/null
+            [ -f ${package}/share/applications/codex-desktop.desktop ] || \
+              fail "codex-desktop desktop entry is missing"
+            ${if builtins.elem "applications:codex-desktop.desktop" launchers then "true" else "false"} || \
+              fail "KDE taskbar does not pin codex-desktop.desktop"
+            ${if builtins.elem "applications:chatgpt.desktop" launchers then "false" else "true"} || \
+              fail "KDE taskbar still pins chatgpt.desktop"
+            touch $out
+          '';
 
         # 実行時の SMB 資格情報は sops-nix が /run/secrets へ復号し、
         # NAS は boot を妨げない systemd automount として接続する。
