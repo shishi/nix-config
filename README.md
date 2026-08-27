@@ -29,27 +29,14 @@ nix run .#switch               # 適用(check-env-critical 内蔵。--force で�
 
 ## NixOS 実機(jupiter)
 
-インストールは nixos-anywhere + disko。手順は
-[docs/jupiter-secure-boot-runbook.md](docs/jupiter-secure-boot-runbook.md) に
-一本化してある。**ここにコマンドを写さない**(片方だけ古くなる)。
+目的別の手順書を使う。README へコマンドを複製しない。
 
-- **未インストールの実機への初回インストールは runbook §2 のゲート 4 に従う。**
-  `nix run .#nixos-anywhere -- --flake .#jupiter root@<target>` を素で打つと、
-  disko がディスクを消去・暗号化した後のブートローダ設置段で失敗する
-  (`boot.lanzaboote` と initrd SSH の host key が、まだ存在しない鍵を要求するため)
-- 初期インストール用の秘密は `nix run .#init-secrets` で SOPS 暗号文にする。
-  管理用 age 鍵はパスワードマネージャーへバックアップする
-- `.sops.yaml`、`secrets/bootstrap.yaml`、`secrets/runtime.yaml` の 3 ファイルを
-  Git 管理する。平文の秘密はリポジトリ、ログ、Nix store へ置かない
-- インストールは runbook の disko / install phase に分けた wrapper だけを使う。
-  wrapper が SSH、GPG、ログインハッシュ、Jupiter 用 age 鍵を tmpfs から配送する
-- `//mars/shishi` は `/mnt/mars/shishi` への systemd automount である。
-  実 NAS への接続は手動確認が必要
-- TPM2 自動解錠は runbook §4。**`--tpm2-pcrs=7` を省略しない。** systemd 258 以降
-  `--tpm2-device=auto` の既定 PCR 集合は空で、省略すると何にも縛られない鍵が入る。
-  解錠は成功し続けるので気づけない
-- インストール前に firmware で Secure Boot を無効にする。installer の ISO は
-  署名されていないため、有効なままだと起動しない
+- [NixOS 初期インストール](docs/jupiter-install-runbook.md)
+  - installer、disko／install phase、初回起動の確認
+- [secret の作成と更新](docs/jupiter-secrets-runbook.md)
+  - SOPS、2 種類の age 鍵、SMB パスワード変更
+- [Secure Boot／TPM2 自動解錠](docs/jupiter-secure-boot-runbook.md)
+  - sbctl、PCR7 enroll、initrd SSH 復旧、pcrlock
 
 初回起動後の手順は 1 コマンドに畳んである。clone は無認証 HTTPS(両 repo とも
 public)なので、SSH 鍵の有無に関係なく実行でき、鍵の状態は最後に案内が出る:
@@ -143,9 +130,11 @@ PermissionStore に事前許可を書くのでダイアログは出ない。**�
 自宅以外の AP に繋いでも、そのセグメントからは届かない。ルータでポート転送する
 ことは想定していない。
 
-**Tailscale は `services.tailscale.enable = true` で daemon が上がるだけ。**
-tailnet へ参加するには実機で `sudo tailscale up` を 1 回実行する。参加するまで
-`100.64.0.0/10` 経由の到達は存在しない。
+Tailscale は `secrets/runtime.yaml` の `tailscale-oauth-secret` を使い、
+`tag:jupiter` の永続ノードとして tailnet へ自動参加する。Tailscale SSH も
+`tailscale set --ssh` で有効にする。Jupiter の system build 前に OAuth client を
+発行し、`nix run .#init-secrets` で client secret を登録する。既存の secret は
+空 Enter で維持し、値を入力した項目だけ更新する。
 
 **KWallet は自動では開かない。** `pam_kwallet` はログインパスワードから鍵を
 導出するので、autoLogin では鍵が渡らない(セッション開始直後の `kwalletd6` は

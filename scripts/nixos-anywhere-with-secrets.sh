@@ -28,10 +28,8 @@ die() {
 resolve_management_age_key_file() {
   if [ -n "${SOPS_AGE_KEY_FILE:-}" ]; then
     management_age_key_file="$SOPS_AGE_KEY_FILE"
-  elif [ -n "${HOME:-}" ]; then
-    management_age_key_file="$HOME/.config/sops/age/keys.txt"
   else
-    die 'SOPS_AGE_KEY_FILE または HOME を指定すること'
+    management_age_key_file="$repo_root/secrets/management-age-key.txt"
   fi
 }
 
@@ -205,10 +203,13 @@ validate_runtime_secret() {
     sops --decrypt --output-type json "$repo_root/secrets/runtime.yaml" | \
     jq -e '
       type == "object" and
-      (keys == ["smb-mars-shishi"]) and
+      (keys == ["smb-mars-shishi", "tailscale-oauth-secret"]) and
       (."smb-mars-shishi" | type == "string") and
       (."smb-mars-shishi" | startswith("username=shishi\npassword=")) and
-      (."smb-mars-shishi" | length > ("username=shishi\npassword=" | length))
+      (."smb-mars-shishi" | length > ("username=shishi\npassword=" | length)) and
+      (."tailscale-oauth-secret" | type == "string") and
+      (."tailscale-oauth-secret" | startswith("tskey-client-")) and
+      (."tailscale-oauth-secret" | length > ("tskey-client-" | length))
     ' >/dev/null || die 'runtime.yaml を Jupiter 鍵で復号・検証できない'
 }
 

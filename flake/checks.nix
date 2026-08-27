@@ -184,6 +184,51 @@
             touch $out
           '';
 
+        # Jupiter は SOPS で復号した OAuth client secret を使って tailnet へ自動参加し、
+        # tag:jupiter の永続ノードとして Tailscale SSH を公開する。
+        jupiter-tailscale-contract =
+          let
+            cfg = self.nixosConfigurations.jupiter.config;
+            tailscale = cfg.services.tailscale;
+            secret = cfg.sops.secrets."tailscale-oauth-secret" or { };
+            autoconnect = cfg.systemd.services.tailscaled-autoconnect;
+            tailscaledSet = cfg.systemd.services.tailscaled-set;
+            showNullable = value: if value == null then "" else toString value;
+          in
+          pkgs.runCommand "jupiter-tailscale-contract" { } ''
+            ok=1
+            check() {
+              if [ "$2" != "$3" ]; then
+                echo "$1: expected '$3' but got '$2'"
+                ok=0
+              fi
+            }
+            check tailscale.enable "${if tailscale.enable then "true" else "false"}" "true"
+            check tailscale.authKeyFile "${showNullable tailscale.authKeyFile}" \
+              "/run/secrets/tailscale-oauth-secret"
+            check tailscale.authKeyParameters.ephemeral "${
+              if tailscale.authKeyParameters.ephemeral == false then "false" else "not-false"
+            }" "false"
+            check tailscale.authKeyParameters.preauthorized "${
+              if tailscale.authKeyParameters.preauthorized == true then "true" else "not-true"
+            }" "true"
+            check tailscale.extraUpFlags '${builtins.toJSON tailscale.extraUpFlags}' \
+              '["--advertise-tags=tag:jupiter"]'
+            check tailscale.extraSetFlags '${builtins.toJSON tailscale.extraSetFlags}' '["--ssh"]'
+            check secret.path "${secret.path or ""}" "/run/secrets/tailscale-oauth-secret"
+            check secret.owner "${secret.owner or ""}" "root"
+            check secret.group "${secret.group or ""}" "root"
+            check secret.mode "${secret.mode or ""}" "0400"
+            check tailscaled-autoconnect.after "${
+              if builtins.elem "tailscaled.service" autoconnect.after then "present" else "missing"
+            }" "present"
+            check tailscaled-set.after "${
+              if builtins.elem "tailscaled-autoconnect.service" tailscaledSet.after then "present" else "missing"
+            }" "present"
+            [ "$ok" = 1 ] || exit 1
+            touch $out
+          '';
+
         encrypted-secrets-contract = pkgs.runCommand "encrypted-secrets-contract" { } ''
           fail() {
             echo "$1"
@@ -235,7 +280,8 @@
           check_secret_file bootstrap "$bootstrap_file" \
             '["gpg-secret-key","jupiter-age-key","login-password","luks-passphrase","ssh-private-key"]' \
             "$management_recipient"
-          check_secret_file runtime "$runtime_file" '["smb-mars-shishi"]' "$runtime_recipient"
+          check_secret_file runtime "$runtime_file" \
+            '["smb-mars-shishi","tailscale-oauth-secret"]' "$runtime_recipient"
           touch $out
         '';
 
@@ -802,11 +848,13 @@
                 u.hashedPasswordFile != null && lib.hasPrefix builtins.storeDir (toString u.hashedPasswordFile)
               );
             hashRel = if u.hashedPasswordFile == null then null else lib.removePrefix "/" u.hashedPasswordFile;
-            requiredRunbookText = [
-              "nix run .#init-secrets"
+            requiredInstallRunbookText = [
               "nix run .#nixos-anywhere -- --flake .#jupiter --target-host root@<target> --ssh-port <port> --phases disko"
               "nix run .#nixos-anywhere -- --flake .#jupiter --target-host root@<target> --ssh-port <port> --phases install"
-              "~/.config/sops/age/keys.txt"
+            ];
+            requiredSecretsRunbookText = [
+              "nix run .#init-secrets"
+              "secrets/management-age-key.txt"
               "git add .sops.yaml secrets/bootstrap.yaml secrets/runtime.yaml"
             ];
             obsoleteRunbookText = [
@@ -820,23 +868,37 @@
           in
           pkgs.runCommand "install-keys-contract"
             {
+              installRunbook = builtins.readFile ../docs/jupiter-install-runbook.md;
               readme = builtins.readFile ../README.md;
-              runbook = builtins.readFile ../docs/jupiter-secure-boot-runbook.md;
+              secretsRunbook = builtins.readFile ../docs/jupiter-secrets-runbook.md;
+              secureBootRunbook = builtins.readFile ../docs/jupiter-secure-boot-runbook.md;
               passAsFile = [
+                "installRunbook"
                 "readme"
-                "runbook"
+                "secretsRunbook"
+                "secureBootRunbook"
               ];
             }
             ''
               ok=1
               ${lib.concatMapStringsSep "\n" (required: ''
-                grep -qF -- '${required}' "$runbookPath" || {
-                  echo "runbook に暗号化インストール手順が無い。期待: ${required}"
+                grep -qF -- '${required}' "$installRunbookPath" || {
+                  echo "install runbook に必要な手順が無い。期待: ${required}"
                   ok=0
                 }
-              '') requiredRunbookText}
+              '') requiredInstallRunbookText}
+              ${lib.concatMapStringsSep "\n" (required: ''
+                grep -qF -- '${required}' "$secretsRunbookPath" || {
+                  echo "secrets runbook に必要な手順が無い。期待: ${required}"
+                  ok=0
+                }
+              '') requiredSecretsRunbookText}
               ${lib.concatMapStringsSep "\n" (obsolete: ''
-                if grep -qF -- '${obsolete}' "$readmePath" "$runbookPath"; then
+                if grep -qF -- '${obsolete}' \
+                  "$readmePath" \
+                  "$installRunbookPath" \
+                  "$secretsRunbookPath" \
+                  "$secureBootRunbookPath"; then
                   echo "ユーザー向け文書に廃止した平文・手動配送手順が残っている: ${obsolete}"
                   ok=0
                 fi

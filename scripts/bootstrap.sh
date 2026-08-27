@@ -69,7 +69,7 @@ push と private repo(agent-memory)には鍵が要る。
   install -d -m 700 ~/.ssh
   scp earth:.ssh/id_ed25519 ~/.ssh/id_ed25519 && chmod 600 ~/.ssh/id_ed25519
   # NixOS 実機では checked nixos-anywhere wrapper が SSH / GPG 鍵を配送する。
-  # ここに来た場合は docs/jupiter-secure-boot-runbook.md の暗号化 install workflow を確認する
+  # ここに来た場合は docs/jupiter-install-runbook.md の暗号化 install workflow を確認する
 
 代替(earth に届かない等): このマシン専用の鍵を作って GitHub に登録する
 (既存の ~/.ssh/id_ed25519 が居る場合は keygen を飛ばして登録だけ行う。

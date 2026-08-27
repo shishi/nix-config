@@ -14,11 +14,28 @@
       keyFile = "/var/lib/sops-nix/key.txt";
       generateKey = false;
     };
-    secrets."smb-mars-shishi" = {
-      owner = "root";
-      group = "root";
-      mode = "0400";
+    secrets = {
+      "smb-mars-shishi" = {
+        owner = "root";
+        group = "root";
+        mode = "0400";
+      };
+      "tailscale-oauth-secret" = {
+        owner = "root";
+        group = "root";
+        mode = "0400";
+      };
     };
+  };
+
+  services.tailscale = {
+    authKeyFile = config.sops.secrets."tailscale-oauth-secret".path;
+    authKeyParameters = {
+      ephemeral = false;
+      preauthorized = true;
+    };
+    extraUpFlags = [ "--advertise-tags=tag:jupiter" ];
+    extraSetFlags = [ "--ssh" ];
   };
 
   fileSystems."/mnt/mars/shishi" = {

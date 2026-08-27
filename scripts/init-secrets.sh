@@ -5,7 +5,9 @@ umask 077
 
 repo_root=""
 tmpdir=""
-management_age_key_file="${SOPS_AGE_KEY_FILE:-$HOME/.config/sops/age/keys.txt}"
+bootstrap_tmp=""
+runtime_tmp=""
+management_age_key_file=""
 ssh_private_key=""
 gpg_signing_key=""
 management_age_recipient=""
@@ -40,6 +42,10 @@ find_repo_root() {
   die 'flake.nix が見つからない。リポジトリ内で実行すること'
 }
 
+resolve_management_age_key_file() {
+  management_age_key_file="${SOPS_AGE_KEY_FILE:-$repo_root/secrets/management-age-key.txt}"
+}
+
 select_tmpfs_root() {
   local candidate filesystem_type
 
@@ -71,14 +77,43 @@ read_confirmed_secret() {
   local label=$1 destination=$2 first second
 
   printf '%s: ' "$label" >&2
-  IFS= read -r -s first
+  IFS= read -r -s first || die "$label の入力を読み取れない"
   printf '\n%s（確認）: ' "$label" >&2
-  IFS= read -r -s second
+  IFS= read -r -s second || die "$label の確認入力を読み取れない"
   printf '\n' >&2
 
   [ -n "$first" ] || die "$label は空にできない"
   [ "$first" = "$second" ] || die "$label が一致しない"
   printf '%s' "$first" >"$destination"
+}
+
+read_optional_confirmed_secret() {
+  local label=$1 current_json=$2 key=$3 destination=$4 first second
+
+  printf '%s（空Enterで現在値を維持）: ' "$label" >&2
+  IFS= read -r -s first || die "$label の入力を読み取れない"
+  printf '\n' >&2
+  if [ -z "$first" ]; then
+    jq -e --arg key "$key" '.[$key] | type == "string" and length > 0' "$current_json" >/dev/null || \
+      die "$label は未登録のため空にできない"
+    return 1
+  fi
+
+  printf '%s（確認）: ' "$label" >&2
+  IFS= read -r -s second || die "$label の確認入力を読み取れない"
+  printf '\n' >&2
+  [ "$first" = "$second" ] || die "$label が一致しない"
+  printf '%s' "$first" >"$destination"
+}
+
+validate_tailscale_oauth_client_secret() {
+  local secret_file=$1 secret
+
+  secret=$(<"$secret_file")
+  case "$secret" in
+    tskey-client-?*) ;;
+    *) die 'Tailscale OAuth client secret は tskey-client- で始まる値を指定すること' ;;
+  esac
 }
 
 generate_age_keys() {
@@ -115,7 +150,11 @@ write_plaintext_json() {
 
   jq -n \
     --rawfile smb_password "$tmpdir/smb-password" \
-    '{"smb-mars-shishi": ("username=shishi\npassword=" + $smb_password)}' >"$tmpdir/runtime.json"
+    --rawfile tailscale_oauth_secret "$tmpdir/tailscale-oauth-secret" \
+    '{
+      "smb-mars-shishi": ("username=shishi\npassword=" + $smb_password),
+      "tailscale-oauth-secret": $tailscale_oauth_secret
+    }' >"$tmpdir/runtime.json"
 }
 
 encrypt_outputs() {
@@ -145,6 +184,138 @@ encrypt_outputs() {
   installation_committed=1
 }
 
+update_existing_secrets() {
+  local bootstrap_changed=0 jupiter_age_key="$tmpdir/jupiter-age-key.txt" runtime_changed=0
+
+  [ -f "$management_age_key_file" ] || die 'management age key が読めない'
+  SOPS_AGE_KEY_FILE="$management_age_key_file" \
+    sops --decrypt --output-type json secrets/bootstrap.yaml >"$tmpdir/bootstrap-current.json"
+  jq -e '
+    type == "object" and
+    (keys == ["gpg-secret-key", "jupiter-age-key", "login-password", "luks-passphrase", "ssh-private-key"]) and
+    all(.[]; type == "string" and length > 0)
+  ' "$tmpdir/bootstrap-current.json" >/dev/null || die 'bootstrap.yaml の形式が不正'
+  jq -ejr '."jupiter-age-key"' "$tmpdir/bootstrap-current.json" >"$jupiter_age_key"
+  chmod 600 "$jupiter_age_key"
+  age-keygen -y "$jupiter_age_key" >/dev/null 2>&1 || die 'Jupiter age key が無効'
+
+  SOPS_AGE_KEY_FILE="$jupiter_age_key" \
+    sops --decrypt --output-type json secrets/runtime.yaml >"$tmpdir/runtime-current.json"
+  jq -e '
+    type == "object" and
+    ((keys == ["smb-mars-shishi"]) or
+     (keys == ["smb-mars-shishi", "tailscale-oauth-secret"])) and
+    (."smb-mars-shishi" | type == "string" and startswith("username=shishi\npassword=") and
+      length > ("username=shishi\npassword=" | length)) and
+    ((has("tailscale-oauth-secret") | not) or
+     (."tailscale-oauth-secret" | type == "string" and startswith("tskey-client-") and
+       length > ("tskey-client-" | length)))
+  ' "$tmpdir/runtime-current.json" >/dev/null || die 'runtime.yaml の形式が不正'
+
+  if read_optional_confirmed_secret \
+    'LUKS パスフレーズ' "$tmpdir/bootstrap-current.json" 'luks-passphrase' "$tmpdir/luks-passphrase"; then
+    bootstrap_changed=1
+  fi
+  if read_optional_confirmed_secret \
+    'ログインパスワード' "$tmpdir/bootstrap-current.json" 'login-password' "$tmpdir/login-password"; then
+    bootstrap_changed=1
+  fi
+  if read_optional_confirmed_secret \
+    'SMB パスワード' "$tmpdir/runtime-current.json" 'smb-mars-shishi' "$tmpdir/smb-password"; then
+    printf 'username=shishi\npassword=' >"$tmpdir/smb-credential"
+    cat "$tmpdir/smb-password" >>"$tmpdir/smb-credential"
+    runtime_changed=1
+  fi
+  if read_optional_confirmed_secret \
+    'Tailscale OAuth client secret' \
+    "$tmpdir/runtime-current.json" \
+    'tailscale-oauth-secret' \
+    "$tmpdir/tailscale-oauth-secret"; then
+    validate_tailscale_oauth_client_secret "$tmpdir/tailscale-oauth-secret"
+    runtime_changed=1
+  fi
+
+  if [ "$bootstrap_changed" -eq 0 ] && [ "$runtime_changed" -eq 0 ]; then
+    printf 'init-secrets: 既存の secret を維持した\n'
+    return
+  fi
+
+  if [ "$bootstrap_changed" -eq 1 ]; then
+    bootstrap_tmp=$(mktemp "secrets/bootstrap.tmp.XXXXXXXX.yaml")
+    cp --preserve=mode -- secrets/bootstrap.yaml "$bootstrap_tmp"
+    if [ -f "$tmpdir/luks-passphrase" ]; then
+      jq -Rs . <"$tmpdir/luks-passphrase" | \
+        SOPS_AGE_KEY_FILE="$management_age_key_file" \
+        sops set --value-stdin "$bootstrap_tmp" '["luks-passphrase"]'
+    fi
+    if [ -f "$tmpdir/login-password" ]; then
+      jq -Rs . <"$tmpdir/login-password" | \
+        SOPS_AGE_KEY_FILE="$management_age_key_file" \
+        sops set --value-stdin "$bootstrap_tmp" '["login-password"]'
+    fi
+  fi
+
+  if [ "$runtime_changed" -eq 1 ]; then
+    runtime_tmp=$(mktemp "secrets/runtime.tmp.XXXXXXXX.yaml")
+    cp --preserve=mode -- secrets/runtime.yaml "$runtime_tmp"
+    if [ -f "$tmpdir/smb-credential" ]; then
+      jq -Rs . <"$tmpdir/smb-credential" | \
+        SOPS_AGE_KEY_FILE="$jupiter_age_key" \
+        sops set --value-stdin "$runtime_tmp" '["smb-mars-shishi"]'
+    fi
+    if [ -f "$tmpdir/tailscale-oauth-secret" ]; then
+      jq -Rs . <"$tmpdir/tailscale-oauth-secret" | \
+        SOPS_AGE_KEY_FILE="$jupiter_age_key" \
+        sops set --value-stdin "$runtime_tmp" '["tailscale-oauth-secret"]'
+    fi
+  fi
+
+  if [ "$bootstrap_changed" -eq 1 ]; then
+    SOPS_AGE_KEY_FILE="$management_age_key_file" \
+      sops --decrypt --output-type json "$bootstrap_tmp" >"$tmpdir/bootstrap-updated.json"
+    jq -e '
+      type == "object" and
+      (keys == ["gpg-secret-key", "jupiter-age-key", "login-password", "luks-passphrase", "ssh-private-key"]) and
+      all(.[]; type == "string" and length > 0)
+    ' "$tmpdir/bootstrap-updated.json" >/dev/null || die '更新後の bootstrap.yaml の形式が不正'
+    jq -S '{
+      "gpg-secret-key": ."gpg-secret-key",
+      "jupiter-age-key": ."jupiter-age-key",
+      "ssh-private-key": ."ssh-private-key"
+    }' "$tmpdir/bootstrap-current.json" >"$tmpdir/bootstrap-immutable-current.json"
+    jq -S '{
+      "gpg-secret-key": ."gpg-secret-key",
+      "jupiter-age-key": ."jupiter-age-key",
+      "ssh-private-key": ."ssh-private-key"
+    }' "$tmpdir/bootstrap-updated.json" >"$tmpdir/bootstrap-immutable-updated.json"
+    cmp -s "$tmpdir/bootstrap-immutable-current.json" "$tmpdir/bootstrap-immutable-updated.json" || \
+      die 'SSH、GPG、Jupiter age key のいずれかが変更された'
+  fi
+
+  if [ "$runtime_changed" -eq 1 ]; then
+    SOPS_AGE_KEY_FILE="$jupiter_age_key" \
+      sops --decrypt --output-type json "$runtime_tmp" >"$tmpdir/runtime-updated.json"
+    jq -e '
+      type == "object" and
+      (keys == ["smb-mars-shishi", "tailscale-oauth-secret"]) and
+      (."smb-mars-shishi" | type == "string" and startswith("username=shishi\npassword=") and
+        length > ("username=shishi\npassword=" | length)) and
+      (."tailscale-oauth-secret" | type == "string" and startswith("tskey-client-") and
+        length > ("tskey-client-" | length))
+    ' "$tmpdir/runtime-updated.json" >/dev/null || die '更新後の runtime.yaml の形式が不正'
+  fi
+
+  if [ "$bootstrap_changed" -eq 1 ]; then
+    mv -f -- "$bootstrap_tmp" secrets/bootstrap.yaml
+    bootstrap_tmp=""
+  fi
+  if [ "$runtime_changed" -eq 1 ]; then
+    mv -f -- "$runtime_tmp" secrets/runtime.yaml
+    runtime_tmp=""
+  fi
+  printf 'init-secrets: secret を更新した\n'
+}
+
 rollback_published_output() {
   local staged=$1 final=$2
 
@@ -171,6 +342,12 @@ cleanup() {
   if [ -n "${tmpdir:-}" ] && [ -d "$tmpdir" ]; then
     rm -rf -- "$tmpdir"
   fi
+  if [ -n "${bootstrap_tmp:-}" ] && [ -f "$bootstrap_tmp" ]; then
+    rm -f -- "$bootstrap_tmp"
+  fi
+  if [ -n "${runtime_tmp:-}" ] && [ -f "$runtime_tmp" ]; then
+    rm -f -- "$runtime_tmp"
+  fi
 }
 
 trap cleanup EXIT
@@ -178,17 +355,29 @@ trap 'cleanup; exit 1' HUP INT TERM
 
 repo_root=$(find_repo_root)
 cd "$repo_root"
+resolve_management_age_key_file
 
+existing_outputs=0
 for output in .sops.yaml secrets/bootstrap.yaml secrets/runtime.yaml; do
-  [ ! -e "$output" ] && [ ! -L "$output" ] || die "既存の暗号化出力を上書きしない: $output"
+  if [ -e "$output" ] || [ -L "$output" ]; then
+    existing_outputs=$((existing_outputs + 1))
+  fi
 done
 
 tmpdir=$(mktemp -d "$(select_tmpfs_root)/init-secrets.XXXXXXXX")
+if [ "$existing_outputs" -eq 3 ]; then
+  update_existing_secrets
+  exit 0
+fi
+[ "$existing_outputs" -eq 0 ] || die '暗号化出力の一部だけが存在するため更新できない'
+
 require_source_keys
 generate_age_keys
 read_confirmed_secret 'LUKS パスフレーズ' "$tmpdir/luks-passphrase"
 read_confirmed_secret 'ログインパスワード' "$tmpdir/login-password"
 read_confirmed_secret 'SMB パスワード' "$tmpdir/smb-password"
+read_confirmed_secret 'Tailscale OAuth client secret' "$tmpdir/tailscale-oauth-secret"
+validate_tailscale_oauth_client_secret "$tmpdir/tailscale-oauth-secret"
 write_plaintext_json
 encrypt_outputs
 

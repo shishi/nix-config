@@ -44,6 +44,7 @@ assert_absent_outputs() {
 
 copy_fixture_repo() {
   mkdir -p "$repo/scripts"
+  cp "$repo_root/.gitignore" "$repo/.gitignore"
   cp "$repo_root/flake.nix" "$repo/flake.nix"
   cp "$repo_root/scripts/init-secrets.sh" "$repo/scripts/init-secrets.sh"
   chmod +x "$repo/scripts/init-secrets.sh"
@@ -89,6 +90,29 @@ login-test-value
 login-test-value
 smb-test-value
 smb-test-value
+tskey-client-test-value
+tskey-client-test-value
+EOF
+}
+
+run_init_with_oauth_secret() {
+  local oauth_secret=$1
+
+  (
+    cd "$repo"
+    HOME="$test_home" \
+    GNUPGHOME="$test_home/.gnupg" \
+    SOPS_AGE_KEY_FILE="$test_home/.config/sops/age/keys.txt" \
+      bash scripts/init-secrets.sh
+  ) <<EOF
+luks-test-value
+luks-test-value
+login-test-value
+login-test-value
+smb-test-value
+smb-test-value
+$oauth_secret
+$oauth_secret
 EOF
 }
 
@@ -119,6 +143,8 @@ login-test-value
 login-test-value
 smb-test-value
 smb-test-value
+tskey-client-test-value
+tskey-client-test-value
 EOF
 }
 
@@ -155,6 +181,8 @@ login-test-value
 login-test-value
 smb-test-value
 smb-test-value
+tskey-client-test-value
+tskey-client-test-value
 EOF
 }
 
@@ -206,13 +234,19 @@ test_dangling_symlink_is_not_overwritten() {
   test ! -e "$repo/secrets/runtime.yaml" || fail "runtime was created despite dangling symlink"
 }
 
-test_xdg_config_home_does_not_change_default_management_key_path() {
+test_default_management_key_is_created_in_repository() {
   copy_fixture_repo
   prepare_source_keys
   if ! run_init_with_xdg_config_home >"$work/stdout" 2>"$work/stderr"; then
     fail "initializer failed with XDG_CONFIG_HOME set"
   fi
-  assert_file "$test_home/.config/sops/age/keys.txt"
+  assert_file "$repo/secrets/management-age-key.txt"
+  test "$(stat -c %a "$repo/secrets/management-age-key.txt")" = 600 || \
+    fail "repository-local management age key mode is not 600"
+  git -C "$repo" init -q
+  git -C "$repo" check-ignore -q -- secrets/management-age-key.txt || \
+    fail "repository-local management age key is not ignored by Git"
+  test ! -e "$test_home/.config/sops/age/keys.txt" || fail "initializer used the old management key path"
   test ! -e "$test_home/other-config/sops/age/keys.txt" || fail "XDG_CONFIG_HOME changed the default management key path"
 }
 
@@ -253,9 +287,9 @@ test_successful_initialization_encrypts_expected_boundaries() {
   rg -F 'path_regex: ^secrets/runtime\.yaml$' "$repo/.sops.yaml" >/dev/null || fail "runtime creation rule is missing"
   ! rg -F 'AGE-SECRET-KEY-' "$repo/.sops.yaml" || fail "SOPS config contains a private age key"
   test "$(stat -c %a "$test_home/.config/sops/age/keys.txt")" = 600 || fail "management age key mode is not 600"
-  ! rg -F -e 'luks-test-value' -e 'login-test-value' -e 'smb-test-value' \
+  ! rg -F -e 'luks-test-value' -e 'login-test-value' -e 'smb-test-value' -e 'tskey-client-test-value' \
     "$repo/.sops.yaml" "$repo/secrets" || fail "ciphertext contains a fixture secret"
-  ! rg -F -e 'luks-test-value' -e 'login-test-value' -e 'smb-test-value' \
+  ! rg -F -e 'luks-test-value' -e 'login-test-value' -e 'smb-test-value' -e 'tskey-client-test-value' \
     "$work/stdout" "$work/stderr" || fail "logs contain a fixture secret"
 
   SOPS_AGE_KEY_FILE="$test_home/.config/sops/age/keys.txt" \
@@ -273,7 +307,10 @@ test_successful_initialization_encrypts_expected_boundaries() {
 
   SOPS_AGE_KEY_FILE="$work/jupiter-age-key.txt" \
     sops --decrypt --output-type json "$repo/secrets/runtime.yaml" >"$work/runtime.json"
-  jq -e '. == {"smb-mars-shishi": "username=shishi\npassword=smb-test-value"}' \
+  jq -e '. == {
+    "smb-mars-shishi": "username=shishi\npassword=smb-test-value",
+    "tailscale-oauth-secret": "tskey-client-test-value"
+  }' \
     "$work/runtime.json" >/dev/null || fail "runtime plaintext shape is incorrect"
 
   age-keygen -o "$work/unrelated-age-key.txt" >/dev/null 2>&1
@@ -289,6 +326,25 @@ test_successful_initialization_encrypts_expected_boundaries() {
     sops --decrypt "$repo/secrets/bootstrap.yaml" >/dev/null 2>"$work/jupiter-bootstrap.stderr"; then
     fail "Jupiter key decrypted bootstrap ciphertext"
   fi
+}
+
+test_initialization_rejects_non_oauth_client_secrets() {
+  local oauth_secret
+
+  for oauth_secret in client-id-value tskey-auth-test-value tskey-client-; do
+    rm -rf -- "$repo" "$test_home"
+    mkdir -p "$repo" "$test_home"
+    copy_fixture_repo
+    prepare_source_keys
+    if run_init_with_oauth_secret "$oauth_secret" >"$work/stdout" 2>"$work/stderr"; then
+      fail "initializer accepted a non-OAuth-client secret: $oauth_secret"
+    fi
+    assert_absent_outputs
+    if [ "$oauth_secret" != tskey-client- ]; then
+      ! rg -F -- "$oauth_secret" "$work/stdout" "$work/stderr" || \
+        fail "initializer logged a rejected OAuth value"
+    fi
+  done
 }
 
 prepare_wrapper_fixture() {
@@ -381,8 +437,7 @@ run_wrapper() {
 run_wrapper_with_default_management_key() {
   (
     cd "$repo"
-    env -u SOPS_AGE_KEY_FILE \
-      HOME="$test_home" \
+    env -u HOME -u SOPS_AGE_KEY_FILE \
       GNUPGHOME="$test_home/.gnupg" \
       NIXOS_ANYWHERE_BIN="$work/fake-bin/nixos-anywhere" \
       FAKE_ARGS_LOG="$work/fake.args" \
@@ -391,7 +446,7 @@ run_wrapper_with_default_management_key() {
   )
 }
 
-run_wrapper_without_management_key_or_home() {
+run_wrapper_without_management_key() {
   (
     cd "$repo"
     env -u HOME -u SOPS_AGE_KEY_FILE \
@@ -418,7 +473,7 @@ assert_args_absent() {
 }
 
 assert_wrapper_logs_redacted() {
-  ! rg -F -e 'luks-test-value' -e 'login-test-value' -e 'smb-test-value' \
+  ! rg -F -e 'luks-test-value' -e 'login-test-value' -e 'smb-test-value' -e 'tskey-client-test-value' \
     "$work/wrapper.stdout" "$work/wrapper.stderr" || fail "wrapper logs contain a fixture secret"
 }
 
@@ -442,6 +497,273 @@ rewrite_bootstrap() {
   ) >"$repo/secrets/bootstrap.yaml"
   git -C "$repo" add -f secrets/bootstrap.yaml
   git -C "$repo" commit -qm mutated-bootstrap
+}
+
+rewrite_runtime() {
+  local filter=$1 recipient
+
+  SOPS_AGE_KEY_FILE="$test_home/.config/sops/age/keys.txt" \
+    sops --decrypt --output-type json "$repo/secrets/bootstrap.yaml" | \
+    jq -r '."jupiter-age-key"' >"$work/jupiter-age-key.txt"
+  chmod 600 "$work/jupiter-age-key.txt"
+  recipient=$(age-keygen -y "$work/jupiter-age-key.txt")
+  SOPS_AGE_KEY_FILE="$work/jupiter-age-key.txt" \
+    sops --decrypt --output-type json "$repo/secrets/runtime.yaml" >"$work/runtime.json"
+  jq "$filter" "$work/runtime.json" >"$work/runtime-mutated.json"
+  (
+    cd "$work"
+    sops --encrypt --age "$recipient" --input-type json --output-type yaml \
+      "$work/runtime-mutated.json"
+  ) >"$repo/secrets/runtime.yaml"
+  git -C "$repo" add -f secrets/runtime.yaml
+  git -C "$repo" commit -qm mutated-runtime
+}
+
+run_init_update() {
+  (
+    cd "$repo"
+    HOME="$test_home" \
+    GNUPGHOME="$test_home/.gnupg" \
+    SOPS_AGE_KEY_FILE="$test_home/.config/sops/age/keys.txt" \
+      bash scripts/init-secrets.sh
+  )
+}
+
+reset_init_update_fixture() {
+  rm -rf -- "$repo" "$test_home"
+  mkdir -p "$repo" "$test_home"
+  prepare_wrapper_fixture
+}
+
+decrypt_runtime_fixture() {
+  SOPS_AGE_KEY_FILE="$test_home/.config/sops/age/keys.txt" \
+    sops --decrypt --output-type json "$repo/secrets/bootstrap.yaml" | \
+    jq -r '."jupiter-age-key"' >"$work/jupiter-age-key.txt"
+  chmod 600 "$work/jupiter-age-key.txt"
+  SOPS_AGE_KEY_FILE="$work/jupiter-age-key.txt" \
+    sops --decrypt --output-type json "$repo/secrets/runtime.yaml"
+}
+
+decrypt_bootstrap_fixture() {
+  SOPS_AGE_KEY_FILE="$test_home/.config/sops/age/keys.txt" \
+    sops --decrypt --output-type json "$repo/secrets/bootstrap.yaml"
+}
+
+test_init_update_updates_entered_values_and_preserves_empty_values() {
+  reset_init_update_fixture
+  decrypt_bootstrap_fixture >"$work/bootstrap-before.json"
+  run_init_update >"$work/update.stdout" 2>"$work/update.stderr" <<'EOF'
+luks-updated-value
+luks-updated-value
+
+smb-updated-value
+smb-updated-value
+
+EOF
+
+  decrypt_bootstrap_fixture >"$work/bootstrap-after.json"
+  decrypt_runtime_fixture >"$work/runtime-after.json"
+  jq -e -s '
+    .[1]."luks-passphrase" == "luks-updated-value" and
+    .[1]."login-password" == "login-test-value" and
+    .[1]."ssh-private-key" == .[0]."ssh-private-key" and
+    .[1]."gpg-secret-key" == .[0]."gpg-secret-key" and
+    .[1]."jupiter-age-key" == .[0]."jupiter-age-key"
+  ' "$work/bootstrap-before.json" "$work/bootstrap-after.json" >/dev/null || \
+    fail "init update did not preserve empty bootstrap values"
+  jq -e '. == {
+    "smb-mars-shishi": "username=shishi\npassword=smb-updated-value",
+    "tailscale-oauth-secret": "tskey-client-test-value"
+  }' "$work/runtime-after.json" >/dev/null || fail "init update did not preserve empty runtime values"
+  ! rg -F -e 'luks-updated-value' -e 'smb-updated-value' \
+    "$work/update.stdout" "$work/update.stderr" || fail "init update logged an entered secret"
+}
+
+test_init_update_adds_missing_oauth_secret() {
+  reset_init_update_fixture
+  rewrite_runtime 'del(."tailscale-oauth-secret")'
+  run_init_update >"$work/update.stdout" 2>"$work/update.stderr" <<'EOF'
+
+
+
+tskey-client-updated-value
+tskey-client-updated-value
+EOF
+
+  decrypt_runtime_fixture | \
+    jq -e '."tailscale-oauth-secret" == "tskey-client-updated-value"' >/dev/null || \
+    fail "init update did not add the missing OAuth secret"
+}
+
+test_init_update_preserves_all_existing_secrets_on_empty_input() {
+  local bootstrap_before runtime_before
+
+  reset_init_update_fixture
+  bootstrap_before=$(sha256sum "$repo/secrets/bootstrap.yaml")
+  runtime_before=$(sha256sum "$repo/secrets/runtime.yaml")
+  run_init_update >"$work/update.stdout" 2>"$work/update.stderr" <<'EOF'
+
+
+
+
+EOF
+  test "$(sha256sum "$repo/secrets/bootstrap.yaml")" = "$bootstrap_before" || \
+    fail "init update changed bootstrap.yaml after all-empty input"
+  test "$(sha256sum "$repo/secrets/runtime.yaml")" = "$runtime_before" || \
+    fail "init update changed runtime.yaml after empty input"
+}
+
+test_init_update_rejects_invalid_input_without_changes() {
+  local bootstrap_before filter runtime_before
+
+  for filter in mismatch empty; do
+    reset_init_update_fixture
+    if [ "$filter" = empty ]; then
+      rewrite_runtime 'del(."tailscale-oauth-secret")'
+    fi
+    bootstrap_before=$(sha256sum "$repo/secrets/bootstrap.yaml")
+    runtime_before=$(sha256sum "$repo/secrets/runtime.yaml")
+    case "$filter" in
+      mismatch)
+        if run_init_update >"$work/update.stdout" 2>"$work/update.stderr" <<'EOF'
+luks-updated-value
+luks-updated-value
+
+
+tskey-client-first-value
+tskey-client-second-value
+EOF
+        then
+          fail "init update accepted mismatched confirmation"
+        fi
+        ;;
+      empty)
+        if run_init_update >"$work/update.stdout" 2>"$work/update.stderr" <<'EOF'
+
+
+
+
+EOF
+        then
+          fail "init update accepted an empty missing OAuth secret"
+        fi
+        ;;
+    esac
+    test "$(sha256sum "$repo/secrets/bootstrap.yaml")" = "$bootstrap_before" || \
+      fail "init update changed bootstrap.yaml after invalid input"
+    test "$(sha256sum "$repo/secrets/runtime.yaml")" = "$runtime_before" || \
+      fail "init update changed runtime.yaml after invalid input"
+    ! rg -F -e 'luks-updated-value' -e 'tskey-client-first-value' -e 'tskey-client-second-value' \
+      "$work/update.stdout" "$work/update.stderr" || fail "init update logged invalid secret input"
+  done
+}
+
+test_init_update_rejects_non_oauth_client_secrets_without_changes() {
+  local bootstrap_before oauth_secret runtime_before
+
+  for oauth_secret in client-id-value tskey-auth-test-value tskey-client-; do
+    reset_init_update_fixture
+    bootstrap_before=$(sha256sum "$repo/secrets/bootstrap.yaml")
+    runtime_before=$(sha256sum "$repo/secrets/runtime.yaml")
+    if run_init_update >"$work/update.stdout" 2>"$work/update.stderr" <<EOF
+
+
+
+$oauth_secret
+$oauth_secret
+EOF
+    then
+      fail "init update accepted a non-OAuth-client secret: $oauth_secret"
+    fi
+    test "$(sha256sum "$repo/secrets/bootstrap.yaml")" = "$bootstrap_before" || \
+      fail "init update changed bootstrap.yaml after invalid OAuth input"
+    test "$(sha256sum "$repo/secrets/runtime.yaml")" = "$runtime_before" || \
+      fail "init update changed runtime.yaml after invalid OAuth input"
+    if [ "$oauth_secret" != tskey-client- ]; then
+      ! rg -F -- "$oauth_secret" "$work/update.stdout" "$work/update.stderr" || \
+        fail "init update logged a rejected OAuth value"
+    fi
+  done
+}
+
+test_init_update_rejects_existing_non_oauth_client_secrets() {
+  local filter runtime_before
+
+  for filter in \
+    '."tailscale-oauth-secret" = "client-id-value"' \
+    '."tailscale-oauth-secret" = "tskey-auth-test-value"' \
+    '."tailscale-oauth-secret" = "tskey-client-"'; do
+    reset_init_update_fixture
+    rewrite_runtime "$filter"
+    runtime_before=$(sha256sum "$repo/secrets/runtime.yaml")
+    if run_init_update >"$work/update.stdout" 2>"$work/update.stderr" <<'EOF'
+
+
+
+
+EOF
+    then
+      fail "init update accepted an existing non-OAuth-client secret"
+    fi
+    rg -F 'runtime.yaml の形式が不正' "$work/update.stderr" >/dev/null || \
+      fail "init update rejected invalid runtime.yaml for an unexpected reason"
+    test "$(sha256sum "$repo/secrets/runtime.yaml")" = "$runtime_before" || \
+      fail "init update changed an invalid existing runtime.yaml"
+  done
+}
+
+test_init_update_rejects_eof_without_changes() {
+  local bootstrap_before runtime_before
+
+  reset_init_update_fixture
+  bootstrap_before=$(sha256sum "$repo/secrets/bootstrap.yaml")
+  runtime_before=$(sha256sum "$repo/secrets/runtime.yaml")
+  if run_init_update >"$work/update.stdout" 2>"$work/update.stderr" <<'EOF'
+luks-updated-value
+luks-updated-value
+EOF
+  then
+    fail "init update accepted EOF before all secret prompts completed"
+  fi
+  test "$(sha256sum "$repo/secrets/bootstrap.yaml")" = "$bootstrap_before" || \
+    fail "init update changed bootstrap.yaml after EOF"
+  test "$(sha256sum "$repo/secrets/runtime.yaml")" = "$runtime_before" || \
+    fail "init update changed runtime.yaml after EOF"
+}
+
+test_init_update_preserves_files_when_sops_set_fails() {
+  local bootstrap_before real_sops runtime_before
+
+  reset_init_update_fixture
+  bootstrap_before=$(sha256sum "$repo/secrets/bootstrap.yaml")
+  runtime_before=$(sha256sum "$repo/secrets/runtime.yaml")
+  real_sops=$(command -v sops)
+  mkdir -p "$work/failing-bin"
+  cat >"$work/failing-bin/sops" <<'EOF'
+#!/usr/bin/env bash
+if [ "$1" = set ]; then
+  : >"$3"
+  exit 70
+fi
+exec "$REAL_SOPS" "$@"
+EOF
+  chmod +x "$work/failing-bin/sops"
+
+  if REAL_SOPS="$real_sops" PATH="$work/failing-bin:$PATH" \
+    run_init_update >"$work/update.stdout" 2>"$work/update.stderr" <<'EOF'
+luks-updated-value
+luks-updated-value
+
+
+
+EOF
+  then
+    fail "init update succeeded after sops set failed"
+  fi
+  test "$(sha256sum "$repo/secrets/bootstrap.yaml")" = "$bootstrap_before" || \
+    fail "init update damaged bootstrap.yaml after sops set failed"
+  test "$(sha256sum "$repo/secrets/runtime.yaml")" = "$runtime_before" || \
+    fail "init update damaged runtime.yaml after sops set failed"
 }
 
 assert_wrapper_fails() {
@@ -479,6 +801,8 @@ test_install_phase_delivers_checked_extra_files() {
 
 test_default_management_key_path_is_used_when_env_is_unset() {
   reset_wrapper_fixture
+  install -m 600 "$test_home/.config/sops/age/keys.txt" "$repo/secrets/management-age-key.txt"
+  rm -f -- "$test_home/.config/sops/age/keys.txt"
   run_wrapper_with_default_management_key --phases install >"$work/wrapper.stdout" 2>"$work/wrapper.stderr" || \
     fail "wrapper did not use the default management key path"
   assert_args_contain --extra-files --chown home/shishi 1000:100
@@ -486,14 +810,15 @@ test_default_management_key_path_is_used_when_env_is_unset() {
   assert_extra_files_cleaned_up
 }
 
-test_missing_home_and_management_key_reports_a_controlled_error() {
+test_missing_default_management_key_reports_a_controlled_error() {
   reset_wrapper_fixture
-  if run_wrapper_without_management_key_or_home --phases install >"$work/wrapper.stdout" 2>"$work/wrapper.stderr"; then
-    fail "wrapper unexpectedly accepted a missing HOME and management key"
+  rm -f -- "$test_home/.config/sops/age/keys.txt" "$repo/secrets/management-age-key.txt"
+  if run_wrapper_without_management_key --phases install >"$work/wrapper.stdout" 2>"$work/wrapper.stderr"; then
+    fail "wrapper unexpectedly accepted a missing management key"
   fi
-  rg -F 'SOPS_AGE_KEY_FILE または HOME を指定すること' "$work/wrapper.stderr" >/dev/null || \
+  rg -F 'management age key が読めない' "$work/wrapper.stderr" >/dev/null || \
     fail "missing management key did not report a controlled error"
-  ! rg -F 'unbound variable' "$work/wrapper.stderr" || fail "missing HOME caused an unbound variable error"
+  ! rg -F 'unbound variable' "$work/wrapper.stderr" || fail "missing management key caused an unbound variable error"
   assert_wrapper_logs_redacted
   assert_extra_files_cleaned_up
 }
@@ -555,6 +880,22 @@ test_malformed_bootstrap_values_are_rejected() {
     '."login-password" = ""'; do
     reset_wrapper_fixture
     rewrite_bootstrap "$filter"
+    assert_wrapper_fails --phases install
+  done
+}
+
+test_malformed_runtime_values_are_rejected() {
+  local filter
+  for filter in \
+    'del(."tailscale-oauth-secret")' \
+    '."tailscale-oauth-secret" = ""' \
+    '."tailscale-oauth-secret" = null' \
+    '."tailscale-oauth-secret" = "client-id-value"' \
+    '."tailscale-oauth-secret" = "tskey-auth-test-value"' \
+    '."tailscale-oauth-secret" = "tskey-client-"' \
+    '.unexpected = "extra"'; do
+    reset_wrapper_fixture
+    rewrite_runtime "$filter"
     assert_wrapper_fails --phases install
   done
 }
@@ -659,13 +1000,14 @@ if [ "$suite" = wrapper ]; then
   test_disko_phase_only_injects_luks_key
   test_install_phase_delivers_checked_extra_files
   test_default_management_key_path_is_used_when_env_is_unset
-  test_missing_home_and_management_key_reports_a_controlled_error
+  test_missing_default_management_key_reports_a_controlled_error
   test_full_run_delivers_both_phase_inputs
   test_manual_secret_arguments_are_rejected
   test_wrong_management_key_is_rejected
   test_damaged_bootstrap_mac_is_rejected
   test_rewrite_bootstrap_isolated_from_repository_sops_config
   test_malformed_bootstrap_values_are_rejected
+  test_malformed_runtime_values_are_rejected
   test_untracked_ciphertext_is_rejected
   test_child_status_and_cleanup_are_preserved
   echo "secrets wrapper tests: PASS"
@@ -684,7 +1026,7 @@ mkdir -p "$repo" "$test_home"
 test_dangling_symlink_is_not_overwritten
 rm -rf -- "$repo" "$test_home"
 mkdir -p "$repo" "$test_home"
-test_xdg_config_home_does_not_change_default_management_key_path
+test_default_management_key_is_created_in_repository
 rm -rf -- "$repo" "$test_home"
 mkdir -p "$repo" "$test_home"
 test_failed_installation_rolls_back_outputs
@@ -694,5 +1036,14 @@ test_publish_race_preserves_competing_entry
 rm -rf -- "$repo" "$test_home"
 mkdir -p "$repo" "$test_home"
 test_successful_initialization_encrypts_expected_boundaries
+test_initialization_rejects_non_oauth_client_secrets
+test_init_update_updates_entered_values_and_preserves_empty_values
+test_init_update_adds_missing_oauth_secret
+test_init_update_preserves_all_existing_secrets_on_empty_input
+test_init_update_rejects_invalid_input_without_changes
+test_init_update_rejects_non_oauth_client_secrets_without_changes
+test_init_update_rejects_existing_non_oauth_client_secrets
+test_init_update_rejects_eof_without_changes
+test_init_update_preserves_files_when_sops_set_fails
 
 echo "secrets workflow tests: PASS"
