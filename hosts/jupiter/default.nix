@@ -48,6 +48,15 @@ in
   # バックライト値を線形に扱う。
   boot.kernelParams = [ "amdgpu.dcdebugmask=0x40000" ];
 
+  # Wi-Fi と USB Ethernet の併用時に、別インターフェースの IPv4 アドレスで
+  # ARP 応答・通知して経路が揺れる ARP flux を防ぐ。
+  boot.kernel.sysctl = {
+    "net.ipv4.conf.all.arp_ignore" = 1;
+    "net.ipv4.conf.default.arp_ignore" = 1;
+    "net.ipv4.conf.all.arp_announce" = 2;
+    "net.ipv4.conf.default.arp_announce" = 2;
+  };
+
   # TPM2 自動解錠(systemd-cryptenroll)は systemd initrd が前提。
   # 無いと enroll しても起動時に解錠されず、遠隔無人再起動が不達になる
   boot.initrd.systemd.enable = true;

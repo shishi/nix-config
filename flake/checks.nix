@@ -371,6 +371,18 @@
             check lanzaboote.enable "${b}" "true"
             check systemd-boot.enable "${sdb}" "false"
             check pkiBundle "${toString cfg.boot.lanzaboote.pkiBundle}" "/var/lib/sbctl"
+            check kernel.sysctl.arp_ignore.all "${
+              toString (cfg.boot.kernel.sysctl."net.ipv4.conf.all.arp_ignore" or "missing")
+            }" "1"
+            check kernel.sysctl.arp_ignore.default "${
+              toString (cfg.boot.kernel.sysctl."net.ipv4.conf.default.arp_ignore" or "missing")
+            }" "1"
+            check kernel.sysctl.arp_announce.all "${
+              toString (cfg.boot.kernel.sysctl."net.ipv4.conf.all.arp_announce" or "missing")
+            }" "2"
+            check kernel.sysctl.arp_announce.default "${
+              toString (cfg.boot.kernel.sysctl."net.ipv4.conf.default.arp_announce" or "missing")
+            }" "2"
             # 復旧経路。initrd.network.enable が無いと ssh.enable は no-op になる。
             check initrd.network.enable "${if cfg.boot.initrd.network.enable then "true" else "false"}" "true"
             check initrd.ssh.enable "${if cfg.boot.initrd.network.ssh.enable then "true" else "false"}" "true"
