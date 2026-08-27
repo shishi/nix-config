@@ -351,6 +351,29 @@ in
       configFile.plasmanotifyrc.Notifications.PopupPosition = 3;
     };
 
+    # Home Manager は powerdevilrc を更新しても、起動済みの PowerDevil へ
+    # 再読込を要求しない。次回ログインまで古い設定が残らないよう、activation 後に
+    # 稼働中の PowerDevil だけを再読込する。未起動なら自動起動せず、次回起動時に
+    # 設定ファイルを読ませる。
+    home.activation.reloadPowerDevil = lib.hm.dag.entryAfter [ "configure-plasma" ] ''
+      runtime_dir="''${XDG_RUNTIME_DIR:-/run/user/$(${pkgs.coreutils}/bin/id -u)}"
+      if [ -n "''${DBUS_SESSION_BUS_ADDRESS:-}" ] || [ -S "$runtime_dir/bus" ]; then
+        export XDG_RUNTIME_DIR="$runtime_dir"
+        export DBUS_SESSION_BUS_ADDRESS="''${DBUS_SESSION_BUS_ADDRESS:-unix:path=$runtime_dir/bus}"
+        if ${pkgs.systemd}/bin/busctl --user --acquired --no-legend list 2>/dev/null \
+          | ${pkgs.gnugrep}/bin/grep -q '^org\.kde\.Solid\.PowerManagement '; then
+          if ! run ${pkgs.systemd}/bin/busctl --user --auto-start=no --timeout=5 call \
+            org.kde.Solid.PowerManagement \
+            /org/kde/Solid/PowerManagement \
+            org.kde.Solid.PowerManagement \
+            refreshStatus; then
+            echo "PowerDevil configuration reload failed." >&2
+            echo "The next activation will retry." >&2
+          fi
+        fi
+      fi
+    '';
+
     # RDP 越しの視認性・操作性のため、実機パネル(eDP-1)を既定のネイティブ
     # 解像度(2560x1600, scale 1.25)とは別の解像度に固定する(実測して決めた
     # 値。2026-08-23)。KWin は出力設定を ~/.config/kwinoutputconfig.json に

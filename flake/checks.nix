@@ -280,35 +280,105 @@
         # 画面消灯は sleep と独立して全プロファイルで有効にする。
         sleep-contract =
           let
-            plasma = self.nixosConfigurations.jupiter.config.home-manager.users.shishi.programs.plasma;
+            hm = self.nixosConfigurations.jupiter.config.home-manager.users.shishi;
+            plasma = hm.programs.plasma;
             powerdevil = plasma.powerdevil;
             powerdevilrc = plasma.configFile.powerdevilrc;
+            reloadPowerDevil = pkgs.writeText "reload-powerdevil-activation" (
+              hm.home.activation.reloadPowerDevil.data or ""
+            );
+            pythonWithDbusMock = pkgs.python3.withPackages (pythonPackages: [
+              pythonPackages.python-dbusmock
+            ]);
+            dbusDaemon = pkgs.writeShellScript "dbus-daemon-for-sleep-contract" ''
+              args=()
+              for arg in "$@"; do
+                if [ "$arg" != "--session" ]; then
+                  args+=("$arg")
+                fi
+              done
+              exec ${pkgs.dbus}/bin/dbus-daemon \
+                --config-file=${pkgs.dbus}/share/dbus-1/session.conf \
+                "''${args[@]}"
+            '';
             settingValue = section: key: ((powerdevilrc.${section}.${key} or { }).value or null);
             show = value: if value == null then "null" else toString value;
           in
-          pkgs.runCommand "sleep-contract" { } ''
-            ok=1
-            check() {
-              if [ "$2" != "$3" ]; then
-                echo "$1: expected '$3' but got '$2'"
-                ok=0
-              fi
+          pkgs.runCommand "sleep-contract"
+            {
+              nativeBuildInputs = [
+                pkgs.dbus
+                pythonWithDbusMock
+              ];
             }
-            check AC.autoSuspend.action "${show powerdevil.AC.autoSuspend.action}" "0"
-            check AC.autoSuspend.idleTimeout "${show powerdevil.AC.autoSuspend.idleTimeout}" "null"
-            check AC.turnOffDisplay.idleTimeout "${show powerdevil.AC.turnOffDisplay.idleTimeout}" "900"
-            check AC.turnOffDisplay.enabled "${show (settingValue "AC/Display" "TurnOffDisplayWhenIdle")}" "1"
-            check battery.autoSuspend.action "${show powerdevil.battery.autoSuspend.action}" "1"
-            check battery.autoSuspend.idleTimeout "${show powerdevil.battery.autoSuspend.idleTimeout}" "3600"
-            check battery.turnOffDisplay.idleTimeout "${show powerdevil.battery.turnOffDisplay.idleTimeout}" "900"
-            check battery.turnOffDisplay.enabled "${show (settingValue "Battery/Display" "TurnOffDisplayWhenIdle")}" "1"
-            check lowBattery.autoSuspend.action "${show powerdevil.lowBattery.autoSuspend.action}" "1"
-            check lowBattery.autoSuspend.idleTimeout "${show powerdevil.lowBattery.autoSuspend.idleTimeout}" "300"
-            check lowBattery.turnOffDisplay.idleTimeout "${show powerdevil.lowBattery.turnOffDisplay.idleTimeout}" "900"
-            check lowBattery.turnOffDisplay.enabled "${show (settingValue "LowBattery/Display" "TurnOffDisplayWhenIdle")}" "1"
-            [ "$ok" = 1 ] || exit 1
-            touch $out
-          '';
+            ''
+              ok=1
+              check() {
+                if [ "$2" != "$3" ]; then
+                  echo "$1: expected '$3' but got '$2'"
+                  ok=0
+                fi
+              }
+              check AC.autoSuspend.action "${show powerdevil.AC.autoSuspend.action}" "0"
+              check AC.autoSuspend.idleTimeout "${show powerdevil.AC.autoSuspend.idleTimeout}" "null"
+              check AC.turnOffDisplay.idleTimeout "${show powerdevil.AC.turnOffDisplay.idleTimeout}" "900"
+              check AC.turnOffDisplay.enabled "${show (settingValue "AC/Display" "TurnOffDisplayWhenIdle")}" "1"
+              check battery.autoSuspend.action "${show powerdevil.battery.autoSuspend.action}" "1"
+              check battery.autoSuspend.idleTimeout "${show powerdevil.battery.autoSuspend.idleTimeout}" "3600"
+              check battery.turnOffDisplay.idleTimeout "${show powerdevil.battery.turnOffDisplay.idleTimeout}" "900"
+              check battery.turnOffDisplay.enabled "${show (settingValue "Battery/Display" "TurnOffDisplayWhenIdle")}" "1"
+              check lowBattery.autoSuspend.action "${show powerdevil.lowBattery.autoSuspend.action}" "1"
+              check lowBattery.autoSuspend.idleTimeout "${show powerdevil.lowBattery.autoSuspend.idleTimeout}" "300"
+              check lowBattery.turnOffDisplay.idleTimeout "${show powerdevil.lowBattery.turnOffDisplay.idleTimeout}" "900"
+              check lowBattery.turnOffDisplay.enabled "${show (settingValue "LowBattery/Display" "TurnOffDisplayWhenIdle")}" "1"
+              check reloadPowerDevil.after "${
+                builtins.concatStringsSep "|" (hm.home.activation.reloadPowerDevil.after or [ ])
+              }" \
+                "configure-plasma"
+              [ "$ok" = 1 ] || exit 1
+
+              dbus-run-session --dbus-daemon=${dbusDaemon} -- \
+                ${pythonWithDbusMock}/bin/python -m dbusmock \
+                org.kde.Solid.PowerManagement \
+                /org/kde/Solid/PowerManagement \
+                org.kde.Solid.PowerManagement \
+                -e ${pkgs.bash}/bin/bash -euc '
+                  set -o pipefail
+                  busctl=${pkgs.systemd}/bin/busctl
+                  "$busctl" --user call \
+                    org.kde.Solid.PowerManagement \
+                    /org/kde/Solid/PowerManagement \
+                    org.freedesktop.DBus.Mock \
+                    AddMethod sssss \
+                    "" refreshStatus "" "" ""
+
+                  run() {
+                    if [[ -v DRY_RUN ]]; then
+                      echo "$@"
+                    else
+                      "$@"
+                    fi
+                  }
+
+                  . ${reloadPowerDevil}
+                  DRY_RUN=1
+                  . ${reloadPowerDevil}
+
+                  calls="$("$busctl" --user call \
+                    org.kde.Solid.PowerManagement \
+                    /org/kde/Solid/PowerManagement \
+                    org.freedesktop.DBus.Mock \
+                    GetMethodCalls s refreshStatus)"
+                  case "$calls" in
+                    "a(tav) 1 "*) ;;
+                    *)
+                      echo "PowerDevil configuration was not reloaded exactly once: $calls" >&2
+                      exit 1
+                      ;;
+                  esac
+                '
+              touch $out
+            '';
 
         # 通知トーストはパネル上の通知ウィジェット位置ではなく、固定した画面右上へ出す。
         # Plasma の PopupPosition 列挙では TopRight が 3。
