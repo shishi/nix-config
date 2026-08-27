@@ -1,18 +1,18 @@
 # nix-config
 
 flake-parts + home-manager による個人用 Nix 設定。
-WSL Ubuntu(standalone HM)/ NixOS 実機 jupiter / NixOS-WSL(スケルトン)。
+WSL Ubuntu(スタンドアロン Home Manager)／NixOS 実機 jupiter／NixOS-WSL(スケルトン)。
 
 ## 構成
 
 - `home/` … 可搬レイヤー(全ホスト共有の home-manager モジュール)
-- `nixos/` … NixOS 専用レイヤー(system 設定)
+- `nixos/` … NixOS 専用レイヤー(システム設定)
 - `hosts/` … マシンごとの束ね(フラグ値はここだけ)
 - `shared/` … 層をまたぐ純データ(キャッシュ定義・SSH 公開鍵)
 
 ## WSL Ubuntu(earth)
 
-前提: 標準パス `~/dev/src/github.com/shishi/nix-config` に clone。
+前提: 標準パス `~/dev/src/github.com/shishi/nix-config` にクローンする。
 非 Nix 前提は `hosts/ubuntu-wsl/README.md`(check-env が機械検証)。
 
 ```bash
@@ -23,7 +23,7 @@ nix run .#check-env            # 前提の機械検証
 nix run .#switch               # 適用(check-env-critical 内蔵。--force で省略)
 ```
 
-適用経路は `switch` 一本(直接 activation + 適用記録)。素の `nh home switch` は
+適用経路は `switch` 一本(直接アクティベーション + 適用記録)。素の `nh home switch` は
 契約検査を迂回するため非公認(シェル所有権が dotfiles にある間)。
 恒久の明示経路: `nix run home-manager -- switch --flake ~/dev/src/github.com/shishi/nix-config#shishi`
 
@@ -32,14 +32,15 @@ nix run .#switch               # 適用(check-env-critical 内蔵。--force で�
 目的別の手順書を使う。README へコマンドを複製しない。
 
 - [NixOS 初期インストール](docs/jupiter-install-runbook.md)
-  - installer、disko／install phase、初回起動の確認
-- [secret の作成と更新](docs/jupiter-secrets-runbook.md)
+  - インストーラー、`disko`／`install` フェーズ、初回起動の確認
+- [秘密情報の作成と更新](docs/jupiter-secrets-runbook.md)
   - SOPS、2 種類の age 鍵、SMB パスワード変更
 - [Secure Boot／TPM2 自動解錠](docs/jupiter-secure-boot-runbook.md)
-  - sbctl、PCR7 enroll、initrd SSH 復旧、pcrlock
+  - sbctl、PCR 7 への登録、initrd SSH 復旧、pcrlock
 
-初回起動後の手順は 1 コマンドに畳んである。clone は無認証 HTTPS(両 repo とも
-public)なので、SSH 鍵の有無に関係なく実行でき、鍵の状態は最後に案内が出る:
+初回起動後の手順は 1 コマンドに畳んである。クローンには無認証 HTTPS を使う。
+両リポジトリとも公開されているため、SSH 鍵の有無に関係なく実行できる。
+鍵の状態は最後に案内が出る:
 
 ```
 nix run github:shishi/nix-config#bootstrap
@@ -47,12 +48,12 @@ nix run github:shishi/nix-config#bootstrap
 
 手動でやる場合の同等手順。**パスは `NH_FLAKE` が指す場所と一致していなければ
 ならない**(`~/dev/src/github.com/shishi/nix-config`)。`ghq` 自体は宣言済みで
-入っているが、root 設定(gitconfig)は dotfiles の setup 前で未設定のため、
-`ghq get` は既定の `~/ghq` に clone してパスがずれる。素の `git clone` を
+入っているが、ルート設定(gitconfig)は dotfiles のセットアップ前で未設定のため、
+`ghq get` は既定の `~/ghq` にクローンしてパスがずれる。素の `git clone` を
 そのパスに打つ。
 
 ```
-ssh -o StrictHostKeyChecking=accept-new -T git@github.com   # host key を受理する
+ssh -o StrictHostKeyChecking=accept-new -T git@github.com   # ホスト鍵を受理する
 mkdir -p ~/dev/src/github.com/shishi
 git clone git@github.com:shishi/nix-config.git ~/dev/src/github.com/shishi/nix-config
 git clone git@github.com:shishi/dotfiles.git   ~/dev/src/github.com/shishi/dotfiles
@@ -60,19 +61,19 @@ bash ~/dev/src/github.com/shishi/dotfiles/setup.sh
 nh os switch
 ```
 
-SSH(git@)で clone する場合、最初の 1 行を省くと `git clone` が host key 確認の
+SSH(git@)でクローンする場合、最初の 1 行を省くと `git clone` がホスト鍵確認の
 対話で止まる(新規マシンの `known_hosts` は空)。`setup.sh` 自身は内部で
 `GIT_SSH_COMMAND` に `accept-new` を入れるが、それは `setup.sh` が始まってからの
 話で、上の 2 つの `git clone` には効かない。
 
-`nh os switch` が **`DIFF: 0 bytes`** を返せば、インストールされた世代と repo から
-ビルドした結果が同一 store path で、構成と実機にドリフトが無い(post-install
-成功基準)。以後の更新も `nh os switch`。
+`nh os switch` が **`DIFF: 0 bytes`** を返せば、インストールされた世代と
+リポジトリからビルドした結果が同一のストアパスである。これは構成と実機に
+ずれがないことを示す、インストール後の成功基準である。以後の更新も `nh os switch`。
 
 ### 生体認証(顔・指紋)の登録
 
 宣言(`hosts/jupiter/default.nix`)が入れるのは仕組みまで。顔モデルと指紋は
-生体データなので repo に入れず、本人が実機の前で 1 回登録する。
+生体データなのでリポジトリに入れず、本人が実機の前で 1 回登録する。
 再インストール後も同様にやり直す。顔認証は次の順で設定・確認する:
 
 ```
@@ -104,18 +105,18 @@ fprintd-list shishi                      # 指紋の登録を確認する
 同じ表示を確認しています。このメッセージだけでカメラ故障とは判断しません。
 
 効く先はロック画面(顔・指紋)と polkit の認証ダイアログ(顔・指紋)。
-sudo には効かない(NOPASSWD が auth フェーズを飛ばす。効かせる手順は
+sudo には効かない(NOPASSWD が認証フェーズを飛ばす。効かせる手順は
 `nixos/sudo.nix` の選択肢 (d))。
 
 ### リモートデスクトップ(RDP)
 
-KRdp が動作中の Plasma セッションに寄生して RDP を話す。`0.0.0.0:3389` に bind し、
-firewall が 3389 を開けている(送信元は LAN と Tailscale の範囲に限定)。
+KRdp は動作中の Plasma セッションを RDP で共有する。`0.0.0.0:3389` で待ち受け、
+ファイアウォールが 3389 番ポートを開けている(送信元は LAN と Tailscale の範囲に限定)。
 
-**Portal 経路を使う。** `--plasma` だと clipboard が両方向とも動かない(KRdp
-6.7.4 の `PlasmaScreencastV1Session::setClipboardData` が空実装)。Portal は既定で
+**ポータル経路を使う。** `--plasma` だとクリップボードが両方向とも動かない(KRdp
+6.7.4 の `PlasmaScreencastV1Session::setClipboardData` が空実装)。ポータルは既定で
 接続のたびに画面上の許可を求めるが、`krdp-portal-permission.service` が
-PermissionStore に事前許可を書くのでダイアログは出ない。**この unit が無いと、
+PermissionStore に事前許可を書くのでダイアログは出ない。**このユニットが無いと、
 新規インストール直後は「RDP が無いとダイアログを押せない / 押さないと RDP が
 使えない」で詰む。**
 
@@ -125,20 +126,20 @@ PermissionStore に事前許可を書くのでダイアログは出ない。**�
 解除する。
 
 **この口の先は PAM 認証で、その先は NOPASSWD の sudo。** 破られるとパスワード
-1 つで root まで届く。そのため firewall は 3389 を全インタフェースで開けず、
+1 つで root まで届く。そのためファイアウォールは 3389 を全インタフェースで開けず、
 送信元が RFC1918 と Tailscale の CGNAT 範囲(`100.64.0.0/10`)のときだけ通す。
 自宅以外の AP に繋いでも、そのセグメントからは届かない。ルータでポート転送する
 ことは想定していない。
 
 Tailscale は `secrets/runtime.yaml` の `tailscale-oauth-secret` を使い、
 `tag:jupiter` の永続ノードとして tailnet へ自動参加する。Tailscale SSH も
-`tailscale set --ssh` で有効にする。Jupiter の system build 前に OAuth client を
-発行し、`nix run .#init-secrets` で client secret を登録する。既存の secret は
+`tailscale set --ssh` で有効にする。Jupiter のシステムビルド前に OAuth クライアントを
+発行し、`nix run .#init-secrets` でクライアントシークレットを登録する。既存の秘密情報は
 空 Enter で維持し、値を入力した項目だけ更新する。
 
 **KWallet は自動では開かない。** `pam_kwallet` はログインパスワードから鍵を
 導出するので、autoLogin では鍵が渡らない(セッション開始直後の `kwalletd6` は
-バス上で activatable のまま)。KWallet を使うアプリは初回に開錠を求めてくる。
+バス上で起動可能な状態のまま)。KWallet を使うアプリは初回に開錠を求めてくる。
 
 手元が Windows のとき、`localhost:3389` は Windows 自身の RDP サーバーを指す。
 jupiter へは**ホスト名か IP で**繋ぐこと。SSH トンネルを張る場合も、手元側は
@@ -156,8 +157,8 @@ jupiter へは**ホスト名か IP で**繋ぐこと。SSH トンネルを張る
 - 証明書は初回起動時に `~/.local/share/krdp/` へ自己署名で作られる。自己署名なので
   クライアントは証明書の警告を出す
 - **RDP のパスワードは shishi のログインパスワードそのもの。** 出所は
-  `secrets/bootstrap.yaml` の暗号文から install wrapper が生成・配送するハッシュで、
-  `nixos/users.nix` はパスワードを宣言しない(public repo のため)。置き忘れると
+  `secrets/bootstrap.yaml` の暗号文からインストール用ラッパーが生成・配送するハッシュで、
+  `nixos/users.nix` はパスワードを宣言しない(公開リポジトリのため)。置き忘れると
   shadow が `!` になり、RDP もロック解除も通らない
 - 音声・クリップボード・マルチモニタの挙動は未確認
 
@@ -170,7 +171,7 @@ nix run .#update   # worktree でアトミック更新 → update/<date> ブラ�
 
 ## Rust
 
-toolchain は rustup 委譲(stable + nightly)。ツールは cargo-binstall で存在保証。
+ツールチェーンは rustup に委譲する(stable + nightly)。ツールは cargo-binstall で存在保証。
 
 ```bash
 nix run .#rust-bootstrap              # 状態確認 + 不足の導入

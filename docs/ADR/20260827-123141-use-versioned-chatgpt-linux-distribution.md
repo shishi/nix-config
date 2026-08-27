@@ -1,88 +1,89 @@
-# Use a Versioned ChatGPT Linux Distribution
+# バージョンを固定した ChatGPT Linux 配布物を使用する
 
 | | |
 |---|---|
-| **Status** | accepted |
-| **Date** | 2026-08-27 |
-| **Decision-makers** | shishi |
-| **Consulted** | N/A |
-| **Informed** | N/A |
+| **状態** | 承認済み |
+| **日付** | 2026-08-27 |
+| **決定者** | shishi |
+| **相談先** | なし |
+| **共有先** | なし |
 
-## Context and Problem Statement
+## 背景と課題
 
-The previous Nix wrapper combined a fixed content hash with OpenAI's mutable
-`/latest/` ChatGPT Desktop URL. When OpenAI published a new package, an existing
-lock resolved the new bytes with the old hash, so unrelated flake updates could
-no longer be built and validated.
+以前の Nix ラッパーは、固定したコンテンツハッシュと OpenAI の可変な
+ChatGPT Desktop 用 `/latest/` URL を組み合わせていました。OpenAI が新しい
+パッケージを公開すると、既存のロックは新しい内容を古いハッシュで取得します。
+そのため、無関係な flake 更新までビルドと検証ができなくなっていました。
 
-## Decision Drivers
+## 判断基準
 
-* A committed flake lock must continue to resolve the same upstream artifact.
-* OpenAI package provenance and integrity should be checked before packaging.
-* ChatGPT Desktop must run on NixOS without maintaining a local package fork.
-* Community-specific behavior should remain disabled unless explicitly needed.
+* コミット済みの flake ロックが同じ上流成果物を取得し続けること
+* パッケージ化の前に OpenAI パッケージの出所と完全性を確認すること
+* ローカルのパッケージフォークを保守せずに ChatGPT Desktop を NixOS で実行できること
+* コミュニティー固有の機能は、明示的に必要になるまで無効のままにすること
 
-## Considered Options
+## 検討した選択肢
 
-1. Use `ilysenko/codex-desktop-linux` with its versioned official package pins.
-2. Keep `poeck/chatgpt-desktop-app-nix-flake` and wait for each `/latest/` hash update.
-3. Maintain a local derivation for the official Linux package.
+1. 公式パッケージのバージョンを固定する `ilysenko/codex-desktop-linux` を使用する
+2. `poeck/chatgpt-desktop-app-nix-flake` を維持し、`/latest/` の更新ごとにハッシュを更新する
+3. 公式 Linux パッケージ用の derivation をこのリポジトリで保守する
 
-## Decision Outcome
+## 決定
 
-**Chosen option**: "Use `ilysenko/codex-desktop-linux`", because it resolves a
-versioned package path from signed OpenAI APT metadata and preserves old locks
-when OpenAI publishes a new version. Its Home Manager module also owns the
-NixOS-specific runtime integration.
+**採用:** `ilysenko/codex-desktop-linux` を使用します。この配布物は署名済みの
+OpenAI APT メタデータからバージョン付きパッケージのパスを解決するため、OpenAI が
+新しいバージョンを公開しても古いロックを維持できます。Home Manager モジュールが
+NixOS 固有の実行環境への統合も担います。
 
-### Consequences
+### 影響
 
-**Positive:**
+**良い影響:**
 
-* OpenAI releases no longer invalidate an existing package URL and hash pair.
-* Package discovery verifies signed APT metadata and the selected package hash.
-* NixOS-specific ELF and sandbox adaptations are maintained upstream.
+* OpenAI のリリースで既存のパッケージ URL とハッシュの組が無効にならない
+* パッケージの検出時に、署名済み APT メタデータと選択したパッケージのハッシュを検証できる
+* NixOS 固有の ELF とサンドボックスへの対応を上流で保守できる
 
-**Negative:**
+**悪い影響:**
 
-* The application depends on a larger third-party distribution and its release process.
-* The distribution applies a Nix-specific application patch and uses a custom launcher.
-* Updates require reviewing a broader upstream diff than the previous minimal wrapper.
+* アプリケーションが、以前より大きな第三者配布物とそのリリース手順に依存する
+* 配布物が Nix 固有のアプリケーションパッチと独自ランチャーを使用する
+* 更新時に、以前の最小ラッパーより広い上流差分をレビューする必要がある
 
-**Neutral:**
+**中立的な影響:**
 
-* The command and desktop entry change from `chatgpt` and `chatgpt.desktop` to
-  `codex-desktop` and `codex-desktop.desktop`.
+* コマンドとデスクトップエントリーが `chatgpt` と `chatgpt.desktop` から
+  `codex-desktop` と `codex-desktop.desktop` に変わる
 
-### Confirmation
+### 確認方法
 
-The `chatgpt-desktop-contract` flake check verifies that the package uses a
-versioned repository URL, optional Linux features remain empty, community usage
-reporting is disabled, the package's `--diagnose` command succeeds, and the KDE taskbar
-uses the new desktop entry. A successful Jupiter system build and switch confirm
-the complete integration.
+flake の `chatgpt-desktop-contract` 検査では、パッケージがバージョン付きの
+リポジトリ URL を使用することを確認します。任意の Linux 機能が空であること、
+コミュニティーへの利用状況送信が無効であること、パッケージを `--diagnose` 付きで
+実行すると成功することも確認します。さらに、KDE タスクバーが新しいデスクトップ
+エントリーを使うことを確認します。Jupiter のシステムビルドと切り替えが成功すれば、
+統合全体を確認できます。
 
-## Pros and Cons of the Options
+## 各選択肢の比較
 
-### Use `ilysenko/codex-desktop-linux`
+### `ilysenko/codex-desktop-linux` を使用する
 
-* Good, because versioned package URLs preserve lock reproducibility.
-* Good, because signed repository metadata and package hashes are verified.
-* Good, because the project tests NixOS-specific runtime behavior.
-* Bad, because the wrapper and optional feature framework increase the trusted code surface.
+* 利点: バージョン付きパッケージ URL により、ロックの再現性を維持できる
+* 利点: 署名済みリポジトリメタデータとパッケージハッシュを検証できる
+* 利点: プロジェクトが NixOS 固有の実行時動作をテストしている
+* 欠点: ラッパーと任意機能の枠組みにより、信頼するコードの範囲が広がる
 
-### Keep `poeck/chatgpt-desktop-app-nix-flake`
+### `poeck/chatgpt-desktop-app-nix-flake` を維持する
 
-* Good, because its Nix packaging code is small and easy to review.
-* Bad, because its mutable `/latest/` URL makes old fixed-output derivations fail after an upstream release.
-* Bad, because all validated flake updates can be blocked while waiting for a matching wrapper update.
+* 利点: Nix のパッケージ化コードが小さく、レビューしやすい
+* 欠点: 可変な `/latest/` URL により、上流のリリース後は古い固定出力 derivation が失敗する
+* 欠点: 対応するラッパーの更新を待つ間、検証対象の全 flake 更新が止まり得る
 
-### Maintain a local derivation
+### ローカルの derivation を保守する
 
-* Good, because package policy and update timing would be fully controlled here.
-* Bad, because this repository would own package discovery, provenance checks, ELF adaptation, and ongoing compatibility work.
+* 利点: パッケージ方針と更新時期をこのリポジトリだけで制御できる
+* 欠点: パッケージの検出、出所の確認、ELF 対応、継続的な互換性対応をこのリポジトリで保守する必要がある
 
-## More Information
+## 参考資料
 
 * [OpenAI ChatGPT Desktop for Linux](https://learn.chatgpt.com/docs/linux/linux-app)
 * [codex-desktop-linux Nix documentation](https://github.com/ilysenko/codex-desktop-linux/blob/main/docs/nix.md)

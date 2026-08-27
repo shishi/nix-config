@@ -1,10 +1,10 @@
-# jupiter: Secure Boot + TPM2 自動解錠 runbook
+# jupiter: Secure Boot／TPM2 自動解錠手順書
 
 ## 0. 前提
 
 対象は実機 `jupiter`(NixOS)で Secure Boot を有効化し、TPM2 で LUKS を自動解錠
 できるようにする作業。VirtualBox VM(仮想 TPM 2.0、OVMF、systemd 261)での検証
-に基づく。実機固有の手順(firmware メニューの操作、NIC ドライバ名など)で
+に基づく。実機固有の手順(ファームウェアメニューの操作、NIC ドライバー名など)で
 未確認のものは、その場で「未確認」と明記する。
 
 パス表記は 2 系統ある。`/mnt/c/...` は WSL 側のシェル、`/c/...` は §2.x の
@@ -13,7 +13,7 @@
 コマンドブロックは Bash 構文で記載する。現在のシェルが fish の場合は、
 ワークステーションと Jupiter のどちらでも先に `bash` を起動する。
 
-現在の到達点: Secure Boot 有効化と PCR7 での TPM2 enroll(フェーズ A)は
+現在の到達点: Secure Boot 有効化と PCR 7 での TPM2 登録(フェーズ A)は
 VM で成立している。カーネル更新に追従させる `systemd-pcrlock`(フェーズ B)は
 §7 の理由により未対応で、`hosts/jupiter/default.nix` に該当の宣言は入っていない。
 
@@ -24,7 +24,7 @@ VM で成立している。カーネル更新に追従させる `systemd-pcrlock
 先に済ませ、§2.3 の `nixos-rebuild switch` を実行する。
 
 未インストールの実機では
-[NixOS 初期インストール runbook](jupiter-install-runbook.md)を先に完了する。
+[NixOS 初期インストール手順書](jupiter-install-runbook.md)を先に完了する。
 この経路は `/var/lib/sbctl` と `/var/lib/initrd-ssh` をインストール中に作成する。
 
 - `boot.loader.systemd-boot.enable = false;` / `boot.lanzaboote.enable = true;`
@@ -48,32 +48,32 @@ VM で成立している。カーネル更新に追従させる `systemd-pcrlock
 - `fileSystems."/".options = [ "x-systemd.device-timeout=infinity" ];`
 - `hosts/jupiter/disko.nix` の
   `disko.devices.disk.main.content.partitions.luks.content.settings.crypttabExtraOpts`
-  `= [ "tpm2-device=auto" ];`(TPM2 自動解錠の取得口。無いと enroll しても
+  `= [ "tpm2-device=auto" ];`(TPM2 自動解錠の取得口。無いと登録しても
   起動時にパスフレーズを聞かれる)
-宣言できない(このマシン固有の秘密や、firmware/NVRAM の状態そのものに
+宣言できない(このマシン固有の秘密や、ファームウェア／NVRAM の状態そのものに
 依存するため)ので手で打つ必要があるもの:
 
 - Secure Boot の鍵の生成(`sbctl create-keys`)。`/var/lib/sbctl` に生成され、
-  この public repo にはコミットしない。
+  この公開リポジトリにはコミットしない。
 - initrd SSH のホストキー生成(`ssh-keygen`。§2.2)。`hostKeys` の絶対パスと
   ファイル名を一字一句一致させる必要がある。
-- Setup Mode への出入り(firmware/NVRAM の操作)。
-- 鍵の enroll(`sbctl enroll-keys --microsoft`)。
-- Secure Boot の有効化そのもの(firmware/NVRAM の操作)。
-- LUKS ボリュームの TPM2 enroll(`systemd-cryptenroll`)。
+- セットアップモードへの出入り(ファームウェア／NVRAM の操作)。
+- 鍵の登録(`sbctl enroll-keys --microsoft`)。
+- Secure Boot の有効化そのもの(ファームウェア／NVRAM の操作)。
+- LUKS2 ボリュームへの TPM2 登録(`systemd-cryptenroll`)。
 - (§7。現在未対応)`systemd-pcrlock make-policy` と
   `systemd-cryptenroll --tpm2-pcrlock=...`。
 
-## 2. フェーズ A: 鍵の生成 → Secure Boot 有効化 → TPM2 enroll
+## 2. フェーズ A: 鍵の生成 → Secure Boot 有効化 → LUKS2 ボリュームへの TPM2 登録
 
-**NixOS 初期インストール runbook を完了した場合、§2.1・§2.2・§2.3 は
+**NixOS 初期インストール手順書を完了した場合、§2.1・§2.2・§2.3 は
 実行しない。** 鍵は既に存在し、Lanzaboote も `nixos-install` の時点で
-適用済みである。§2.5 は条件付きで、既に Setup Mode なら飛ばす。
+適用済みである。§2.5 は条件付きで、既にセットアップモードなら飛ばす。
 この状態で §2.1 を実行すると
 `sbctl create-keys` が既存鍵に対してどう振る舞うかは未確認であり、§2.2 の
 `ssh-keygen -f` は既存ファイルに対して `Overwrite (y/n)?` と対話で聞いて
-くる(この runbook の他の手順は非対話実行を前提にしている)。§5.2 の照合に
-使うフィンガープリントは、初期インストール runbook §2.4 で控えたものを使う。
+くる(この手順書の他の手順は非対話実行を前提にしている)。§5.2 の照合に
+使うフィンガープリントは、初期インストール手順書 §2.4 で控えたものを使う。
 
 以下の §2.1〜§2.3 は、**既に NixOS が動いているマシンに後から lanzaboote を
 導入する場合**の手順である。
@@ -90,7 +90,7 @@ sudo nix run nixpkgs#sbctl -- status
 `/var/lib/sbctl/keys/{PK,KEK,db}/*.{key,pem}` が生成され、`status` は
 `Setup Mode: Disabled`(まだ Setup Mode ではない)と出る。
 
-### 2.2 initrd SSH host key の生成
+### 2.2 initrd SSH ホスト鍵の生成
 
 `hosts/jupiter/default.nix` の `boot.initrd.network.ssh.hostKeys` が参照する
 鍵は、宣言だけでは生成されない。生成しないと `nixos-rebuild switch`
@@ -131,7 +131,7 @@ sudo nix run nixpkgs#sbctl -- verify
 signed になる。`/boot/EFI/nixos/kernel-*.efi`(lanzaboote の署名対象外の
 旧来イメージ)が unsigned のまま残るのは正常。
 
-### 2.4 headless VM でパスフレーズを入力する方法(VM リハーサル専用の付録)
+### 2.4 ヘッドレス VM でパスフレーズを入力する方法(VM リハーサル専用の付録)
 
 **この節は VM リハーサル専用の手順。実機ではコンソールから直接パスフレーズ
 を打てばよく、この節のスキャンコード操作は使わない。** 別のパスフレーズを
@@ -160,7 +160,7 @@ VM='<VM 名>'
 13 93 12 92 23 a3 12 92 1e 9e 13 93 1f 9f 1e 9e 26 a6 1c 9c
 ```
 
-### 2.5 Setup Mode に入る
+### 2.5 セットアップモードに入る
 
 **ここだけ VM と実機で手順が違う。**
 
@@ -176,15 +176,15 @@ sudo nix run nixpkgs#sbctl -- status
 
 VM では `modifynvram <vm> inituefivarstore` を使う。UEFI 変数ストアを初期化する
 操作で、実行後に `sbctl status` が `Setup Mode: Enabled` を返すことを確認した。
-**enroll 済みの PK / KEK / db もこれで消える。**
+**登録済みの PK／KEK／db もこれで消える。**
 
-副次的に、既にインストール済みの VM で実行した直後は installer の ISO から
+副次的に、既にインストール済みの VM で実行した直後はインストーラーの ISO から
 起動した(それ以前は ISO を入れても既存ディスクへフォールバックしていた)。
 **EFI のブートエントリが消えたことが理由かどうかは未確認。** ISO から起動させたい
 だけなら `modifyvm <vm> --boot1 dvd` を先に試すこと。
 
 `modifynvram <vm> enrollorclpk` は使わない。コマンド名は「Oracle の PK を
-enroll する」と読め、字面からは Setup Mode を**抜ける**操作に見える。
+登録する」と読め、字面からはセットアップモードを**抜ける**操作に見える。
 **実行して確かめていない。**
 
 VM:
@@ -215,14 +215,14 @@ else
 fi
 ```
 
-`inituefivarstore` は対象 VM の PK、KEK、db、boot entry を消去する。
+`inituefivarstore` は対象 VM の PK、KEK、db、ブートエントリーを消去する。
 
 起動後、§2.4 の方法で LUKS のパスフレーズを入力してログインできる状態に
 する。
 
-実機: firmware(UEFI)のセットアップメニューから Secure Boot の設定に入り、
-既存の PK をクリアして Setup Mode に切り替える。**具体的なメニュー操作は
-firmware ベンダー依存であり未確認。**
+実機: ファームウェア(UEFI)のセットアップメニューから Secure Boot の設定に入り、
+既存の PK をクリアしてセットアップモードに切り替える。**具体的なメニュー操作は
+ファームウェアベンダー依存であり未確認。**
 
 確認(共通):
 
@@ -235,7 +235,7 @@ sudo nix run nixpkgs#sbctl -- status
 (`Enabled`/`Disabled`)を読むこと。**想定と違ったら、先に進まずに止まる
 こと。**
 
-### 2.6 鍵を enroll する
+### 2.6 鍵を登録する
 
 ```
 sudo nix run nixpkgs#sbctl -- enroll-keys --microsoft
@@ -254,8 +254,8 @@ bash -c 'for v in PK KEK db; do f=$(ls /sys/firmware/efi/efivars/${v}-* 2>/dev/n
 
 期待: PK / KEK / db がいずれも数百バイト以上で存在すること(実機の実測値は
 PK 1258 / KEK 4332 / db 8895)。**`SetupMode` が 1 のままでも、PK が非空なら
-§2.7 へ進んでよい。** この firmware は Secure Boot を有効化する時点で
-Setup Mode を降ろす。
+§2.7 へ進んでよい。** このファームウェアは Secure Boot を有効化する時点で
+セットアップモードを解除する。
 
 `shishi` のログインシェルは fish なので、上のような変数代入を含むブロックを
 `ssh <target> '...'` に直接渡すと fish が解釈して失敗する。
@@ -263,8 +263,8 @@ Setup Mode を降ろす。
 
 ### 2.7 Secure Boot を有効化する
 
-**enroll してから有効化する。** 有効化すると PCR 7(secure-boot-policy)の値が
-変わるため、§3 の TPM2 enroll は必ずこの後に行う。
+**鍵を登録してから有効化する。** 有効化すると PCR 7(secure-boot-policy)の値が
+変わるため、§3 の TPM2 登録は必ずこの後に行う。
 
 VM:
 
@@ -309,7 +309,7 @@ fi
 してから有効化すること。`modifynvram <vm> secureboot` は引数無しでは使えず、
 `--enable`/`--disable` の指定が必須(クエリ用途には使えない)。
 
-実機: firmware 設定で Secure Boot を有効に切り替える(**未確認**、firmware 依存)。
+実機: ファームウェア設定で Secure Boot を有効に切り替える(**未確認**、ファームウェア依存)。
 
 LUKS のパスフレーズを入力して起動後、確認:
 
@@ -326,33 +326,33 @@ bootctl status
    Measured OS: yes
 ```
 
-## 3. TPM2 で LUKS を enroll する(PCR 7)
+## 3. LUKS2 ボリュームに TPM2 を登録する(PCR 7)
 
 ### 3.1 `--tpm2-pcrs=7` を省略できない理由
 
 systemd 258 で `systemd-cryptenroll` の既定 PCR 集合が「PCR なし」に変わった
 (jupiter の systemd は 261)。**省略すると、何にも縛られない TPM2 鍵がその
-まま追加される。** 解錠は成功し続けるので、Secure Boot の状態やブート
+まま追加される。** 解錠は成功し続けるので、Secure Boot の状態や起動
 ローダの改変に対して何も検証していないことに誰も気づかない。必ず
 `--tpm2-pcrs=7` を明示する。
 
 ### 3.2 実行順序
 
-§2.7 のとおり Secure Boot の有効化で PCR 7 の値が変わる。enroll を先に
-行うと、その後の有効化で enroll した内容が無効(解錠できない)ポリシーに
-なる。**Secure Boot 有効化 → enroll の順を守る。**
+§2.7 のとおり Secure Boot の有効化で PCR 7 の値が変わる。TPM2 の登録を先に
+行うと、その後の有効化で登録した内容が無効(解錠できない)ポリシーに
+なる。**Secure Boot 有効化 → TPM2 登録の順を守る。**
 
-### 3.3 enroll の実行方法
+### 3.3 TPM2 を LUKS2 ボリュームに登録する
 
-LUKS2 は新規 keyslot の追加時にも既存の資格情報での認証を要求するため、
+LUKS2 は新規の鍵スロットの追加時にも既存の資格情報での認証を要求するため、
 非対話 SSH で標準入力の無いまま実行すると、既存パスフレーズの入力待ちで
 無期限にハングする。`--unlock-key-file=/dev/stdin` で現在のパスフレーズを
 渡す。
 
 管理用 age 鍵で `secrets/bootstrap.yaml` を復号し、`jq` が抽出した LUKS 値だけを
 標準入力で送る。コマンドライン、画面、永続ファイルには出さない。
-ワークステーション側の nix-config checkout で、`sops` と `jq` が使える
-devShell から実行する。
+ワークステーション側の nix-config チェックアウトで、`sops` と `jq` が使える
+開発シェルから実行する。
 
 ```bash
 set -o pipefail
@@ -360,10 +360,10 @@ SOPS_AGE_KEY_FILE=secrets/management-age-key.txt sops --decrypt --output-type js
 ```
 
 `sudo` は NOPASSWD(`nixos/sudo.nix`)なので標準入力を奪わない。奪う設定に
-変えると、パスフレーズが sudo に食われて enroll が既存鍵の入力待ちでハングする。
+変えると、パスフレーズが sudo に食われて TPM2 登録処理が既存鍵の入力待ちでハングする。
 
 （`disk-main-luks` は `hosts/jupiter/disko.nix` の `disko.devices.disk.main` と
-パーティション `luks` から disko の命名規則で決まる partlabel で、実機でも
+パーティション `luks` から disko の命名規則で決まるパーティションラベルで、実機でも
 同名になる。）
 
 期待: `New TPM2 token enrolled as key slot 1.`
@@ -371,17 +371,17 @@ SOPS_AGE_KEY_FILE=secrets/management-age-key.txt sops --decrypt --output-type js
 ### 3.4 封印の検証
 
 `cryptsetup luksDump` は `cryptsetup 2.8.6` では `Keyslot: N` の 1 行しか
-出さず、`tpm2-pcrs` 等の詳細を表示しない。生の token JSON を見る。
+出さず、`tpm2-pcrs` 等の詳細を表示しない。生のトークン JSON を見る。
 
-まず `luksDump` でトークン一覧を確認し、`systemd-tpm2` token の ID を確定
-する(§3.5 の wipe → 再 enroll を経るとトークン番号がずれることがあるため、
+まず `luksDump` でトークン一覧を確認し、`systemd-tpm2` トークンの ID を確定
+する(§3.5 の削除 → 再登録を経るとトークン番号がずれることがあるため、
 `0` を決め打ちしない)。
 
 ```
 sudo cryptsetup luksDump /dev/disk/by-partlabel/disk-main-luks
 ```
 
-`Tokens:` セクションに出ている ID(以下 `<N>`)を使って、生の token JSON を
+`Tokens:` セクションに出ている ID(以下 `<N>`)を使って、生のトークン JSON を
 見る。
 
 ```
@@ -392,16 +392,16 @@ sudo cryptsetup token export --token-id=<N> /dev/disk/by-partlabel/disk-main-luk
 
 **`tpm2-primary-alg` は見ない。** VM では `"ecc"`、実機(Minisforum V3 / 2026-08-22)
 では `"rsa"` になった。`systemd-cryptenroll` が TPM の対応に合わせて選ぶ値で、
-封印が PCR 7 に縛られているかとは無関係。ここを期待値に含めると、正しく enroll
-できているのに失敗と判断して §3.5 の wipe → 再 enroll をやり直すことになる。
+封印が PCR 7 に縛られているかとは無関係。ここを期待値に含めると、正しく登録
+できているのに失敗と判断して §3.5 の削除 → 再登録をやり直すことになる。
 
-### 3.5 wipe と enroll は別コマンドに分ける
+### 3.5 削除と登録は別コマンドに分ける
 
-既存の TPM2 keyslot を同じ PCR セットのまま再 enroll しようとすると、
+既存の TPM2 鍵スロットを同じ PCR セットのまま再登録しようとすると、
 `This PCR set is already enrolled, executing no operation.` と出て黙って
-何も起きないことがある。PCR セットを変える、または壊れた enrollment を
-作り直すときは、`--wipe-slot=tpm2` で既存の TPM2 keyslot を消すコマンドと、
-新規に enroll するコマンドを分けて実行する。
+何も起きないことがある。PCR セットを変える、または壊れた登録を
+作り直すときは、`--wipe-slot=tpm2` で既存の TPM2 鍵スロットを消すコマンドと、
+新規に登録するコマンドを分けて実行する。
 
 ```bash
 ssh <target> 'sudo systemd-cryptenroll --wipe-slot=tpm2 /dev/disk/by-partlabel/disk-main-luks'
@@ -409,14 +409,14 @@ set -o pipefail
 SOPS_AGE_KEY_FILE=secrets/management-age-key.txt sops --decrypt --output-type json secrets/bootstrap.yaml | jq -jer '."luks-passphrase"' | ssh <target> 'sudo systemd-cryptenroll --unlock-key-file=/dev/stdin --tpm2-device=auto --tpm2-pcrs=7 /dev/disk/by-partlabel/disk-main-luks'
 ```
 
-**wipe した状態で再起動すると initrd の解錠待ちになる。** そこを抜けるには
+**削除した状態で再起動すると initrd の解錠待ちになる。** そこを抜けるには
 §5 の initrd SSH でパスフレーズを入れる必要がある。管理用 age 鍵と
-`secrets/bootstrap.yaml` の両方を復旧可能な状態にしてから wipe する。
+`secrets/bootstrap.yaml` の両方を復旧可能な状態にしてから削除する。
 
 **この 2 コマンド構成を VM で通した。** `--wipe-slot=tpm2` の直後に
 `luksDump` の `Tokens:` が空になり、再起動すると initrd で解錠待ちになる。
 initrd SSH で解錠して起動したあと `--tpm2-device=auto --tpm2-pcrs=7` で
-enroll し直すと `0: systemd-tpm2` が戻る。
+登録し直すと `0: systemd-tpm2` が戻る。
 
 ## 4. 動作確認
 
@@ -436,9 +436,9 @@ enroll し直すと `0: systemd-tpm2` が戻る。
 **既知の制限**: カーネル更新後の再起動が、TPM 関連の初期化
 (`Starting Early TPM SRK Setup...`)の段階でハングする場合がある(LUKS の
 パスフレーズ入力プロンプトにすら到達しない停止であり、TPM2/PCR7 の
-enrollment 自体の問題ではない)。原因は特定できていない。長時間(10 分程度)
+登録自体の問題ではない)。原因は特定できていない。長時間(10 分程度)
 応答が無い場合はハードリセットして再試行すること。**それでも同じ箇所で
-ハングする場合は、この runbook が想定していない別の原因を疑うこと。**
+ハングする場合は、この手順書が想定していない別の原因を疑うこと。**
 
 ## 5. 復旧手順(initrd SSH)
 
@@ -446,30 +446,30 @@ enrollment 自体の問題ではない)。原因は特定できていない。�
 
 **この機体に有線 LAN ポートは無く、initrd に無線は入れていない。**
 USB イーサネットアダプタが挿さっていなければ、initrd 側の遠隔復旧は
-**存在しない** — 物理コンソールへ行くしかない。ドライバやネットワーク定義の
+**存在しない** — 物理コンソールへ行くしかない。ドライバーやネットワーク定義の
 切り分けに入る前に、まずアダプタの装着を確認すること。
 
-### 5.1 前提: NIC ドライバが無いと復旧経路自体が機能しない
+### 5.1 前提: NIC ドライバーが無いと復旧経路自体が機能しない
 
-initrd でネットワークが使えるには、NIC ドライバが initrd に含まれている
+initrd でネットワークが使えるには、NIC ドライバーが initrd に含まれている
 必要がある。無いと NIC が検出されず `systemd-networkd` は loopback しか
 上げない。
 
 **「到達不能」の見え方は環境によって違う。**
 
 - **VM(VirtualBox NAT)では、TCP は確立するのに SSH バナーが一切返ら
-  ない。** VirtualBox の NAT はホスト側で TCP を accept してからゲストへ
-  転送する実装のため、ゲストに IP が無く誰も listen していなくても、
-  host 側からの接続自体は成立して見える。実測(2026-08-21、VM でこの
+  ない。** VirtualBox の NAT はホスト側で TCP 接続を受け付けてからゲストへ
+  転送する実装のため、ゲストに IP が無く誰も待ち受けていなくても、
+  ホスト側からの接続自体は成立して見える。実測(2026-08-21、VM でこの
   状態を再現)では 75〜90 秒程度で `Connection reset by peer` になった。
-- **実機で NIC ドライバが欠けている場合はこれと異なる。** NAT のような
-  中間の accept が無いため、リンクが上がっていない NIC への到達は ARP
+- **実機で NIC ドライバーが欠けている場合はこれと異なる。** NAT のように
+  中間で接続を受け付けないため、リンクが上がっていない NIC への到達は ARP
   解決自体が失敗し、接続拒否かタイムアウトになると考えられる(**未確認**。
   実機でこの状態を実測してはいない)。
 
 読むのは TPM 解錠に失敗して遠隔から入れない最中であることが多い。VM の
 症状(TCP 確立・バナー無し)を実機でも同じものだと思って切り分けを進めると
-誤る。§1 の `boot.initrd.availableKernelModules` と実機の NIC ドライバが
+誤る。§1 の `boot.initrd.availableKernelModules` と実機の NIC ドライバーが
 一致していることが、この節全体の前提になる。
 
 ### 5.2 接続方法
@@ -483,26 +483,26 @@ ssh -tt -p <port> root@<host>
   `boot.initrd.network.ssh.authorizedKeys` は initrd に単一しか存在しない
   root ユーザーの authorized_keys として展開される。
 - **`-tt`(`RequestTTY=force`)が要る。** 無いと公開鍵認証は成功するが、
-  `command="systemctl default"` が pty 無しで実行されるためパスフレーズの
+  `command="systemctl default"` が疑似端末なしで実行されるためパスフレーズの
   プロンプトがどこにも出力されず、接続がハングしたまま応答しなくなる。
-- **ポート**: initrd の sshd は guest:2222 で listen する。本体 sshd
-  (guest:22)とは別ポートなので、host 側の到達経路(NAT/ファイアウォール)は
+- **ポート**: initrd の sshd はゲスト側の 2222 番ポートで待ち受ける。本体 sshd
+  (ゲスト側の 22 番ポート)とは別なので、ホスト側の到達経路(NAT/ファイアウォール)は
   本体 sshd 用の転送とは別に用意する必要がある。VM では
   `host:2223 → guest:2222` の NAT 規則を使った。**実機でこのポートに
   どう到達するかは環境依存であり未確認。**
-- host key のフィンガープリントで「本体 sshd ではなく initrd sshd に
+- ホスト鍵のフィンガープリントで「本体 sshd ではなく initrd sshd に
   繋がっているか」を判別できる。**`/var/lib/initrd-ssh/ssh_host_ed25519_key.pub`
   は暗号化された `/`(btrfs `@root`)の上にあり、initrd で足止めされている
   状況ではまだマウントされていない。** そこへ読みに行くには、解錠したい
   その当のマシンにログインする必要が生じてしまう(循環)。代わりに §2.2
-  (初回インストールでは install runbook §2.4)で控えた
+  (初回インストールでは初期インストール手順書 §2.4)で控えた
   フィンガープリントを使い、`ssh-keyscan -p <port> <host> | ssh-keygen -lf -` の結果と比較する。
 
 ### 5.3 パスフレーズ投入
 
-管理用 age 鍵で bootstrap を復号し、`jq` が抽出した LUKS 値だけを pipe へ流す。
+管理用 age 鍵で `secrets/bootstrap.yaml` を復号し、`jq` が抽出した LUKS 値だけをパイプへ流す。
 画面へ表示せず、永続ファイルにも保存しない。ワークステーション側の nix-config
-checkout で、`sops` と `jq` が使える devShell から実行する。
+チェックアウトで、`sops` と `jq` が使える開発シェルから実行する。
 
 ```bash
 set -o pipefail
@@ -519,15 +519,15 @@ SOPS_AGE_KEY_FILE=secrets/management-age-key.txt sops --decrypt --output-type js
 🔐 Please enter passphrase for disk disk-main-luks (cryptroot): (press TAB for no echo)
 ```
 
-投入後、`Connection to <host> closed.`(exit 0)で切断されるのは
-`switch-root` によって initrd の sshd が停止したことによる正常終了であり、
+投入後、`Connection to <host> closed.`(終了コード 0)で切断されるのは
+`switch-root`(ルート切り替え)によって initrd の sshd が停止したことによる正常終了であり、
 異常ではない。
 
 ### 5.4 `x-systemd.device-timeout=infinity` の効果
 
 `fileSystems."/".options` に設定済み。initrd SSH が最初から機能せず、
 コンソールから手動でパスフレーズを入れるまで長時間待たされる状況でも、
-パスフレーズのプロンプトは崩れず、cryptsetup 関連の unit がタイムアウトで
+パスフレーズのプロンプトは崩れず、cryptsetup 関連のユニットがタイムアウトで
 失敗することはない。
 
 ### 5.5 VM のハングとの切り分け
@@ -537,34 +537,34 @@ SOPS_AGE_KEY_FILE=secrets/management-age-key.txt sops --decrypt --output-type js
 スクリーンショットを 2 枚取り、バイトサイズが完全に同一であればハングと
 判定できる(`Ctrl+Alt+F3` 相当のキー入力に画面が無反応なら判定を補強できる)。
 ハングと判定したら VM をリセットする。VM 環境固有の既知事象であり、
-TPM2/Secure Boot の enrollment 自体の欠陥ではない。**実機でこの種のハングが
+TPM2／Secure Boot の登録自体の欠陥ではない。**実機でこの種のハングが
 起きるかは未確認。**
 
 ## 6. ブートローダ変更後は毎回自動解錠を確認する
 
 lanzaboote の再インストール(ブートローダファイルの再生成を伴う操作)は
 PCR 7(secure-boot-policy)の値を変える可能性があり、既存の PCR7 のみに
-縛った enrollment がその変化で解錠不能になることがある
+縛った登録がその変化で解錠不能になることがある
 (`journalctl` に `TPM policy does not match current system state. ...
 Operation not permitted` が出る)。
 
 → **ブートローダ構成を変える操作(lanzaboote 関連ファイルが更新される
 `nixos-rebuild switch`/`boot` を含む)の前後では、必ず自動解錠を確認する
 こと。** 解錠できなくなっていたら手動でパスフレーズを入力して起動し、§3.5
-の手順で TPM2 enrollment を作り直す。
+の手順で TPM2 登録を作り直す。
 
 ## 7. フェーズ B(`systemd-pcrlock`)— 現在は未対応
 
 VM の仮想 TPM + OVMF では `systemd-pcrlock` が機能する前提を満たせず、
 `hosts/jupiter/default.nix` にフェーズ B を有効化する宣言はコミットして
 いない(属性パスは実機で有効化する際に確定する。`flake/checks.nix` の
-契約 check も同様に未追加)。
+契約検査も同様に未追加)。
 
 ### 7.1 実機で試すときに最初に確認すること
 
 **`systemd-pcrlock is-supported` が `yes` を返すことは十分条件ではない。**
 正しい前提条件は「イベントログの再生が実際の PCR 値を再現すること」で、
-これは `make-policy` を実行して protection mask を読むまで分からない。
+これは `make-policy` を実行して保護マスクを読むまで分からない。
 VM では `is-supported` が `yes` を返しながら実際には使えなかった。実機で
 試すときは次の順で確認する。
 
@@ -573,40 +573,40 @@ VM では `is-supported` が `yes` を返しながら実際には使えなかっ
    `sudo <フルパス> is-supported` で `yes` を確認する(必要条件だが十分
    条件ではない)。
 2. `sudo <フルパス> make-policy --recovery-pin=show` を実行し、標準出力の
-   `PCRs dropped from protection mask:` / `PCRs in protection mask:` を
-   確認する。宣言したい PCR(0, 4, 7 など)が dropped 側に出た場合、実機の
+   `PCRs dropped from protection mask:`／`PCRs in protection mask:` を
+   確認する。宣言したい PCR(0、4、7 など)が除外側に出た場合、実機の
    イベントログ実装に VM と同じ制約がある。
 
-   VM での drop 理由: `lock-firmware-code`(PCR 0)/
+   VM での除外理由: `lock-firmware-code`(PCR 0)／
    `lock-secureboot-authority`(PCR 7)という「現在の状態を無条件に確定
    する」コマンドすら `Event log ... does not match PCR state, refusing`
    で失敗した。個々のイベントは認識されている
    (`allEventsMatched: true`)のに、それらを連結して計算した最終ダイジェスト
    が実際のレジスタ値と一致しない(`hashMatchesEventLog: false`)という、
    vTPM 自身の自己矛盾だった。実機の物理 TPM でこの制約が無いかは未確認。
-3. warm reboot(`systemctl reboot`)と、電源断相当のリセットの両方で
+3. ウォームリブート(`systemctl reboot`)と、電源断相当のリセットの両方で
    `make-policy` を再実行し、結果が変わらないか確認する。結果が同じで
    あれば、リブート方式の違いではなく TPM/ファームウェアの実装そのものの
    限界であると判断できる。
-4. drop が無ければ enroll(§3.5 相当。`--tpm2-pcrlock=/var/lib/systemd/pcrlock.json`
-   を指定する形)に進んでよい。drop があれば、フェーズ B の効果が「値の
-   変わらない PCR(13/14/15 など)だけを保護する enrollment」に縮退し、
-   「カーネル更新に追従する」という中核目的を検証できないので、enroll に
+4. 除外が無ければ TPM2 登録(§3.5 相当。`--tpm2-pcrlock=/var/lib/systemd/pcrlock.json`
+   を指定する形)に進んでよい。除外があれば、フェーズ B の効果が「値の
+   変わらない PCR(13／14／15 など)だけを保護する登録」に縮退し、
+   「カーネル更新に追従する」という中核目的を検証できないので、登録に
    進む前に判断をユーザーへ戻すこと。
 
-recovery PIN は `make-policy --recovery-pin=show` の実行時に標準出力へ
+復旧用 PIN は `make-policy --recovery-pin=show` の実行時に標準出力へ
 表示される。既定の `hide`(`pcrlock.json` に暗号化保存)は、ポリシーが古く
 なった時点で取り出せなくなるため使わない。
 
-### 7.2 recovery PIN の保管方針
+### 7.2 復旧用 PIN の保管方針
 
-**PIN そのものは本 runbook を含むこの repo のどこにも書かない。** 取得できた
-PIN はユーザー本人がオフラインの秘密管理手段に控える。この repo は public
-であり、PIN・パスフレーズ・秘密鍵はいかなる形式でもコミットしない。
+**PIN そのものは本手順書を含むこのリポジトリのどこにも書かない。** 取得できた
+PIN はユーザー本人がオフラインの秘密管理手段に控える。このリポジトリは公開されて
+いるため、PIN・パスフレーズ・秘密鍵はいかなる形式でもコミットしない。
 
 ### 7.3 無効化の順序(未確認)
 
-以下はフェーズ B を実際に enroll していないため未確認。実機でフェーズ B を
+以下はフェーズ B を実際に登録していないため未確認。実機でフェーズ B を
 成立させた後に無効化するときの参考手順として記載する。
 
 想定している順序:
@@ -617,7 +617,7 @@ PIN はユーザー本人がオフラインの秘密管理手段に控える。�
 3. `sudo <systemd-pcrlockのフルパス> remove-policy`
 
 逆順(特に 3 を先に実行する場合)の挙動は未確認。pcrlock ポリシーを先に
-消すと keyslot の検証対象(`PolicyAuthorizeNV` が指す NV index の内容)が
+消すと鍵スロットの検証対象(`PolicyAuthorizeNV` が指す NV インデックスの内容)が
 失われ、締め出される可能性があると考えているが、実機で確認するまで
 保証はない。
 
@@ -627,12 +627,12 @@ PIN はユーザー本人がオフラインの秘密管理手段に控える。�
 |---|---|
 | `sbctl <verb>` | PATH に無い。`nix run nixpkgs#sbctl -- <verb>` を使う |
 | `systemd-pcrlock <verb>` | PATH に無い。`/run/current-system/sw/lib/systemd/systemd-pcrlock` をフルパスで呼ぶ |
-| `systemd-pcrlock has-tpm2` | systemd 261 にこの verb は存在しない。TPM の実在は `/dev/tpm0`・`/dev/tpmrm0` で見る |
+| `systemd-pcrlock has-tpm2` | systemd 261 にこのサブコマンドは存在しない。TPM の実在は `/dev/tpm0`・`/dev/tpmrm0` で見る |
 | `systemd-pcrlock log --json=short \| grep -c PATTERN` | 1 行 JSON なので `grep -c` は常に 0 か 1 になる。`grep -o PATTERN \| wc -l` で出現回数を数える |
 | `VBoxManage showvminfo ... \| grep -i tpm` | 要素名は `TrustedPlatformModule`。`tpm` という文字列を含まないため拾えない |
 | `VBoxManage modifynvram <vm> secureboot`(引数無し) | クエリ用途には使えない。`--enable`/`--disable` の指定が必須 |
 | `VBoxManage modifynvram <vm> queryvar PK` | `--name=PK` の指定が必須 |
 | `cryptsetup luksDump` | `cryptsetup 2.8.6` では `tpm2-pcrs` 等の詳細を表示しない。`cryptsetup token export --token-id=N` で生 JSON を見る |
-| 同一 PCR セットでの再 `systemd-cryptenroll` | `This PCR set is already enrolled, executing no operation.` で黙って何もしないことがある。wipe と enroll を分ける |
+| 同一 PCR セットでの再 `systemd-cryptenroll` | `This PCR set is already enrolled, executing no operation.` で黙って何もしないことがある。削除と登録を分ける |
 | initrd SSH に `shishi@` で接続 | `Permission denied (publickey)`。initrd では `root@` のみ |
 | initrd SSH に `-tt` を付けない | 公開鍵認証は成功するがプロンプトが出ず無応答のままハングする |
