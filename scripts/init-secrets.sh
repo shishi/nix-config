@@ -7,6 +7,12 @@ repo_root=""
 tmpdir=""
 bootstrap_tmp=""
 runtime_tmp=""
+bootstrap_backup=""
+runtime_backup=""
+update_started=0
+update_committed=0
+primary_credential_min_chars=15
+primary_credential_max_chars=128
 management_age_key_file=""
 ssh_private_key=""
 gpg_signing_key=""
@@ -40,6 +46,12 @@ find_repo_root() {
   fi
 
   die 'flake.nix が見つからない。リポジトリ内で実行すること'
+}
+
+acquire_repo_lock() {
+  mkdir -p "$repo_root/secrets"
+  exec 9>"$repo_root/secrets/.init-secrets.lock" || die 'init-secrets lock を作成できない'
+  flock -n 9 || die '別の init-secrets が実行中'
 }
 
 resolve_management_age_key_file() {
@@ -85,6 +97,16 @@ read_confirmed_secret() {
   [ -n "$first" ] || die "$label は空にできない"
   [ "$first" = "$second" ] || die "$label が一致しない"
   printf '%s' "$first" >"$destination"
+}
+
+validate_primary_credential_file() {
+  local label=$1 file=$2 length
+
+  length=$(jq -Rs 'length' "$file")
+  if [ "$length" -lt "$primary_credential_min_chars" ] || \
+    [ "$length" -gt "$primary_credential_max_chars" ]; then
+    die "$label は${primary_credential_min_chars}文字以上${primary_credential_max_chars}文字以下にすること"
+  fi
 }
 
 read_optional_confirmed_secret() {
@@ -214,10 +236,12 @@ update_existing_secrets() {
 
   if read_optional_confirmed_secret \
     'LUKS パスフレーズ' "$tmpdir/bootstrap-current.json" 'luks-passphrase' "$tmpdir/luks-passphrase"; then
+    validate_primary_credential_file 'LUKS パスフレーズ' "$tmpdir/luks-passphrase"
     bootstrap_changed=1
   fi
   if read_optional_confirmed_secret \
     'ログインパスワード' "$tmpdir/bootstrap-current.json" 'login-password' "$tmpdir/login-password"; then
+    validate_primary_credential_file 'ログインパスワード' "$tmpdir/login-password"
     bootstrap_changed=1
   fi
   if read_optional_confirmed_secret \
@@ -306,6 +330,16 @@ update_existing_secrets() {
   fi
 
   if [ "$bootstrap_changed" -eq 1 ]; then
+    bootstrap_backup=$(mktemp "secrets/bootstrap.rollback.XXXXXXXX.yaml")
+    cp --preserve=mode -- secrets/bootstrap.yaml "$bootstrap_backup"
+  fi
+  if [ "$runtime_changed" -eq 1 ]; then
+    runtime_backup=$(mktemp "secrets/runtime.rollback.XXXXXXXX.yaml")
+    cp --preserve=mode -- secrets/runtime.yaml "$runtime_backup"
+  fi
+
+  update_started=1
+  if [ "$bootstrap_changed" -eq 1 ]; then
     mv -f -- "$bootstrap_tmp" secrets/bootstrap.yaml
     bootstrap_tmp=""
   fi
@@ -313,6 +347,8 @@ update_existing_secrets() {
     mv -f -- "$runtime_tmp" secrets/runtime.yaml
     runtime_tmp=""
   fi
+  update_committed=1
+  remove_update_backups
   printf 'init-secrets: secret を更新した\n'
 }
 
@@ -332,12 +368,34 @@ remove_staged_outputs() {
   done
 }
 
+restore_update_backups() {
+  if [ -n "$bootstrap_backup" ] && [ -e "$bootstrap_backup" ]; then
+    mv -f -- "$bootstrap_backup" secrets/bootstrap.yaml
+    bootstrap_backup=""
+  fi
+  if [ -n "$runtime_backup" ] && [ -e "$runtime_backup" ]; then
+    mv -f -- "$runtime_backup" secrets/runtime.yaml
+    runtime_backup=""
+  fi
+}
+
+remove_update_backups() {
+  [ -z "$bootstrap_backup" ] || rm -f -- "$bootstrap_backup"
+  [ -z "$runtime_backup" ] || rm -f -- "$runtime_backup"
+  bootstrap_backup=""
+  runtime_backup=""
+}
+
 cleanup() {
   if [ "$installation_started" -eq 1 ] && [ "$installation_committed" -eq 0 ]; then
     rollback_published_output "$staged_sops_config" "$repo_root/.sops.yaml"
     rollback_published_output "$staged_bootstrap" "$repo_root/secrets/bootstrap.yaml"
     rollback_published_output "$staged_runtime" "$repo_root/secrets/runtime.yaml"
   fi
+  if [ "$update_started" -eq 1 ] && [ "$update_committed" -eq 0 ]; then
+    restore_update_backups
+  fi
+  remove_update_backups
   remove_staged_outputs
   if [ -n "${tmpdir:-}" ] && [ -d "$tmpdir" ]; then
     rm -rf -- "$tmpdir"
@@ -355,6 +413,7 @@ trap 'cleanup; exit 1' HUP INT TERM
 
 repo_root=$(find_repo_root)
 cd "$repo_root"
+acquire_repo_lock
 resolve_management_age_key_file
 
 existing_outputs=0
@@ -374,7 +433,9 @@ fi
 require_source_keys
 generate_age_keys
 read_confirmed_secret 'LUKS パスフレーズ' "$tmpdir/luks-passphrase"
+validate_primary_credential_file 'LUKS パスフレーズ' "$tmpdir/luks-passphrase"
 read_confirmed_secret 'ログインパスワード' "$tmpdir/login-password"
+validate_primary_credential_file 'ログインパスワード' "$tmpdir/login-password"
 read_confirmed_secret 'SMB パスワード' "$tmpdir/smb-password"
 read_confirmed_secret 'Tailscale OAuth client secret' "$tmpdir/tailscale-oauth-secret"
 validate_tailscale_oauth_client_secret "$tmpdir/tailscale-oauth-secret"

@@ -35,6 +35,7 @@
     rclone
     ripgrep
     shfmt
+    sops
     stylua
     tailscale
     tree-sitter

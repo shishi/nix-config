@@ -144,6 +144,10 @@ jupiter へ同じアドレスで繋ぐときにも `REMOTE HOST IDENTIFICATION H
 になる。記録しなければどちらも起きない。`nixos-anywhere` も内部で同じ 2 つを
 使う。
 
+この手順は自宅 LAN を信頼境界に含め、初回の SSH ホスト鍵を別経路では照合しない。
+信頼できないネットワークを経由する場合は、事前に確認したホスト鍵を専用の
+`known_hosts` に固定し、`--ssh-option` で `nixos-anywhere` へ渡す。
+
 **`BatchMode=yes` は疎通確認にだけ付ける。** 鍵が拒否されたときに ssh が
 パスワード入力へフォールバックして無言に待ち続けるのを防ぐため(実測: 付けずに
 5 分ハングした)。`Permission denied (publickey)` の原因は 2 つ — ISO に鍵が
@@ -335,8 +339,10 @@ test ! -e ~/gpg-secret.asc
 エクスポートが残るので、ユニットのジャーナルを調べてから再実行する。
 
 ログインパスワードから生成した yescrypt ハッシュを使うのは、shishi の初回作成時だけ
-である。`mutableUsers = true` なので、インストール後の変更は Jupiter 上で `passwd` を
-実行する。暗号文のログインパスワードを変えても、既存ユーザーには反映しない。
+である。`mutableUsers = true` なので、暗号文のログインパスワードを変えても
+既存ユーザーには反映しない。インストール後は
+[秘密情報手順書 §5.1](jupiter-secrets-runbook.md) に従い、Jupiter 上のパスワードと
+暗号文を別々に同じ値へ更新する。
 
 Jupiter は起動時に SMB 資格情報を `/run/secrets/smb-mars-shishi` へ復号する。
 `/mnt/mars/shishi` へのアクセスが systemd の自動マウントを起動するため、NAS が停止中でも

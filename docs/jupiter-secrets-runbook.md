@@ -3,8 +3,8 @@
 ## 0. 目的と対象
 
 Jupiter の初期インストール用と実行時用の秘密情報を、平文を Git、
-ログ、Nix ストアに残さず作成・更新する。操作には `nix run .#init-secrets`
-だけを使い、SOPS ファイルをエディターで直接編集しない。
+ログ、Nix ストアに残さず作成・更新する。リポジトリ内の暗号文の作成・更新には
+`nix run .#init-secrets` だけを使い、SOPS ファイルをエディターで直接編集しない。
 
 秘密の分離方針は
 [SOPS と 2 種類の age 鍵で Jupiter の秘密を配送する](ADR/20260826-005117-use-sops-age-for-jupiter-secret-provisioning.md)
@@ -28,6 +28,22 @@ Jupiter の初期インストール用と実行時用の秘密情報を、平文
 管理用 age 鍵はパスワードマネージャーにもバックアップする。
 ローカルファイルとバックアップの両方を失うと、`secrets/bootstrap.yaml` を復旧できない。
 別の鍵を使う場合だけ `SOPS_AGE_KEY_FILE` を指定する。
+
+SOPS は値を暗号化するが、YAML の項目名、値の型、暗号文の長さは隠さない。
+文字列の暗号文にはパディングがないため、平文の UTF-8 バイト数を判別できる。
+ASCII だけの値ではバイト数と文字数が一致する。暗号文だけでは値を復元したり、
+推測した値が正しいか検証したりできないが、長さを秘密として扱ってはならない。
+
+`init-secrets` は、新しく入力する LUKS パスフレーズとログインパスワードを
+15 文字以上 128 文字以下に制限する。既存値を空 Enter で維持する場合は、
+現在値が 15 文字未満でも変更しない。入力しやすさと強度は次の方針で両立する。
+
+- ログイン／RDP 用: 7776 語以上の単語リストから均等に無作為選択した 4〜5 語
+- LUKS 用: 7776 語以上の単語リストから均等に無作為選択した 6 語
+- 2 つの値は分け、起動前でも入力できる英小文字を中心にする
+
+人が考えた文章、固有名詞、既知の引用文は使わない。文字数は入力を拒否する下限であり、
+強度そのものを保証しない。
 
 ## 2. 初期作成
 
@@ -83,6 +99,10 @@ nix run .#init-secrets
 `secrets/bootstrap.yaml` を復号できない場合は停止する。既存の暗号文がある状態で
 管理用 age 鍵を再生成してはならない。バックアップから同じ鍵を復元する。
 
+この操作が更新するのはリポジトリの暗号文だけである。稼働中の Jupiter にある
+ログインパスワードと LUKS キースロットは自動では変わらない。どちらかを更新する場合は
+§5 で実機と暗号文を同じ値にする。SMB パスワードは §6 の適用と再接続まで実行する。
+
 ## 4. 破棄して作り直す
 
 `.sops.yaml`、`secrets/bootstrap.yaml`、`secrets/runtime.yaml` は 1 セットとして扱う。
@@ -125,7 +145,73 @@ nix run .#init-secrets
 持つ主体は古い値を復号できる。漏えい対応では各秘密情報自体も変更し、Tailscale OAuth
 クライアントなどの外部資格情報を提供元で失効させて再発行する。
 
-## 5. SMB パスワードの変更
+## 5. 既存 Jupiter のログインパスワードと LUKS パスフレーズの変更
+
+### 5.1 ログインパスワード
+
+`secrets/bootstrap.yaml` のログインパスワードは、初回インストールで shishi を
+作成するときだけ使う。稼働中の Jupiter は `mutableUsers = true` なので、暗号文を
+更新して `nh os switch` を実行しても既存ユーザーのパスワードを変更しない。
+
+Jupiter でログインパスワードを変更する。
+
+```bash
+passwd
+```
+
+続いて「既存値の更新」を実行し、ログインパスワードに同じ新しい値を入力する。
+ほかの 3 項目は空 Enter で維持する。SSH 接続を残したまま、画面ロックの解除または
+RDP 接続で新しい値を確認する。暗号文は次回の再インストールに備えてコミットする。
+
+### 5.2 LUKS パスフレーズ
+
+暗号文を更新する前に、データのバックアップと LUKS ヘッダーのバックアップを用意する。
+`<secure-backup-path>` は Jupiter の暗号化ボリューム外にある保護済みの保存先とする。
+ヘッダーのバックアップと作成時点で有効なパスフレーズが揃うと、後からその値を
+削除してもデータを復号できるため、バックアップ自体も秘密情報として扱う。
+
+```bash
+sudo cryptsetup luksHeaderBackup --header-backup-file <secure-backup-path>/jupiter-luks-header.before.img /dev/disk/by-partlabel/disk-main-luks
+```
+
+Jupiter の LUKS2 へ新しいパスフレーズを追加する。新しい値は古い値と異なるものにする。
+`Keyslots:` セクションを確認し、0〜31 のうち表示されない番号を `<N>` とする。
+変更前のパスフレーズ用キースロットと、`Tokens:` にある `systemd-tpm2` の参照先も
+記録する。
+
+```bash
+sudo cryptsetup luksDump /dev/disk/by-partlabel/disk-main-luks
+sudo cryptsetup luksAddKey --verify-passphrase --new-key-slot <N> /dev/disk/by-partlabel/disk-main-luks
+```
+
+`luksAddKey` は、既存のパスフレーズまたは利用可能な LUKS2 トークンで
+ボリュームキーを取得した後、新しいパスフレーズを 2 回確認する。
+TPM2 トークンによる自動解錠を避け、追加したキースロットだけで新しい値を検証する。
+この確認はデバイスを新たに開かない。
+
+```bash
+sudo cryptsetup open --test-passphrase --disable-external-tokens --key-slot <N> /dev/disk/by-partlabel/disk-main-luks
+```
+
+確認後に「既存値の更新」を実行し、LUKS パスフレーズへ同じ新しい値を入力する。
+ほかの 3 項目は空 Enter で維持し、暗号文をコミットする。最後に古い値を入力して、
+古いキースロットだけを削除する。
+
+```bash
+sudo cryptsetup luksRemoveKey /dev/disk/by-partlabel/disk-main-luks
+sudo cryptsetup luksDump /dev/disk/by-partlabel/disk-main-luks
+sudo cryptsetup luksHeaderBackup --header-backup-file <secure-backup-path>/jupiter-luks-header.after.img /dev/disk/by-partlabel/disk-main-luks
+```
+
+`luksRemoveKey` に新しい値を入力してはならない。新しいキースロットの追加と検証、
+暗号文の更新がすべて成功するまで古い値を削除しない。パスフレーズ用キースロットの
+変更ではボリュームキーと TPM2 トークンを変えないため、TPM2 の再登録は不要である。
+最後の `luksDump` では、`Keyslots:` に追加した `<N>` が残り、旧パスフレーズ用の
+キースロットが消えたことを確認する。`Tokens:` の `systemd-tpm2` と参照先キースロットも
+変更前と同じであることを確認する。
+変更後のヘッダーバックアップを確認してから、変更前のバックアップを安全に破棄する。
+
+## 6. SMB パスワードの変更
 
 「既存値の更新」を実行し、SMB パスワードだけ新しい値を入力する。
 ほかの 3 項目は空 Enter で維持する。変更した `secrets/runtime.yaml` をコミットしてプッシュし、
@@ -148,7 +234,7 @@ sudo stat -c '%a %U:%G %n' /run/secrets/smb-mars-shishi
 期待値は `400 root:root` である。実 NAS 接続とパスワード変更後の再接続は
 自動テストでは確認しない。
 
-## 6. 失敗時の復旧
+## 7. 失敗時の復旧
 
 入力不一致、途中の EOF、復号失敗、SOPS 更新失敗では既存の暗号文を変更しない。
 原因を直し、同じ `nix run .#init-secrets` を再実行する。

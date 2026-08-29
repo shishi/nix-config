@@ -18,6 +18,8 @@ extra_files=""
 run_disko=0
 run_install=0
 phase_specified=0
+primary_credential_min_chars=15
+primary_credential_max_chars=128
 original_args=()
 
 die() {
@@ -154,6 +156,16 @@ extract_json_file() {
   chmod 600 "$destination"
 }
 
+validate_primary_credential_file() {
+  local label=$1 file=$2 length
+
+  length=$(jq -Rs 'length' "$file")
+  if [ "$length" -lt "$primary_credential_min_chars" ] || \
+    [ "$length" -gt "$primary_credential_max_chars" ]; then
+    die "$label は${primary_credential_min_chars}文字以上${primary_credential_max_chars}文字以下にすること"
+  fi
+}
+
 extract_and_validate() {
   luks_key="$tmpdir/luks.key"
   login_password="$tmpdir/login-password"
@@ -168,6 +180,9 @@ extract_and_validate() {
   extract_json_file ssh-private-key "$ssh_private_key"
   extract_json_file gpg-secret-key "$gpg_secret_key"
   extract_json_file jupiter-age-key "$jupiter_age_key"
+
+  validate_primary_credential_file 'LUKS パスフレーズ' "$luks_key"
+  validate_primary_credential_file 'ログインパスワード' "$login_password"
 
   ssh-keygen -y -f "$ssh_private_key" >"$ssh_public_key" 2>/dev/null || \
     die 'bootstrap.yaml の SSH 秘密鍵が無効'

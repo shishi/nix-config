@@ -53,6 +53,19 @@
         # 実 hardware-configuration.nix の commit 後に jupiter-toplevel として既定編入する
         jupiter-stub-eval = evalOnly "jupiter-stub" self.nixosConfigurations.jupiter;
 
+        # 秘密情報の作成・復号を一時 shell なしで実行できることを固定する。
+        jupiter-sops-cli-contract =
+          let
+            hm = self.nixosConfigurations.jupiter.config.home-manager.users.shishi;
+          in
+          pkgs.runCommand "jupiter-sops-cli-contract" { } ''
+            ${if builtins.elem pkgs.sops hm.home.packages then "true" else "false"} || {
+              echo "Jupiter Home Manager packages do not include sops"
+              exit 1
+            }
+            touch $out
+          '';
+
         # ChatGPT Desktop は OpenAI の version 付き Linux package を使う。
         # /latest/ は同じ lock の取得物が上流更新で変わり、固定 hash と衝突するため禁止する。
         chatgpt-desktop-contract =
@@ -311,6 +324,37 @@
             '["smb-mars-shishi","tailscale-oauth-secret"]' "$runtime_recipient"
           touch $out
         '';
+
+        # 秘密の初期化・配送・GPG import は、静的な暗号化済みファイルの検査だけでは
+        # rollback、出力のredaction、配送先modeの退行を検出できない。テストが
+        # 開発者のlogin PATHを偶然使わないよう、実行に必要なコマンドをすべて固定する。
+        secrets-workflow-contract =
+          pkgs.runCommand "secrets-workflow-contract"
+            {
+              src = ../.;
+              nativeBuildInputs = with pkgs; [
+                age
+                bash
+                coreutils
+                diffutils
+                findutils
+                gawk
+                git
+                gnugrep
+                gnupg
+                gnused
+                jq
+                mkpasswd
+                openssh
+                ripgrep
+                sops
+                util-linux
+              ];
+            }
+            ''
+              bash "$src/scripts/secrets-workflow.test.sh" all
+              touch $out
+            '';
 
         # ロケール契約: 表示は英語、書式は日本の慣習。
         # SDDM の greeter も同じ値で固定する。nixos/desktop/kde.nix が

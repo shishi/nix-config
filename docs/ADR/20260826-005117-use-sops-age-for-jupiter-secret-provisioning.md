@@ -106,11 +106,15 @@ Jupiter の侵害から保護する境界には含めません。
 * SSH と GPG の秘密鍵は Jupiter 上に保持するため、Jupiter の root 侵害からは保護できない
 * Jupiter の root 侵害時は、Tailscale OAuth クライアントシークレットも漏えいする
 * SMB パスワード変更後は、既存 CIFS セッションの再接続が必要になる
+* SOPS は YAML の項目名、値の型、暗号文の長さを隠さない。パディングされない
+  文字列では、暗号文から平文の UTF-8 バイト数を判別できる
 
 **中立的な影響:**
 
 * `/etc/fstab` は直接編集せず、NixOS の `fileSystems` から生成する
 * GPG エクスポートは配送形式であり、正常なインポート後は Jupiter に残さない
+* 暗号文の更新と、稼働中の Jupiter にあるログインパスワードまたは LUKS
+  キースロットの更新は別の操作になる
 
 ### 確認方法
 
@@ -158,6 +162,11 @@ age CLI で暗号化し、独自の systemd ユニットで復号します。
 
 * [sops-nix](https://github.com/Mic92/sops-nix)
 * [SOPS](https://github.com/getsops/sops)
+* [SOPS 3.13.3 の AES-GCM 実装](https://github.com/getsops/sops/blob/v3.13.3/aes/cipher.go)
+* [cryptsetup 2.8.6 FAQ](https://gitlab.com/cryptsetup/cryptsetup/-/blob/v2.8.6/FAQ.md)
+* [cryptsetup 2.8.6 luksAddKey](https://gitlab.com/cryptsetup/cryptsetup/-/blob/v2.8.6/man/cryptsetup-luksAddKey.8.adoc)
+* [cryptsetup 2.8.6 open](https://gitlab.com/cryptsetup/cryptsetup/-/blob/v2.8.6/man/cryptsetup-open.8.adoc)
+* [cryptsetup 2.8.6 luksRemoveKey](https://gitlab.com/cryptsetup/cryptsetup/-/blob/v2.8.6/man/cryptsetup-luksRemoveKey.8.adoc)
 * [agenix](https://github.com/ryantm/agenix)
 * [Tailscale OAuth クライアントで Jupiter を無人登録する](20260827-203526-use-tailscale-oauth-client-for-jupiter-enrollment.md)
 * [Jupiter の秘密情報手順書](../jupiter-secrets-runbook.md)

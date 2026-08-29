@@ -21,6 +21,7 @@ repo_root=$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)
 work=$(mktemp -d)
 test_home="$work/home"
 repo="$work/repo"
+test_bash=$(command -v bash)
 
 cleanup() {
   rm -rf -- "$work"
@@ -76,14 +77,18 @@ prepare_source_keys() {
   HOME="$test_home" git config --global user.signingkey "$signing_key"
 }
 
-run_init() {
+run_init_from_stdin() {
   (
     cd "$repo"
     HOME="$test_home" \
     GNUPGHOME="$test_home/.gnupg" \
     SOPS_AGE_KEY_FILE="$test_home/.config/sops/age/keys.txt" \
       bash scripts/init-secrets.sh
-  ) <<'EOF'
+  )
+}
+
+run_init() {
+  run_init_from_stdin <<'EOF'
 luks-test-value
 luks-test-value
 login-test-value
@@ -154,7 +159,7 @@ run_init_with_publish_race() {
   real_ln=$(command -v ln)
   mkdir -p "$work/publish-race-bin"
   printf '%s\n' \
-    '#!/usr/bin/env bash' \
+    "#!$test_bash" \
     'set -euo pipefail' \
     'if [ "$1" = -T ] && [ "$3" = "$RACE_FINAL" ]; then' \
     '  rm -f -- "$RACE_REPLACED_FINAL"' \
@@ -268,9 +273,47 @@ test_publish_race_preserves_competing_entry() {
   if run_init_with_publish_race >"$work/stdout" 2>"$work/stderr"; then
     fail "initializer unexpectedly succeeded despite a publish race"
   fi
-  test "$(cat "$repo/.sops.yaml")" = competing-sops-ciphertext || fail "replacement entry was deleted or overwritten"
+  if [ ! -f "$repo/.sops.yaml" ] || [ "$(cat "$repo/.sops.yaml")" != competing-sops-ciphertext ]; then
+    sed 's/^/initializer stderr: /' "$work/stderr" >&2
+    fail "replacement entry was deleted or overwritten"
+  fi
   test ! -e "$repo/secrets/bootstrap.yaml" || fail "initializer bootstrap output remained after publish race"
   test "$(cat "$repo/secrets/runtime.yaml")" = competing-runtime-ciphertext || fail "competing entry was overwritten"
+}
+
+test_concurrent_initializer_is_rejected_before_input() {
+  local lock_fd
+
+  copy_fixture_repo
+  prepare_source_keys
+  mkdir -p "$repo/secrets"
+  exec {lock_fd}>"$repo/secrets/.init-secrets.lock"
+  flock -n "$lock_fd" || fail "test could not acquire the initializer lock"
+  if run_init >"$work/stdout" 2>"$work/stderr"; then
+    fail "initializer ignored an existing repository lock"
+  fi
+  exec {lock_fd}>&-
+  rg -F '別の init-secrets が実行中' "$work/stderr" >/dev/null || \
+    fail "initializer lock failure did not report a controlled error"
+  assert_absent_outputs
+}
+
+test_short_luks_passphrase_is_rejected() {
+  copy_fixture_repo
+  prepare_source_keys
+  if run_init_from_stdin >"$work/stdout" 2>"$work/stderr" <<'EOF'
+short
+short
+EOF
+  then
+    fail "initializer accepted a short LUKS passphrase"
+  fi
+  if ! rg -F 'LUKS パスフレーズ は15文字以上128文字以下' "$work/stderr" >/dev/null; then
+    sed 's/^/initializer stderr: /' "$work/stderr" >&2
+    fail "short LUKS passphrase did not report the length policy"
+  fi
+  ! rg -F 'short' "$work/stdout" "$work/stderr" || fail "initializer logged the rejected LUKS passphrase"
+  assert_absent_outputs
 }
 
 test_successful_initialization_encrypts_expected_boundaries() {
@@ -365,8 +408,8 @@ prepare_wrapper_fixture() {
 
 make_fake_nixos_anywhere() {
   mkdir -p "$work/fake-bin"
-  cat >"$work/fake-bin/nixos-anywhere" <<'EOF'
-#!/usr/bin/env bash
+  printf '#!%s\n' "$test_bash" >"$work/fake-bin/nixos-anywhere"
+  cat >>"$work/fake-bin/nixos-anywhere" <<'EOF'
 set -euo pipefail
 
 args_log=${FAKE_ARGS_LOG:?}
@@ -613,6 +656,28 @@ EOF
     fail "init update changed runtime.yaml after empty input"
 }
 
+test_init_update_preserves_an_existing_short_primary_credential() {
+  local bootstrap_before runtime_before
+
+  reset_init_update_fixture
+  rewrite_bootstrap '."luks-passphrase" = "short"'
+  bootstrap_before=$(sha256sum "$repo/secrets/bootstrap.yaml")
+  runtime_before=$(sha256sum "$repo/secrets/runtime.yaml")
+  if ! run_init_update >"$work/update.stdout" 2>"$work/update.stderr" <<'EOF'
+
+
+
+
+EOF
+  then
+    fail "init update rejected preserving an existing short LUKS passphrase"
+  fi
+  test "$bootstrap_before" = "$(sha256sum "$repo/secrets/bootstrap.yaml")" || \
+    fail "preserving an existing short LUKS passphrase changed bootstrap.yaml"
+  test "$runtime_before" = "$(sha256sum "$repo/secrets/runtime.yaml")" || \
+    fail "preserving an existing short LUKS passphrase changed runtime.yaml"
+}
+
 test_init_update_rejects_invalid_input_without_changes() {
   local bootstrap_before filter runtime_before
 
@@ -731,6 +796,43 @@ EOF
     fail "init update changed runtime.yaml after EOF"
 }
 
+test_init_update_rolls_back_both_files_when_second_publish_fails() {
+  local bootstrap_before real_mv runtime_before
+
+  reset_init_update_fixture
+  bootstrap_before=$(sha256sum "$repo/secrets/bootstrap.yaml")
+  runtime_before=$(sha256sum "$repo/secrets/runtime.yaml")
+  real_mv=$(command -v mv)
+  mkdir -p "$work/failing-bin"
+  printf '#!%s\n' "$test_bash" >"$work/failing-bin/mv"
+  cat >>"$work/failing-bin/mv" <<'EOF'
+set -euo pipefail
+if [ "${@: -1}" = secrets/runtime.yaml ] && [ ! -e "$FAILURE_MARKER" ]; then
+  : >"$FAILURE_MARKER"
+  exit 71
+fi
+exec "$REAL_MV" "$@"
+EOF
+  chmod +x "$work/failing-bin/mv"
+
+  if FAILURE_MARKER="$work/second-publish-failed" REAL_MV="$real_mv" PATH="$work/failing-bin:$PATH" \
+    run_init_update >"$work/update.stdout" 2>"$work/update.stderr" <<'EOF'
+luks-updated-value
+luks-updated-value
+
+smb-updated-value
+smb-updated-value
+
+EOF
+  then
+    fail "init update succeeded after the second publish failed"
+  fi
+  test "$(sha256sum "$repo/secrets/bootstrap.yaml")" = "$bootstrap_before" || \
+    fail "init update left bootstrap.yaml partially updated"
+  test "$(sha256sum "$repo/secrets/runtime.yaml")" = "$runtime_before" || \
+    fail "init update changed runtime.yaml after the second publish failed"
+}
+
 test_init_update_preserves_files_when_sops_set_fails() {
   local bootstrap_before real_sops runtime_before
 
@@ -739,8 +841,8 @@ test_init_update_preserves_files_when_sops_set_fails() {
   runtime_before=$(sha256sum "$repo/secrets/runtime.yaml")
   real_sops=$(command -v sops)
   mkdir -p "$work/failing-bin"
-  cat >"$work/failing-bin/sops" <<'EOF'
-#!/usr/bin/env bash
+  printf '#!%s\n' "$test_bash" >"$work/failing-bin/sops"
+  cat >>"$work/failing-bin/sops" <<'EOF'
 if [ "$1" = set ]; then
   : >"$3"
   exit 70
@@ -884,6 +986,21 @@ test_malformed_bootstrap_values_are_rejected() {
   done
 }
 
+test_primary_credential_length_policy_is_enforced_by_wrapper() {
+  local filter
+  for filter in \
+    '."luks-passphrase" = "short"' \
+    '."login-password" = "short"' \
+    '."luks-passphrase" = ("x" * 129)' \
+    '."login-password" = ("x" * 129)'; do
+    reset_wrapper_fixture
+    rewrite_bootstrap "$filter"
+    assert_wrapper_fails --phases install
+    rg -F '15文字以上128文字以下' "$work/wrapper.stderr" >/dev/null || \
+      fail "wrapper credential length failure did not report the policy"
+  done
+}
+
 test_malformed_runtime_values_are_rejected() {
   local filter
   for filter in \
@@ -1007,6 +1124,7 @@ if [ "$suite" = wrapper ]; then
   test_damaged_bootstrap_mac_is_rejected
   test_rewrite_bootstrap_isolated_from_repository_sops_config
   test_malformed_bootstrap_values_are_rejected
+  test_primary_credential_length_policy_is_enforced_by_wrapper
   test_malformed_runtime_values_are_rejected
   test_untracked_ciphertext_is_rejected
   test_child_status_and_cleanup_are_preserved
@@ -1035,15 +1153,23 @@ mkdir -p "$repo" "$test_home"
 test_publish_race_preserves_competing_entry
 rm -rf -- "$repo" "$test_home"
 mkdir -p "$repo" "$test_home"
+test_concurrent_initializer_is_rejected_before_input
+rm -rf -- "$repo" "$test_home"
+mkdir -p "$repo" "$test_home"
+test_short_luks_passphrase_is_rejected
+rm -rf -- "$repo" "$test_home"
+mkdir -p "$repo" "$test_home"
 test_successful_initialization_encrypts_expected_boundaries
 test_initialization_rejects_non_oauth_client_secrets
 test_init_update_updates_entered_values_and_preserves_empty_values
 test_init_update_adds_missing_oauth_secret
 test_init_update_preserves_all_existing_secrets_on_empty_input
+test_init_update_preserves_an_existing_short_primary_credential
 test_init_update_rejects_invalid_input_without_changes
 test_init_update_rejects_non_oauth_client_secrets_without_changes
 test_init_update_rejects_existing_non_oauth_client_secrets
 test_init_update_rejects_eof_without_changes
+test_init_update_rolls_back_both_files_when_second_publish_fails
 test_init_update_preserves_files_when_sops_set_fails
 
 echo "secrets workflow tests: PASS"

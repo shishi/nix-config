@@ -24,6 +24,7 @@
         runtimeInputs = with pkgs; [
           age
           coreutils
+          diffutils
           findutils
           git
           gnugrep
