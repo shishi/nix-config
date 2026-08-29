@@ -434,13 +434,13 @@ in
     # 妥当なら即 exit 0 なので、繰り返しても安い。
     #
     # --address は指定しない(既定の 0.0.0.0)。到達範囲は firewall 側で
-    # 送信元により絞る(hosts/jupiter/default.nix)。
+    # Tailscale のインタフェースだけに絞る(hosts/jupiter/default.nix)。
     #
     # **PAM 認証がネットワークに出ることは受け入れている。破られると、そこから
-    # NOPASSWD の sudo で root まで届く**(nixos/sudo.nix)。守りは TLS と PAM に
-    # 加えて、到達範囲を送信元で絞っていること —— hosts/jupiter/default.nix の
-    # networking.firewall.extraCommands が RFC1918 と Tailscale の CGNAT 範囲だけを
-    # 通す。**allowedTCPPorts は使っていない**(全インタフェースで開くため)。
+    # NOPASSWD の sudo で root まで届く**(nixos/sudo.nix)。守りは Tailscale の
+    # ノード認証と通信ポリシー、TLS、PAM である。hosts/jupiter/default.nix は
+    # `networking.firewall.interfaces.tailscale0.allowedTCPPorts` で 3389 番ポートを
+    # Tailscale のインタフェースだけに開ける。
     #
     # --username を渡すと krdpserverrc の SystemUserEnabled が読まれなくなる。
     #

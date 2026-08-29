@@ -7,14 +7,6 @@
 let
   # DE の単一真実: この 1 変数から system 側 import と HM 側フラグを導出する
   desktop = "kde";
-
-  # RDP を通す送信元。RFC1918 の 3 つと、Tailscale の CGNAT 範囲。
-  rdpNets = [
-    "10.0.0.0/8"
-    "172.16.0.0/12"
-    "192.168.0.0/16"
-    "100.64.0.0/10"
-  ];
 in
 {
   imports = [
@@ -252,26 +244,14 @@ in
 
   # RDP。krdpserver は 0.0.0.0 に bind するので、到達範囲はここで決まる。
   #
-  # **`networking.firewall.allowedTCPPorts` は使わない。** あれは全インタフェースで
-  # 開くため、この機体(lid スイッチとバッテリーを持つ可搬機)を自宅以外の AP へ
-  # 繋いだ瞬間、そのセグメント全体に 3389 が開く。送信元で絞る。
-  #
-  # `networking.nftables.enable` は false(iptables バックエンド)なので
-  # `extraInputRules` は使えず、`extraCommands` に iptables を書く。
-  # `nixos-fw` / `nixos-fw-accept` は NixOS の firewall モジュールが作る chain。
+  # 全インタフェースでは開かず、Tailscale の認証済み通信だけを通す。
+  # 3389 への到達主体は tailnet 側の通信ポリシーで管理する。
   #
   # **この口の先には PAM 認証があり、その先は NOPASSWD の sudo がある**
   # (nixos/sudo.nix)。PAM を破られると追加認証なしで root まで届く。
   # 到達範囲を絞っているのはそのため。
   services.tailscale.enable = true;
-  networking.firewall = {
-    extraCommands = lib.concatMapStrings (net: ''
-      iptables -A nixos-fw -p tcp --dport 3389 -s ${net} -j nixos-fw-accept
-    '') rdpNets;
-    extraStopCommands = lib.concatMapStrings (net: ''
-      iptables -D nixos-fw -p tcp --dport 3389 -s ${net} -j nixos-fw-accept || true
-    '') rdpNets;
-  };
+  networking.firewall.interfaces.tailscale0.allowedTCPPorts = [ 3389 ];
 
   # Bluetooth。AX210 に内蔵されていて、カーネルは起動時に hci0 として認識し
   # Intel のファームウェア(intel/ibt-0041-0041.sfi)も読み込み済み。有効化して

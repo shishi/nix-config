@@ -225,7 +225,7 @@
           '';
 
         # Jupiter は SOPS で復号した OAuth client secret を使って tailnet へ自動参加し、
-        # tag:jupiter の永続ノードとして Tailscale SSH を公開する。
+        # tag:jupiter の永続ノードとして Tailscale SSH と Tailscale 限定の RDP を公開する。
         jupiter-tailscale-contract =
           let
             cfg = self.nixosConfigurations.jupiter.config;
@@ -233,6 +233,9 @@
             secret = cfg.sops.secrets."tailscale-oauth-secret" or { };
             autoconnect = cfg.systemd.services.tailscaled-autoconnect;
             tailscaledSet = cfg.systemd.services.tailscaled-set;
+            rdpInterfaces = builtins.filter (
+              name: builtins.elem 3389 (cfg.networking.firewall.interfaces.${name}.allowedTCPPorts or [ ])
+            ) (builtins.attrNames cfg.networking.firewall.interfaces);
             showNullable = value: if value == null then "" else toString value;
           in
           pkgs.runCommand "jupiter-tailscale-contract" { } ''
@@ -265,6 +268,16 @@
             check tailscaled-set.after "${
               if builtins.elem "tailscaled-autoconnect.service" tailscaledSet.after then "present" else "missing"
             }" "present"
+            check firewall.rdpInterfaces "${builtins.concatStringsSep "|" rdpInterfaces}" "tailscale0"
+            check firewall.global.rdp "${
+              if builtins.elem 3389 cfg.networking.firewall.allowedTCPPorts then "present" else "missing"
+            }" "missing"
+            check firewall.extraCommands.rdp "${
+              if pkgs.lib.hasInfix "--dport 3389" cfg.networking.firewall.extraCommands then
+                "present"
+              else
+                "missing"
+            }" "missing"
             [ "$ok" = 1 ] || exit 1
             touch $out
           '';

@@ -111,7 +111,7 @@ sudo には効かない(NOPASSWD が認証フェーズを飛ばす。効かせ�
 ### リモートデスクトップ(RDP)
 
 KRdp は動作中の Plasma セッションを RDP で共有する。`0.0.0.0:3389` で待ち受け、
-ファイアウォールが 3389 番ポートを開けている(送信元は LAN と Tailscale の範囲に限定)。
+ファイアウォールは `tailscale0` だけで 3389 番ポートを開ける。
 
 **ポータル経路を使う。** `--plasma` だとクリップボードが両方向とも動かない(KRdp
 6.7.4 の `PlasmaScreencastV1Session::setClipboardData` が空実装)。ポータルは既定で
@@ -121,30 +121,32 @@ PermissionStore に事前許可を書くのでダイアログは出ない。**�
 使えない」で詰む。**
 
 手元の RDP クライアントから
-`<jupiter>:3389` へ直接繋ぐ。ユーザー名は `shishi`、パスワードは
+Jupiter の MagicDNS 名または Tailscale IP の 3389 番ポートへ直接繋ぐ。
+ユーザー名は `shishi`、パスワードは
 **shishi のシステムパスワード**。接続すると画面ロックが出るので、同じパスワードで
 解除する。
 
 **この口の先は PAM 認証で、その先は NOPASSWD の sudo。** 破られるとパスワード
-1 つで root まで届く。そのためファイアウォールは 3389 を全インタフェースで開けず、
-送信元が RFC1918 と Tailscale の CGNAT 範囲(`100.64.0.0/10`)のときだけ通す。
-自宅以外の AP に繋いでも、そのセグメントからは届かない。ルータでポート転送する
-ことは想定していない。
+1 つで root まで届く。そのため 3389 番ポートは Tailscale のインタフェースだけで
+開ける。物理 LAN と接続先の AP からは直接到達できない。tailnet 内での到達主体は
+Tailscale の通信ポリシーに従う。
 
 Tailscale は `secrets/runtime.yaml` の `tailscale-oauth-secret` を使い、
 `tag:jupiter` の永続ノードとして tailnet へ自動参加する。Tailscale SSH も
 `tailscale set --ssh` で有効にする。Jupiter のシステムビルド前に OAuth クライアントを
 発行し、`nix run .#init-secrets` でクライアントシークレットを登録する。既存の秘密情報は
 空 Enter で維持し、値を入力した項目だけ更新する。
+Tailscale SSH が扱うのは 22 番ポートで、RDP は Tailscale ネットワーク上の
+3389 番ポートへ直接接続する。
 
 **KWallet は自動では開かない。** `pam_kwallet` はログインパスワードから鍵を
 導出するので、autoLogin では鍵が渡らない(セッション開始直後の `kwalletd6` は
 バス上で起動可能な状態のまま)。KWallet を使うアプリは初回に開錠を求めてくる。
 
 手元が Windows のとき、`localhost:3389` は Windows 自身の RDP サーバーを指す。
-jupiter へは**ホスト名か IP で**繋ぐこと。SSH トンネルを張る場合も、手元側は
-3389 を避けて `ssh -N -L 13389:127.0.0.1:3389 shishi@<jupiter>` のように別の
-ポートにする。
+Jupiter へは**MagicDNS 名か Tailscale IP で**繋ぐこと。SSH トンネルを張る場合も、
+手元側は 3389 を避ける。例えば
+`ssh -N -L 13389:127.0.0.1:3389 shishi@<jupiter>` のように別のポートにする。
 
 - セッションは autoLogin で常時上がっており、**開始時にロックが降りる**
   (`kscreenlocker.lockOnStartup`。掛けるのはロッカー自身で、自分の起動時に掛ける)。
@@ -157,9 +159,10 @@ jupiter へは**ホスト名か IP で**繋ぐこと。SSH トンネルを張る
 - 証明書は初回起動時に `~/.local/share/krdp/` へ自己署名で作られる。自己署名なので
   クライアントは証明書の警告を出す
 - **RDP のパスワードは shishi のログインパスワードそのもの。** 出所は
-  `secrets/bootstrap.yaml` の暗号文からインストール用ラッパーが生成・配送するハッシュで、
-  `nixos/users.nix` はパスワードを宣言しない(公開リポジトリのため)。置き忘れると
-  shadow が `!` になり、RDP もロック解除も通らない
+  初回インストール時だけ `secrets/bootstrap.yaml` の暗号文からラッパーが生成・配送する
+  ハッシュである。稼働後は Jupiter 上の `passwd` と暗号文を別々に同じ値へ更新する。
+  `nixos/users.nix` はパスワードを宣言しない(公開リポジトリのため)。初回配送時に
+  置き忘れると shadow が `!` になり、RDP もロック解除も通らない
 - 音声・クリップボード・マルチモニタの挙動は未確認
 
 ## 更新
