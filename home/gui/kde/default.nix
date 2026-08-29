@@ -96,6 +96,16 @@ in
   imports = [ inputs.plasma-manager.homeModules.plasma-manager ];
 
   config = lib.mkIf (config.my.desktopSession == "kde") {
+    # Linux Computer Use は AT-SPI のアクセシビリティツリーから画面要素を読む。
+    # bundled setup は org.a11y.Status.IsEnabled を実行中の D-Bus セッションへ
+    # 書くのが第1候補なので、再ログイン後の状態までは保証しない。永続設定を
+    # Home Manager で管理し、ChatGPT を含む Electron アプリが次回起動時から
+    # アクセシビリティを公開できるようにする。
+    dconf = {
+      enable = true;
+      settings."org/gnome/desktop/interface".toolkit-accessibility = true;
+    };
+
     home.packages = with pkgs; [
       kdePackages.yakuake
       kdePackages.kzones

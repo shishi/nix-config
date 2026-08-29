@@ -59,10 +59,33 @@
           let
             hm = self.nixosConfigurations.jupiter.config.home-manager.users.shishi;
             desktop = hm.programs.codexDesktopLinux;
-            package = inputs.codex-desktop-linux.packages.${pkgs.stdenv.hostPlatform.system}.codex-desktop;
+            packages = builtins.filter (
+              candidate: (candidate.meta.mainProgram or "") == "codex-desktop"
+            ) hm.home.packages;
+            package =
+              if builtins.length packages == 1 then
+                builtins.head packages
+              else
+                throw "Home Manager must install exactly one codex-desktop package";
             upstreamUrl = package.passthru.upstreamDeb.url;
             expectedUpstreamUrl = "https://persistent.oaistatic.com/codex-app-prod/linux/deb/pool/main/c/chatgpt/chatgpt_${package.version}_amd64.deb";
-            packageInstalled = builtins.any (candidate: candidate.drvPath == package.drvPath) hm.home.packages;
+            expectedLinuxFeatures = [
+              "automation-extensions"
+              "directory-only-working-tree-watch"
+              "node-repl-reaper"
+              "project-group-last-updated-sort"
+              "tray-usage"
+            ];
+            expectedPackageLinuxFeatures = [
+              "automation-extensions"
+              "computer-use-linux"
+              "directory-only-working-tree-watch"
+              "node-repl-reaper"
+              "project-group-last-updated-sort"
+              "tray-usage"
+            ];
+            toolkitAccessibility =
+              hm.dconf.settings."org/gnome/desktop/interface"."toolkit-accessibility" or false;
             widgets = builtins.concatMap (panel: panel.widgets) hm.programs.plasma.panels;
             iconTasks = pkgs.lib.findFirst (widget: widget.name == "org.kde.plasma.icontasks") { } widgets;
             launchers = iconTasks.config.General.launchers or [ ];
@@ -75,16 +98,20 @@
 
             [ "${if desktop.enable then "true" else "false"}" = true ] || \
               fail "codexDesktopLinux is disabled"
-            [ "${builtins.toJSON desktop.linuxFeatures}" = '[]' ] || \
-              fail "optional codex-desktop Linux features are enabled"
-            [ "${if desktop.computerUseUi.enable then "true" else "false"}" = false ] || \
-              fail "codex-desktop Computer Use UI is enabled"
+            ${if desktop.linuxFeatures == expectedLinuxFeatures then "true" else "false"} || \
+              fail "codex-desktop Linux feature selection differs from the approved set"
+            [ "${if desktop.computerUseUi.enable then "true" else "false"}" = true ] || \
+              fail "codex-desktop Computer Use UI is disabled"
+            ${if package.passthru.linuxFeatureIds == expectedPackageLinuxFeatures then "true" else "false"} || \
+              fail "installed codex-desktop package does not contain the approved Linux features"
+            [ "${if hm.dconf.enable then "true" else "false"}" = true ] || \
+              fail "dconf is disabled for the Computer Use accessibility setting"
+            [ "${if toolkitAccessibility then "true" else "false"}" = true ] || \
+              fail "AT-SPI toolkit accessibility is not persisted"
             [ "${if desktop.remoteMobileControl.enable then "true" else "false"}" = false ] || \
               fail "codex-desktop remote mobile control is enabled"
             [ "${if desktop.remoteControl.enable then "true" else "false"}" = false ] || \
               fail "codex-desktop remote control service is enabled"
-            ${if packageInstalled then "true" else "false"} || \
-              fail "Home Manager does not install the pinned codex-desktop package"
             [ "${hm.home.sessionVariables.CODEX_LINUX_DISABLE_USAGE_REPORTING or ""}" = 1 ] || \
               fail "community usage reporting is not disabled for login sessions"
             [ "${hm.systemd.user.sessionVariables.CODEX_LINUX_DISABLE_USAGE_REPORTING or ""}" = 1 ] || \

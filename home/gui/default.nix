@@ -46,10 +46,17 @@
 
     # OpenAI の公式 Linux package を NixOS 向けに包む community distribution。
     # package の再現性を優先して version 付き upstream URL を使う。
-    # community 独自機能は必要になるまで有効にしない。
+    # community 独自機能は、用途を確認して明示的に採用したものだけ有効にする。
     programs.codexDesktopLinux = {
       enable = true;
-      linuxFeatures = [ ];
+      computerUseUi.enable = true;
+      linuxFeatures = [
+        "automation-extensions"
+        "directory-only-working-tree-watch"
+        "node-repl-reaper"
+        "project-group-last-updated-sort"
+        "tray-usage"
+      ];
     };
 
     # launcher は既定で 1 日 1 回、community の GoatCounter へ起動を通知する。

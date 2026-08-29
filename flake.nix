@@ -55,8 +55,9 @@
     # ChatGPT Desktop。OpenAI の署名済み APT metadata から version 付き .deb を
     # 固定する第三者 distribution。旧 wrapper の /latest/ URL は上流更新のたびに
     # 同じ lock が別内容を指して固定 hash と衝突したため使わない。
-    # 任意の Linux 拡張は無効にし、独自 usage reporting も home/gui/default.nix で
-    # 無効化する。lock 更新時は、この第三者 wrapper の diff を確認すること。
+    # 用途を確認した Linux 拡張だけを有効にし、独自 usage reporting は
+    # home/gui/default.nix で無効化する。lock 更新時は、この第三者 wrapper の
+    # diff と有効機能の権限・挙動を確認すること。
     codex-desktop-linux = {
       url = "github:ilysenko/codex-desktop-linux";
       inputs.nixpkgs.follows = "nixpkgs";
