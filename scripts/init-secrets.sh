@@ -100,13 +100,15 @@ read_confirmed_secret() {
 }
 
 validate_primary_credential_file() {
-  local label=$1 file=$2 length
+  local label=$1 file=$2 contains_control length
 
   length=$(jq -Rs 'length' "$file")
   if [ "$length" -lt "$primary_credential_min_chars" ] || \
     [ "$length" -gt "$primary_credential_max_chars" ]; then
     die "$label は${primary_credential_min_chars}文字以上${primary_credential_max_chars}文字以下にすること"
   fi
+  contains_control=$(jq -Rs 'test("\\p{Cc}")' "$file")
+  [ "$contains_control" = false ] || die "$label に制御文字は使えない"
 }
 
 read_optional_confirmed_secret() {

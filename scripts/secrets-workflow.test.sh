@@ -316,6 +316,24 @@ EOF
   assert_absent_outputs
 }
 
+test_control_character_in_luks_passphrase_is_rejected() {
+  local credential=$'long-enough\tvalue'
+
+  copy_fixture_repo
+  prepare_source_keys
+  if printf '%s\n%s\n' "$credential" "$credential" | \
+    run_init_from_stdin >"$work/stdout" 2>"$work/stderr"; then
+    fail "initializer accepted a LUKS passphrase containing a control character"
+  fi
+  if ! rg -F 'LUKS パスフレーズ に制御文字は使えない' "$work/stderr" >/dev/null; then
+    sed 's/^/initializer stderr: /' "$work/stderr" >&2
+    fail "control character in LUKS passphrase did not report the policy"
+  fi
+  ! rg -F "$credential" "$work/stdout" "$work/stderr" || \
+    fail "initializer logged the rejected LUKS passphrase"
+  assert_absent_outputs
+}
+
 test_successful_initialization_encrypts_expected_boundaries() {
   copy_fixture_repo
   prepare_source_keys
@@ -1001,6 +1019,20 @@ test_primary_credential_length_policy_is_enforced_by_wrapper() {
   done
 }
 
+test_primary_credential_control_characters_are_rejected_by_wrapper() {
+  local filter
+  for filter in \
+    '."luks-passphrase" = "long-enough\u0009value"' \
+    '."login-password" = "short\u000axxxxxxxxx"' \
+    '."login-password" = "short\u0000xxxxxxxxx"'; do
+    reset_wrapper_fixture
+    rewrite_bootstrap "$filter"
+    assert_wrapper_fails --phases install
+    rg -F '制御文字は使えない' "$work/wrapper.stderr" >/dev/null || \
+      fail "wrapper credential control-character failure did not report the policy"
+  done
+}
+
 test_malformed_runtime_values_are_rejected() {
   local filter
   for filter in \
@@ -1125,6 +1157,7 @@ if [ "$suite" = wrapper ]; then
   test_rewrite_bootstrap_isolated_from_repository_sops_config
   test_malformed_bootstrap_values_are_rejected
   test_primary_credential_length_policy_is_enforced_by_wrapper
+  test_primary_credential_control_characters_are_rejected_by_wrapper
   test_malformed_runtime_values_are_rejected
   test_untracked_ciphertext_is_rejected
   test_child_status_and_cleanup_are_preserved
@@ -1157,6 +1190,9 @@ test_concurrent_initializer_is_rejected_before_input
 rm -rf -- "$repo" "$test_home"
 mkdir -p "$repo" "$test_home"
 test_short_luks_passphrase_is_rejected
+rm -rf -- "$repo" "$test_home"
+mkdir -p "$repo" "$test_home"
+test_control_character_in_luks_passphrase_is_rejected
 rm -rf -- "$repo" "$test_home"
 mkdir -p "$repo" "$test_home"
 test_successful_initialization_encrypts_expected_boundaries
