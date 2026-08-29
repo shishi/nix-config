@@ -244,6 +244,10 @@ sudo nix run nixpkgs#sbctl -- enroll-keys --microsoft
 `--microsoft` は省略できない。省略すると Microsoft の option ROM 検証鍵が
 入らず、環境によっては起動しなくなる。
 
+`--microsoft` は、Jupiter の鍵に加えて Microsoft の鍵が許可する UEFI
+コンポーネントも信頼する。PCR 7 は Secure Boot の有効状態と PK、KEK、db、dbx
+などのポリシー変数を測るが、実際にどの許可済みコンポーネントを起動したかは示さない。
+
 確認は **`sbctl status` の `Setup Mode` を当てにしない。** 実機(2026-08-22)では
 `enroll-keys` が成功して `Vendor Keys: microsoft` になった後も、`Setup Mode` は
 `Enabled` のままだった。EFI 変数を直接見ると PK は書けている。
@@ -332,9 +336,15 @@ bootctl status
 
 systemd 258 で `systemd-cryptenroll` の既定 PCR 集合が「PCR なし」に変わった
 (jupiter の systemd は 261)。**省略すると、何にも縛られない TPM2 鍵がその
-まま追加される。** 解錠は成功し続けるので、Secure Boot の状態や起動
-ローダの改変に対して何も検証していないことに誰も気づかない。必ず
-`--tpm2-pcrs=7` を明示する。
+まま追加される。** 解錠は成功し続けるので、Secure Boot の状態が変わっても
+検出できない。必ず `--tpm2-pcrs=7` を明示する。
+
+PCR 7 が測るのは Secure Boot の有効状態と PK、KEK、db、dbx などのポリシー変数である。
+起動したブートローダーは PCR 4、UKI のカーネルと initrd は PCR 11 に測られる。
+フェーズ A は PCR 4 と PCR 11 に縛らないため、特定のブートローダーや UKI を
+固定する構成ではない。改変によって署名が無効になった実行ファイルは Secure Boot が
+拒否するが、登録済みの信頼鍵が許可する別の実行ファイルまでは PCR 7 で区別しない。
+この制限を縮めるフェーズ B は §7 で扱う。
 
 ### 3.2 実行順序
 
@@ -540,18 +550,17 @@ SOPS_AGE_KEY_FILE=secrets/management-age-key.txt sops --decrypt --output-type js
 TPM2／Secure Boot の登録自体の欠陥ではない。**実機でこの種のハングが
 起きるかは未確認。**
 
-## 6. ブートローダ変更後は毎回自動解錠を確認する
+## 6. Secure Boot ポリシー変更後は TPM2 を再登録する
 
-lanzaboote の再インストール(ブートローダファイルの再生成を伴う操作)は
-PCR 7(secure-boot-policy)の値を変える可能性があり、既存の PCR7 のみに
-縛った登録がその変化で解錠不能になることがある
-(`journalctl` に `TPM policy does not match current system state. ...
-Operation not permitted` が出る)。
+Secure Boot の有効状態または PK、KEK、db、dbx を変更すると PCR 7 の値が変わる。
+既存の PCR 7 に縛った登録では解錠できなくなるため、変更前に §5 の復旧経路を
+準備する。変更後はパスフレーズで起動し、§3.5 の手順で TPM2 を登録し直す。
 
-→ **ブートローダ構成を変える操作(lanzaboote 関連ファイルが更新される
-`nixos-rebuild switch`/`boot` を含む)の前後では、必ず自動解錠を確認する
-こと。** 解錠できなくなっていたら手動でパスフレーズを入力して起動し、§3.5
-の手順で TPM2 登録を作り直す。
+lanzaboote の再インストールや `nixos-rebuild switch`／`boot` でブートローダーや
+UKI の内容だけが変わる場合、その計測先は PCR 7 ではなく PCR 4 または PCR 11 である。
+フェーズ A は PCR 4 と PCR 11 に縛らないため、その変更だけを理由に TPM2 を
+再登録する必要はない。ただし、起動経路を変更した後の動作確認として §4 の
+自動解錠確認は実行する。
 
 ## 7. フェーズ B(`systemd-pcrlock`)— 現在は未対応
 
