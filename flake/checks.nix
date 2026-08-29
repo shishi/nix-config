@@ -41,11 +41,18 @@
           touch $out
         '';
 
+        update-workflow-contract =
+          pkgs.runCommand "update-workflow-contract" { nativeBuildInputs = [ pkgs.git ]; }
+            ''
+              ${pkgs.bash}/bin/bash ${../scripts/update.test.sh} ${../scripts/update.sh}
+              touch $out
+            '';
+
         # 可搬グラフ信号(ビルド)
         home-shishi = self.homeConfigurations."shishi".activationPackage;
         nixos-wsl-toplevel = self.nixosConfigurations.nixos-wsl.config.system.build.toplevel;
 
-        # 合成 DE(eval。update の main 編入時は実 build — scripts/update.sh 参照)
+        # 合成 DE(eval)
         synth-gnome-eval = evalOnly "synth-gnome" self.nixosConfigurations.synth-gnome;
         synth-kde-eval = evalOnly "synth-kde" self.nixosConfigurations.synth-kde;
 
@@ -70,7 +77,8 @@
         # /latest/ は同じ lock の取得物が上流更新で変わり、固定 hash と衝突するため禁止する。
         chatgpt-desktop-contract =
           let
-            hm = self.nixosConfigurations.jupiter.config.home-manager.users.shishi;
+            nixos = self.nixosConfigurations.jupiter.config;
+            hm = nixos.home-manager.users.shishi;
             desktop = hm.programs.codexDesktopLinux;
             packages = builtins.filter (
               candidate: (candidate.meta.mainProgram or "") == "codex-desktop"
@@ -99,6 +107,88 @@
             ];
             toolkitAccessibility =
               hm.dconf.settings."org/gnome/desktop/interface"."toolkit-accessibility" or false;
+            rejectsMissingComputerUsePrerequisite =
+              module:
+              let
+                probe = self.nixosConfigurations.synth-kde.extendModules {
+                  modules = [ module ];
+                };
+              in
+              !(builtins.tryEval (builtins.deepSeq probe.config.system.build.toplevel.drvPath true)).success;
+            rejectsMissingAtSpi = rejectsMissingComputerUsePrerequisite (
+              { lib, ... }:
+              {
+                services.gnome.at-spi2-core.enable = lib.mkForce false;
+              }
+            );
+            rejectsMissingPortal = rejectsMissingComputerUsePrerequisite (
+              { lib, ... }:
+              {
+                xdg.portal.enable = lib.mkForce false;
+              }
+            );
+            rejectsDisabledPipeWire = rejectsMissingComputerUsePrerequisite (
+              { lib, ... }:
+              {
+                services.pipewire.enable = lib.mkForce false;
+              }
+            );
+            rejectsDisabledWirePlumber = rejectsMissingComputerUsePrerequisite (
+              { lib, ... }:
+              {
+                services.pipewire.wireplumber.enable = lib.mkForce false;
+              }
+            );
+            rejectsMissingKdePortal = rejectsMissingComputerUsePrerequisite (
+              {
+                lib,
+                pkgs,
+                ...
+              }:
+              {
+                xdg.portal.extraPortals = lib.mkForce [ pkgs.xdg-desktop-portal-gtk ];
+              }
+            );
+            rejectsMissingKdePortalConfig = rejectsMissingComputerUsePrerequisite (
+              { lib, ... }:
+              {
+                xdg.portal.configPackages = lib.mkForce [ ];
+              }
+            );
+            rejectsOverriddenKdePortalConfig = rejectsMissingComputerUsePrerequisite (
+              { lib, ... }:
+              {
+                xdg.portal.config.kde.default = lib.mkForce [ "gtk" ];
+              }
+            );
+            rejectsDisabledDconf = rejectsMissingComputerUsePrerequisite (
+              { lib, ... }:
+              {
+                home-manager.users.shishi.dconf.enable = lib.mkForce false;
+              }
+            );
+            rejectsDisabledSystemDconf = rejectsMissingComputerUsePrerequisite (
+              { lib, ... }:
+              {
+                programs.dconf.enable = lib.mkForce false;
+              }
+            );
+            rejectsDisabledToolkitAccessibility = rejectsMissingComputerUsePrerequisite (
+              { lib, ... }:
+              {
+                home-manager.users.shishi.dconf.settings."org/gnome/desktop/interface"."toolkit-accessibility" =
+                  lib.mkForce false;
+              }
+            );
+            hasKdePortal = builtins.any (
+              portal: portal.outPath == pkgs.kdePackages.xdg-desktop-portal-kde.outPath
+            ) nixos.xdg.portal.extraPortals;
+            hasKdePortalConfig = builtins.any (
+              package: package.outPath == pkgs.kdePackages.plasma-workspace.outPath
+            ) nixos.xdg.portal.configPackages;
+            usesPackagedKdePortalConfig = !(nixos.xdg.portal.config ? kde);
+            kdePortalManifest = "${pkgs.kdePackages.xdg-desktop-portal-kde}/share/xdg-desktop-portal/portals/kde.portal";
+            kdePortalConfig = "${pkgs.kdePackages.plasma-workspace}/share/xdg-desktop-portal/kde-portals.conf";
             widgets = builtins.concatMap (panel: panel.widgets) hm.programs.plasma.panels;
             iconTasks = pkgs.lib.findFirst (widget: widget.name == "org.kde.plasma.icontasks") { } widgets;
             launchers = iconTasks.config.General.launchers or [ ];
@@ -121,6 +211,52 @@
               fail "dconf is disabled for the Computer Use accessibility setting"
             [ "${if toolkitAccessibility then "true" else "false"}" = true ] || \
               fail "AT-SPI toolkit accessibility is not persisted"
+            [ "${if nixos.services.desktopManager.plasma6.enable then "true" else "false"}" = true ] || \
+              fail "Plasma and KWin are disabled for Computer Use"
+            [ "${if nixos.services.gnome.at-spi2-core.enable then "true" else "false"}" = true ] || \
+              fail "AT-SPI service is disabled for Computer Use"
+            [ "${if nixos.xdg.portal.enable then "true" else "false"}" = true ] || \
+              fail "XDG Desktop Portal is disabled for Computer Use"
+            [ "${if nixos.services.pipewire.enable then "true" else "false"}" = true ] || \
+              fail "PipeWire is disabled for Computer Use portal input"
+            [ "${if nixos.services.pipewire.wireplumber.enable then "true" else "false"}" = true ] || \
+              fail "WirePlumber is disabled for Computer Use portal input"
+            [ "${if hasKdePortal then "true" else "false"}" = true ] || \
+              fail "KDE desktop portal backend is missing for Computer Use"
+            [ "${if hasKdePortalConfig then "true" else "false"}" = true ] || \
+              fail "KDE desktop portal routing configuration is missing for Computer Use"
+            [ "${if usesPackagedKdePortalConfig then "true" else "false"}" = true ] || \
+              fail "KDE desktop portal routing configuration is overridden for Computer Use"
+            ${pkgs.gnugrep}/bin/grep -Fq 'org.freedesktop.impl.portal.RemoteDesktop;' \
+              ${kdePortalManifest} || fail "KDE portal does not provide RemoteDesktop"
+            ${pkgs.gnugrep}/bin/grep -Fq 'org.freedesktop.impl.portal.ScreenCast;' \
+              ${kdePortalManifest} || fail "KDE portal does not provide ScreenCast"
+            ${pkgs.gnugrep}/bin/grep -Fq 'org.freedesktop.impl.portal.Screenshot;' \
+              ${kdePortalManifest} || fail "KDE portal does not provide Screenshot"
+            ${pkgs.gnugrep}/bin/grep -Fqx 'default=kde' ${kdePortalConfig} || \
+              fail "KDE portal routing does not select the KDE backend"
+            [ "${if nixos.programs.dconf.enable then "true" else "false"}" = true ] || \
+              fail "NixOS dconf support is disabled for Computer Use"
+            ${if rejectsMissingAtSpi then "true" else "false"} || \
+              fail "Computer Use does not reject a missing AT-SPI service"
+            ${if rejectsMissingPortal then "true" else "false"} || \
+              fail "Computer Use does not reject a disabled desktop portal"
+            ${if rejectsDisabledPipeWire then "true" else "false"} || \
+              fail "Computer Use does not reject disabled PipeWire"
+            ${if rejectsDisabledWirePlumber then "true" else "false"} || \
+              fail "Computer Use does not reject disabled WirePlumber"
+            ${if rejectsMissingKdePortal then "true" else "false"} || \
+              fail "Computer Use does not reject a missing KDE portal backend"
+            ${if rejectsMissingKdePortalConfig then "true" else "false"} || \
+              fail "Computer Use does not reject missing KDE portal routing configuration"
+            ${if rejectsOverriddenKdePortalConfig then "true" else "false"} || \
+              fail "Computer Use does not reject an overriding KDE portal configuration"
+            ${if rejectsDisabledDconf then "true" else "false"} || \
+              fail "Computer Use does not reject disabled dconf persistence"
+            ${if rejectsDisabledSystemDconf then "true" else "false"} || \
+              fail "Computer Use does not reject disabled NixOS dconf support"
+            ${if rejectsDisabledToolkitAccessibility then "true" else "false"} || \
+              fail "Computer Use does not reject disabled toolkit accessibility"
             [ "${if desktop.remoteMobileControl.enable then "true" else "false"}" = false ] || \
               fail "codex-desktop remote mobile control is enabled"
             [ "${if desktop.remoteControl.enable then "true" else "false"}" = false ] || \

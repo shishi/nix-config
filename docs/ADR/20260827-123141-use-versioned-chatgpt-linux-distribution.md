@@ -40,6 +40,30 @@ Computer Use UI と、日常利用で用途を確認した `automation-extension
 `project-group-last-updated-sort`、`tray-usage` を有効にします。ほかの任意機能は、
 必要性と副作用を確認するまで無効のままにします。
 
+Computer Use の実行要件も NixOS と Home Manager で宣言します。KDE 環境では、
+Plasma と KWin、Assistive Technology Service Provider Interface（AT-SPI）の
+D-Bus サービス、XDG Desktop Portal、KDE 用 Portal バックエンドとその経路設定が
+必要です。RemoteDesktop Portal のポインター入力には、スクリーンキャスト元を
+提供する PipeWire と WirePlumber も必要です。Electron アプリケーションが
+アクセシビリティーツリーを公開できるように、toolkit accessibility も dconf へ
+永続化します。
+Home Manager の dconf 設定を適用するため、NixOS 側でも `programs.dconf` を有効にし、
+dconf のパッケージ、D-Bus サービス、GIO（GLib の入出力ライブラリー）モジュールを
+世代へ含めます。
+`services.gnome.at-spi2-core` の `gnome` は nixpkgs の名前空間であり、
+GNOME Shell の導入要件ではありません。
+
+KDE 用 Portal の経路設定は、Plasma Workspace が提供する `kde-portals.conf` を
+正本にします。`xdg.portal.config.kde` はこのパッケージ設定より優先され、部分的な
+指定でも `default=kde` を隠します。そのため、Computer Use を有効にした構成では
+`xdg.portal.config.kde` による上書きを認めません。
+
+Computer Use を有効にした構成では、これらの前提を NixOS の assertion で固定します。
+前提が欠けた世代は評価時に失敗するため、機能スイッチだけが有効な不完全な世代を
+構築できません。起動前の診断処理は追加しません。Nix の宣言で保証する対象は、
+必要なパッケージ、サービス、設定を世代へ含めることです。起動後のサービス停止や
+Portal の応答障害は実行時障害であり、起動直前の検査に成功しても防げません。
+
 ### 影響
 
 **良い影響:**
@@ -54,6 +78,7 @@ Computer Use UI と、日常利用で用途を確認した `automation-extension
 * 配布物が Nix 固有のアプリケーションパッチと独自ランチャーを使用する
 * 更新時に、以前の最小ラッパーより広い上流差分をレビューする必要がある
 * 有効にした任意機能について、上流更新時に挙動と権限の変化を確認する必要がある
+* Computer Use の前提を意図的に無効化した構成は評価できない
 
 **中立的な影響:**
 
@@ -66,8 +91,15 @@ flake の `chatgpt-desktop-contract` 検査では、パッケージがバージ�
 リポジトリ URL を使用すること、Computer Use UI と承認済みの任意機能だけが
 有効であることを確認します。コミュニティーへの利用状況送信が無効であること、
 パッケージを `--diagnose` 付きで実行すると成功することも確認します。さらに、KDE
-タスクバーが新しいデスクトップエントリーを使うことを確認します。Jupiter の
-システムビルドと切り替えが成功すれば、統合全体を確認できます。
+タスクバーが新しいデスクトップエントリーを使うことを確認します。
+
+Computer Use の前提契約は、合成 KDE 構成から AT-SPI、XDG Desktop Portal、KDE 用
+Portal バックエンドとその経路設定、PipeWire、WirePlumber、NixOS と Home Manager の
+dconf、toolkit accessibility を 1 つずつ外して検査します。各構成の評価が失敗する
+ことに加え、優先度の高い `xdg.portal.config.kde` で経路を上書きした構成も評価が
+失敗することを確認します。KDE 用 Portal が RemoteDesktop、ScreenCast、Screenshot
+を提供し、経路設定が KDE を選ぶことも検査します。Jupiter のシステムビルドと
+切り替えが成功すれば、統合全体を確認できます。
 
 ## 各選択肢の比較
 
