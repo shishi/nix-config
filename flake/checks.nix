@@ -60,6 +60,8 @@
         # 実 hardware-configuration.nix の commit 後に jupiter-toplevel として既定編入する
         jupiter-stub-eval = evalOnly "jupiter-stub" self.nixosConfigurations.jupiter;
 
+        dns-osaka-1-eval = evalOnly "dns-osaka-1" self.nixosConfigurations.dns-osaka-1;
+
         # 秘密情報の作成・復号を一時 shell なしで実行できることを固定する。
         jupiter-sops-cli-contract =
           let

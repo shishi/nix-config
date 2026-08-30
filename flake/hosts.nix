@@ -29,6 +29,13 @@
             modules = [ { nixpkgs.pkgs = pkgs; } ] ++ modules; # pkgs 注入契約(allowUnfree/overlay の単一真実)
           }
         );
+      mkNixosAarch64 =
+        modules:
+        inputs.nixpkgs.lib.nixosSystem {
+          system = "aarch64-linux";
+          specialArgs = { inherit inputs; };
+          modules = modules;
+        };
       # 合成 DE 評価ターゲット: dummy hardware で HM 統合込みの DE 配線を eval する
       mkSynth =
         desktop:
@@ -57,6 +64,7 @@
         ];
     in
     {
+      dns-osaka-1 = mkNixosAarch64 [ ../hosts/dns-osaka-1 ];
       jupiter = mkNixos [ ../hosts/jupiter ];
       nixos-wsl = mkNixos [ ../hosts/nixos-wsl ];
       synth-gnome = mkSynth "gnome";
