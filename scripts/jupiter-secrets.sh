@@ -25,7 +25,7 @@ staged_bootstrap=""
 staged_runtime=""
 
 die() {
-  printf 'init-secrets: %s\n' "$*" >&2
+  printf 'jupiter-secrets: %s\n' "$*" >&2
   exit 1
 }
 
@@ -50,8 +50,8 @@ find_repo_root() {
 
 acquire_repo_lock() {
   mkdir -p "$repo_root/secrets"
-  exec 9>"$repo_root/secrets/.init-secrets.lock" || die 'init-secrets lock を作成できない'
-  flock -n 9 || die '別の init-secrets が実行中'
+  exec 9>"$repo_root/secrets/.jupiter-secrets.lock" || die 'jupiter-secrets lock を作成できない'
+  flock -n 9 || die '別の jupiter-secrets が実行中'
 }
 
 resolve_management_age_key_file() {
@@ -194,9 +194,9 @@ encrypt_outputs() {
   SOPS_AGE_KEY_FILE="$tmpdir/jupiter-age-key.txt" sops --decrypt "$tmpdir/runtime.yaml" >"$tmpdir/runtime.verify"
 
   mkdir -p "$repo_root/secrets"
-  staged_sops_config=$(mktemp "$repo_root/.init-secrets-sops.XXXXXXXX")
-  staged_bootstrap=$(mktemp "$repo_root/secrets/.init-secrets-bootstrap.XXXXXXXX")
-  staged_runtime=$(mktemp "$repo_root/secrets/.init-secrets-runtime.XXXXXXXX")
+  staged_sops_config=$(mktemp "$repo_root/.jupiter-secrets-sops.XXXXXXXX")
+  staged_bootstrap=$(mktemp "$repo_root/secrets/.jupiter-secrets-bootstrap.XXXXXXXX")
+  staged_runtime=$(mktemp "$repo_root/secrets/.jupiter-secrets-runtime.XXXXXXXX")
   cp "$tmpdir/.sops.yaml" "$staged_sops_config"
   cp "$tmpdir/bootstrap.yaml" "$staged_bootstrap"
   cp "$tmpdir/runtime.yaml" "$staged_runtime"
@@ -262,7 +262,7 @@ update_existing_secrets() {
   fi
 
   if [ "$bootstrap_changed" -eq 0 ] && [ "$runtime_changed" -eq 0 ]; then
-    printf 'init-secrets: 既存の secret を維持した\n'
+    printf 'jupiter-secrets: 既存の secret を維持した\n'
     return
   fi
 
@@ -351,7 +351,7 @@ update_existing_secrets() {
   fi
   update_committed=1
   remove_update_backups
-  printf 'init-secrets: secret を更新した\n'
+  printf 'jupiter-secrets: secret を更新した\n'
 }
 
 rollback_published_output() {
@@ -425,7 +425,7 @@ for output in .sops.yaml secrets/bootstrap.yaml secrets/runtime.yaml; do
   fi
 done
 
-tmpdir=$(mktemp -d "$(select_tmpfs_root)/init-secrets.XXXXXXXX")
+tmpdir=$(mktemp -d "$(select_tmpfs_root)/jupiter-secrets.XXXXXXXX")
 if [ "$existing_outputs" -eq 3 ]; then
   update_existing_secrets
   exit 0
@@ -444,4 +444,4 @@ validate_tailscale_oauth_client_secret "$tmpdir/tailscale-oauth-secret"
 write_plaintext_json
 encrypt_outputs
 
-printf 'init-secrets: 暗号化済み secrets を作成した\n'
+printf 'jupiter-secrets: 暗号化済み secrets を作成した\n'

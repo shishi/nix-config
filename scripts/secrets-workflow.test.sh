@@ -47,14 +47,14 @@ copy_fixture_repo() {
   mkdir -p "$repo/scripts"
   cp "$repo_root/.gitignore" "$repo/.gitignore"
   cp "$repo_root/flake.nix" "$repo/flake.nix"
-  cp "$repo_root/scripts/init-secrets.sh" "$repo/scripts/init-secrets.sh"
-  chmod +x "$repo/scripts/init-secrets.sh"
+  cp "$repo_root/scripts/jupiter-secrets.sh" "$repo/scripts/jupiter-secrets.sh"
+  chmod +x "$repo/scripts/jupiter-secrets.sh"
 }
 
 copy_wrapper_script_if_present() {
-  if [ -f "$repo_root/scripts/nixos-anywhere-with-secrets.sh" ]; then
-    cp "$repo_root/scripts/nixos-anywhere-with-secrets.sh" "$repo/scripts/nixos-anywhere-with-secrets.sh"
-    chmod +x "$repo/scripts/nixos-anywhere-with-secrets.sh"
+  if [ -f "$repo_root/scripts/jupiter-install.sh" ]; then
+    cp "$repo_root/scripts/jupiter-install.sh" "$repo/scripts/jupiter-install.sh"
+    chmod +x "$repo/scripts/jupiter-install.sh"
   fi
 }
 
@@ -83,7 +83,7 @@ run_init_from_stdin() {
     HOME="$test_home" \
     GNUPGHOME="$test_home/.gnupg" \
     SOPS_AGE_KEY_FILE="$test_home/.config/sops/age/keys.txt" \
-      bash scripts/init-secrets.sh
+      bash scripts/jupiter-secrets.sh
   )
 }
 
@@ -108,7 +108,7 @@ run_init_with_oauth_secret() {
     HOME="$test_home" \
     GNUPGHOME="$test_home/.gnupg" \
     SOPS_AGE_KEY_FILE="$test_home/.config/sops/age/keys.txt" \
-      bash scripts/init-secrets.sh
+      bash scripts/jupiter-secrets.sh
   ) <<EOF
 luks-test-value
 luks-test-value
@@ -127,7 +127,7 @@ run_mismatched_init() {
     HOME="$test_home" \
     GNUPGHOME="$test_home/.gnupg" \
     SOPS_AGE_KEY_FILE="$test_home/.config/sops/age/keys.txt" \
-      bash scripts/init-secrets.sh
+      bash scripts/jupiter-secrets.sh
   ) <<'EOF'
 luks-test-value
 different-luks-test-value
@@ -140,7 +140,7 @@ run_init_with_xdg_config_home() {
     HOME="$test_home" \
     GNUPGHOME="$test_home/.gnupg" \
     XDG_CONFIG_HOME="$test_home/other-config" \
-      bash scripts/init-secrets.sh
+      bash scripts/jupiter-secrets.sh
   ) <<'EOF'
 luks-test-value
 luks-test-value
@@ -178,7 +178,7 @@ run_init_with_publish_race() {
     REAL_LN="$real_ln" \
     RACE_FINAL="$repo/secrets/runtime.yaml" \
     RACE_REPLACED_FINAL="$repo/.sops.yaml" \
-      bash scripts/init-secrets.sh
+      bash scripts/jupiter-secrets.sh
   ) <<'EOF'
 luks-test-value
 luks-test-value
@@ -198,7 +198,7 @@ test_missing_ssh_key_fails_before_input() {
     HOME="$test_home" \
     GNUPGHOME="$test_home/.gnupg" \
     SOPS_AGE_KEY_FILE="$test_home/.config/sops/age/keys.txt" \
-      bash scripts/init-secrets.sh
+      bash scripts/jupiter-secrets.sh
   ) </dev/null >"$work/stdout" 2>"$work/stderr"; then
     fail "initializer unexpectedly accepted a missing SSH key"
   fi
@@ -287,13 +287,13 @@ test_concurrent_initializer_is_rejected_before_input() {
   copy_fixture_repo
   prepare_source_keys
   mkdir -p "$repo/secrets"
-  exec {lock_fd}>"$repo/secrets/.init-secrets.lock"
+  exec {lock_fd}>"$repo/secrets/.jupiter-secrets.lock"
   flock -n "$lock_fd" || fail "test could not acquire the initializer lock"
   if run_init >"$work/stdout" 2>"$work/stderr"; then
     fail "initializer ignored an existing repository lock"
   fi
   exec {lock_fd}>&-
-  rg -F '別の init-secrets が実行中' "$work/stderr" >/dev/null || \
+  rg -F '別の jupiter-secrets が実行中' "$work/stderr" >/dev/null || \
     fail "initializer lock failure did not report a controlled error"
   assert_absent_outputs
 }
@@ -418,7 +418,7 @@ prepare_wrapper_fixture() {
     git init -q
     git config user.email secrets-workflow@example.test
     git config user.name 'Secrets Workflow Test'
-    git add flake.nix scripts/init-secrets.sh .sops.yaml
+    git add flake.nix scripts/jupiter-secrets.sh .sops.yaml
     git add -f secrets/bootstrap.yaml secrets/runtime.yaml
     git commit -qm fixture
   )
@@ -491,7 +491,7 @@ run_wrapper() {
     NIXOS_ANYWHERE_BIN="$work/fake-bin/nixos-anywhere" \
     FAKE_ARGS_LOG="$work/fake.args" \
     FAKE_EXTRA_PATH_LOG="$work/fake.extra-path" \
-      bash scripts/nixos-anywhere-with-secrets.sh "$@"
+      bash scripts/jupiter-install.sh "$@"
   )
 }
 
@@ -503,7 +503,7 @@ run_wrapper_with_default_management_key() {
       NIXOS_ANYWHERE_BIN="$work/fake-bin/nixos-anywhere" \
       FAKE_ARGS_LOG="$work/fake.args" \
       FAKE_EXTRA_PATH_LOG="$work/fake.extra-path" \
-        bash scripts/nixos-anywhere-with-secrets.sh "$@"
+        bash scripts/jupiter-install.sh "$@"
   )
 }
 
@@ -515,7 +515,7 @@ run_wrapper_without_management_key() {
       NIXOS_ANYWHERE_BIN="$work/fake-bin/nixos-anywhere" \
       FAKE_ARGS_LOG="$work/fake.args" \
       FAKE_EXTRA_PATH_LOG="$work/fake.extra-path" \
-        bash scripts/nixos-anywhere-with-secrets.sh "$@"
+        bash scripts/jupiter-install.sh "$@"
   )
 }
 
@@ -586,7 +586,7 @@ run_init_update() {
     HOME="$test_home" \
     GNUPGHOME="$test_home/.gnupg" \
     SOPS_AGE_KEY_FILE="$test_home/.config/sops/age/keys.txt" \
-      bash scripts/init-secrets.sh
+      bash scripts/jupiter-secrets.sh
   )
 }
 
@@ -968,7 +968,7 @@ test_wrong_management_key_is_rejected() {
     SOPS_AGE_KEY_FILE="$work/wrong-age-key.txt" \
     NIXOS_ANYWHERE_BIN="$work/fake-bin/nixos-anywhere" \
     FAKE_ARGS_LOG="$work/fake.args" FAKE_EXTRA_PATH_LOG="$work/fake.extra-path" \
-      bash scripts/nixos-anywhere-with-secrets.sh --phases install
+      bash scripts/jupiter-install.sh --phases install
   ) >"$work/wrapper.stdout" 2>"$work/wrapper.stderr"; then
     fail "wrapper accepted a wrong management key"
   fi

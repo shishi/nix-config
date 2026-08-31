@@ -101,7 +101,7 @@ Jupiter の侵害から保護する境界には含めません。
 **悪い影響:**
 
 * 管理用 age 秘密鍵が復旧の信頼の起点になるため、ローカルファイルとバックアップを保護する必要がある
-* 初回利用前に `init-secrets` を実行し、暗号化済み YAML をコミットする必要がある
+* 初回利用前に `jupiter-secrets` を実行し、暗号化済み YAML をコミットする必要がある
 * sops-nix と SOPS が新しい依存になる
 * SSH と GPG の秘密鍵は Jupiter 上に保持するため、Jupiter の root 侵害からは保護できない
 * Jupiter の root 侵害時は、Tailscale OAuth クライアントシークレットも漏えいする

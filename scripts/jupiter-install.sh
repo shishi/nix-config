@@ -23,7 +23,7 @@ primary_credential_max_chars=128
 original_args=()
 
 die() {
-  printf 'nixos-anywhere-with-secrets: %s\n' "$*" >&2
+  printf 'jupiter-install: %s\n' "$*" >&2
   exit 1
 }
 
@@ -70,11 +70,14 @@ select_tmpfs_root() {
   die '書き込み可能な tmpfs (XDG_RUNTIME_DIR または /dev/shm) が見つからない'
 }
 
-reject_manual_secret_args() {
+reject_managed_args() {
   local arg
 
   for arg in "$@"; do
     case "$arg" in
+      --flake|--flake=*|--store-paths|--store-paths=*)
+        die 'Jupiter の構成は wrapper が固定するため指定しないこと'
+        ;;
       --extra-files|--extra-files=*)
         die 'wrapper manages --extra-files; remove --extra-files'
         ;;
@@ -196,6 +199,7 @@ extract_and_validate() {
 
   mkpasswd -m yescrypt -s <"$login_password" >"$password_hash" || \
     die 'ログインパスワードの yescrypt ハッシュを生成できない'
+  # shellcheck disable=SC2016 # yescrypt prefix のリテラルを検査する。
   grep -q '^\$y\$' "$password_hash" || die 'mkpasswd が yescrypt ハッシュを返さない'
   chmod 600 "$password_hash"
 }
@@ -231,7 +235,7 @@ validate_runtime_secret() {
 }
 
 run_nixos_anywhere() {
-  local -a command_args=("${original_args[@]}")
+  local -a command_args=(--flake .#jupiter "${original_args[@]}")
 
   [ -n "${NIXOS_ANYWHERE_BIN:-}" ] || die 'NIXOS_ANYWHERE_BIN を指定すること'
   [ -x "$NIXOS_ANYWHERE_BIN" ] || die 'NIXOS_ANYWHERE_BIN を実行できない'
@@ -246,6 +250,7 @@ run_nixos_anywhere() {
   "$NIXOS_ANYWHERE_BIN" "${command_args[@]}"
 }
 
+# shellcheck disable=SC2329 # EXIT/HUP/INT/TERM trap から呼ぶ。
 cleanup() {
   local status=$?
 
@@ -263,10 +268,10 @@ trap 'exit 1' HUP INT TERM
 repo_root=$(find_repo_root)
 cd "$repo_root"
 resolve_management_age_key_file
-reject_manual_secret_args "$@"
+reject_managed_args "$@"
 parse_phases "$@"
 require_tracked_ciphertext
-tmpdir=$(mktemp -d "$(select_tmpfs_root)/nixos-anywhere-secrets.XXXXXXXX")
+tmpdir=$(mktemp -d "$(select_tmpfs_root)/jupiter-install.XXXXXXXX")
 decrypt_bootstrap
 extract_and_validate
 

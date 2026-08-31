@@ -14,7 +14,7 @@ Public IP `129.225.177.221`）である。`nixos-anywhere` は `/dev/sda` を全
 5. 次を実行し、暗号化された `runtime.yaml` の4項目を実値へ置換する。
 
 ```console
-nix run .#dns-osaka-1-edit-secrets
+nix run .#dns-osaka-1-secrets
 ```
 
 - `tailscale-oauth-secret`: `tskey-client-` で始まる OAuth client secret

@@ -4,7 +4,7 @@ set -eEuo pipefail
 umask 077
 
 die() {
-  printf 'dns-osaka-1-edit-secrets: %s\n' "$*" >&2
+  printf 'dns-osaka-1-secrets: %s\n' "$*" >&2
   exit 1
 }
 

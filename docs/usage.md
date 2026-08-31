@@ -32,8 +32,8 @@ nix run .#switch
 
 | app | コマンド | 使う場面 |
 |---|---|---|
-| `init-secrets` | `nix run .#init-secrets` | SOPS ファイルを手作業で編集せず、Jupiter の秘密情報を一時領域で作成・更新して暗号化する |
-| `nixos-anywhere` | `nix run .#nixos-anywhere -- …` | 通常の `nixos-anywhere` に、秘密情報の復号・検査・一時配送を加えて実行する。NixOS 構成は `--flake` で指定するが、現在の秘密情報は Jupiter 用 |
+| `jupiter-secrets` | `nix run .#jupiter-secrets` | SOPS ファイルを手作業で編集せず、Jupiter の秘密情報を一時領域で作成・更新して暗号化する |
+| `jupiter-install` | `nix run .#jupiter-install -- …` | Jupiter の構成を固定し、秘密情報の復号・検査・一時配送を加えて `nixos-anywhere` を実行する |
 | `bootstrap` | `nix run github:shishi/nix-config#bootstrap` | Jupiter の初回起動後にリポジトリと dotfiles を配置し、設定適用までまとめて進める |
 
 ### 初期構築
@@ -66,7 +66,7 @@ install -m 600 /path/to/management-age-key.txt secrets/management-age-key.txt
 値を変更する場合だけ実行する。空 Enter は現在値を維持する。
 
 ```bash
-nix run .#init-secrets
+nix run .#jupiter-secrets
 git add .sops.yaml secrets/bootstrap.yaml secrets/runtime.yaml
 git check-ignore secrets/management-age-key.txt
 git commit .sops.yaml secrets/bootstrap.yaml secrets/runtime.yaml -m "chore(secrets): update encrypted inputs"
@@ -93,6 +93,15 @@ sudo howdy -U shishi list
 sudo fprintd-enroll shishi
 fprintd-list shishi
 ```
+
+## dns-osaka-1
+
+| app | コマンド | 使う場面 |
+|---|---|---|
+| `dns-osaka-1-secrets` | `nix run .#dns-osaka-1-secrets` | DNS ホスト専用の Tailscale・FreshRSS 秘密情報を編集する |
+| `dns-osaka-1-install` | `nix run .#dns-osaka-1-install` | 固定した Oracle VPS へ DNS ホスト構成をインストールする |
+
+導入と運用は [dns-osaka-1 手順書](dns-osaka-1-runbook.md)を使う。
 
 ## リポジトリ管理
 

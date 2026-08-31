@@ -4,7 +4,7 @@
 
 Jupiter の初期インストール用と実行時用の秘密情報を、平文を Git、
 ログ、Nix ストアに残さず作成・更新する。リポジトリ内の暗号文の作成・更新には
-`nix run .#init-secrets` だけを使い、SOPS ファイルをエディターで直接編集しない。
+`nix run .#jupiter-secrets` だけを使い、SOPS ファイルをエディターで直接編集しない。
 
 秘密の分離方針は
 [SOPS と 2 種類の age 鍵で Jupiter の秘密を配送する](ADR/20260826-005117-use-sops-age-for-jupiter-secret-provisioning.md)
@@ -34,7 +34,7 @@ SOPS は値を暗号化するが、YAML の項目名、値の型、暗号文の�
 ASCII だけの値ではバイト数と文字数が一致する。暗号文だけでは値を復元したり、
 推測した値が正しいか検証したりできないが、長さを秘密として扱ってはならない。
 
-`init-secrets` は、新しく入力する LUKS パスフレーズとログインパスワードを
+`jupiter-secrets` は、新しく入力する LUKS パスフレーズとログインパスワードを
 15 文字以上 128 文字以下に制限する。既存値を空 Enter で維持する場合は、
 現在値が 15 文字未満でも変更しない。入力しやすさと強度は次の方針で両立する。
 
@@ -58,7 +58,7 @@ ASCII だけの値ではバイト数と文字数が一致する。暗号文だ�
 リポジトリのルートで実行する。
 
 ```bash
-nix run .#init-secrets
+nix run .#jupiter-secrets
 ```
 
 LUKS、ログイン、SMB のパスワードと Tailscale OAuth クライアントシークレットを
@@ -79,7 +79,7 @@ git add .sops.yaml secrets/bootstrap.yaml secrets/runtime.yaml
 3 つの暗号化済みファイルと管理用 age 鍵がある状態で実行する。
 
 ```bash
-nix run .#init-secrets
+nix run .#jupiter-secrets
 ```
 
 アプリは次の順で値を確認する。
@@ -106,17 +106,17 @@ nix run .#init-secrets
 ## 4. 破棄して作り直す
 
 `.sops.yaml`、`secrets/bootstrap.yaml`、`secrets/runtime.yaml` は 1 セットとして扱う。
-1 ファイルだけを削除すると `init-secrets` は部分的な状態として拒否する。
+1 ファイルだけを削除すると `jupiter-secrets` は部分的な状態として拒否する。
 やり直す前に、3 ファイルが同じコミットに保存済みで、管理用 age 鍵のバックアップが
 あることを確認する。誤って単体で削除した場合も、3 ファイルすべてを同じコミットから
 復元し、異なる世代を混在させない。
 
 暗号文だけを作り直し、管理用 age 鍵を維持する場合は、3 ファイルをすべて削除して
-`init-secrets` を実行する。
+`jupiter-secrets` を実行する。
 
 ```bash
 rm -- .sops.yaml secrets/bootstrap.yaml secrets/runtime.yaml
-nix run .#init-secrets
+nix run .#jupiter-secrets
 ```
 
 LUKS、ログイン、SMB、Tailscale の 4 項目を再入力し、SSH・GPG 鍵を既存ソースから
@@ -130,7 +130,7 @@ LUKS、ログイン、SMB、Tailscale の 4 項目を再入力し、SSH・GPG �
 
 ```bash
 rm -- .sops.yaml secrets/bootstrap.yaml secrets/runtime.yaml secrets/management-age-key.txt
-nix run .#init-secrets
+nix run .#jupiter-secrets
 ```
 
 古い管理用鍵のバックアップがなければ、古い `secrets/bootstrap.yaml` は復号できなくなる。
@@ -237,7 +237,7 @@ sudo stat -c '%a %U:%G %n' /run/secrets/smb-mars-shishi
 ## 7. 失敗時の復旧
 
 入力不一致、途中の EOF、復号失敗、SOPS 更新失敗では既存の暗号文を変更しない。
-原因を直し、同じ `nix run .#init-secrets` を再実行する。
+原因を直し、同じ `nix run .#jupiter-secrets` を再実行する。
 
 暗号化済みファイルの一部だけが存在する場合は、3 ファイルすべてを同じコミットから
 復元する。管理用 age 鍵を失った場合は、パスワードマネージャーのバックアップから

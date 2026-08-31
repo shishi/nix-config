@@ -168,7 +168,7 @@ jupiter へ同じアドレスで繋ぐときにも `REMOTE HOST IDENTIFICATION H
 開始しない。
 
 ```bash
-nix run .#nixos-anywhere -- --flake .#jupiter --target-host root@<target> --ssh-port <port> --phases disko
+nix run .#jupiter-install -- --target-host root@<target> --ssh-port <port> --phases disko
 ```
 
 ラッパーは `hosts/jupiter/disko.nix` の `passwordFile = "/tmp/secret.key"` に対応する
@@ -241,7 +241,7 @@ root への公開鍵配置からやり直し、§2.3 の `disko` フェーズと
 ワークステーション側で実行する。
 
 ```bash
-nix run .#nixos-anywhere -- --flake .#jupiter --target-host root@<target> --ssh-port <port> --phases install
+nix run .#jupiter-install -- --target-host root@<target> --ssh-port <port> --phases install
 ```
 
 `Successfully installed Lanzaboote.` と `installation finished!` が出れば、

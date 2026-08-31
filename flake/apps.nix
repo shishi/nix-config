@@ -19,8 +19,8 @@
         ];
         text = builtins.readFile ../scripts/check-env.sh;
       };
-      init-secrets = pkgs.writeShellApplication {
-        name = "init-secrets";
+      jupiter-secrets = pkgs.writeShellApplication {
+        name = "jupiter-secrets";
         runtimeInputs = with pkgs; [
           age
           coreutils
@@ -34,7 +34,7 @@
           sops
           util-linux
         ];
-        text = builtins.readFile ../scripts/init-secrets.sh;
+        text = builtins.readFile ../scripts/jupiter-secrets.sh;
       };
       mkScriptApp = name: script: {
         type = "app";
@@ -42,7 +42,7 @@
           exec ${pkgs.bash}/bin/bash ${script} "$@"
         ''}";
       };
-      dnsOsakaNixosAnywhere = inputs'.nixos-anywhere.packages.default.overrideAttrs (old: {
+      verifiedNixosAnywhere = inputs'.nixos-anywhere.packages.default.overrideAttrs (old: {
         postPatch = (old.postPatch or "") + ''
           substituteInPlace src/nixos-anywhere.sh \
             --replace-fail \
@@ -124,11 +124,11 @@
 
         # インストーラの pin(リハーサルと本番を同一 rev に。flake input 版を使用)。
         # bootstrap.yaml を tmpfs で復号し、phase ごとに必要な秘密だけを配送する。
-        nixos-anywhere = {
+        jupiter-install = {
           type = "app";
           program = "${
             pkgs.writeShellApplication {
-              name = "nixos-anywhere-with-secrets";
+              name = "jupiter-install";
               runtimeInputs = with pkgs; [
                 age
                 coreutils
@@ -143,11 +143,11 @@
                 whois
               ];
               text = ''
-                export NIXOS_ANYWHERE_BIN=${inputs'.nixos-anywhere.packages.default}/bin/nixos-anywhere
-                ${builtins.readFile ../scripts/nixos-anywhere-with-secrets.sh}
+                export NIXOS_ANYWHERE_BIN=${verifiedNixosAnywhere}/bin/nixos-anywhere
+                ${builtins.readFile ../scripts/jupiter-install.sh}
               '';
             }
-          }/bin/nixos-anywhere-with-secrets";
+          }/bin/jupiter-install";
         };
 
         dns-osaka-1-install = {
@@ -165,18 +165,18 @@
                 util-linux
               ];
               text = ''
-                export NIXOS_ANYWHERE_BIN=${dnsOsakaNixosAnywhere}/bin/nixos-anywhere
+                export NIXOS_ANYWHERE_BIN=${verifiedNixosAnywhere}/bin/nixos-anywhere
                 ${builtins.readFile ../scripts/dns-osaka-1-install.sh}
               '';
             }
           }/bin/dns-osaka-1-install";
         };
 
-        dns-osaka-1-edit-secrets = {
+        dns-osaka-1-secrets = {
           type = "app";
           program = "${
             pkgs.writeShellApplication {
-              name = "dns-osaka-1-edit-secrets";
+              name = "dns-osaka-1-secrets";
               runtimeInputs = with pkgs; [
                 age
                 coreutils
@@ -186,14 +186,14 @@
                 sops
                 util-linux
               ];
-              text = builtins.readFile ../scripts/dns-osaka-1-edit-secrets.sh;
+              text = builtins.readFile ../scripts/dns-osaka-1-secrets.sh;
             }
-          }/bin/dns-osaka-1-edit-secrets";
+          }/bin/dns-osaka-1-secrets";
         };
 
-        init-secrets = {
+        jupiter-secrets = {
           type = "app";
-          program = "${init-secrets}/bin/init-secrets";
+          program = "${jupiter-secrets}/bin/jupiter-secrets";
         };
 
         setup-sudo-nopasswd = mkScriptApp "setup-sudo-nopasswd" ../scripts/setup-sudo-nopasswd.sh;
