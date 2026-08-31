@@ -389,6 +389,9 @@ remove_update_backups() {
 }
 
 cleanup() {
+  # set -e のまま入ると途中の失敗で残りの掃除(平文 tmpdir の削除を含む)が
+  # スキップされるため、rollback と削除は最後まで実行する
+  set +e
   if [ "$installation_started" -eq 1 ] && [ "$installation_committed" -eq 0 ]; then
     rollback_published_output "$staged_sops_config" "$repo_root/.sops.yaml"
     rollback_published_output "$staged_bootstrap" "$repo_root/secrets/bootstrap.yaml"
