@@ -3,7 +3,8 @@
 # workflow 本体は scripts/jupiter-secrets.sh / scripts/jupiter-install.sh が所有する。
 { pkgs }:
 {
-  secretsInputs = with pkgs; [
+  # nix run .#jupiter-secrets が PATH に持つコマンド群
+  secrets.runtimeInputs = with pkgs; [
     age
     coreutils
     diffutils
@@ -16,7 +17,8 @@
     sops
     util-linux
   ];
-  installInputs = with pkgs; [
+  # nix run .#jupiter-install が PATH に持つコマンド群
+  install.runtimeInputs = with pkgs; [
     age
     coreutils
     findutils

@@ -3,7 +3,8 @@
 # workflow 本体は scripts/dns-osaka-1-secrets.sh / scripts/dns-osaka-1-install.sh が所有する。
 { pkgs }:
 {
-  secretsInputs = with pkgs; [
+  # nix run .#dns-osaka-1-secrets が PATH に持つコマンド群
+  secrets.runtimeInputs = with pkgs; [
     age
     coreutils
     findutils
@@ -12,7 +13,8 @@
     sops
     util-linux
   ];
-  installInputs = with pkgs; [
+  # nix run .#dns-osaka-1-install が PATH に持つコマンド群
+  install.runtimeInputs = with pkgs; [
     age
     coreutils
     findutils

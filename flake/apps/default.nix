@@ -27,17 +27,19 @@
       # provision 対象ホストの対の契約: 各ホストは <host>-secrets / <host>-install を
       # この名前で公開し、workflow 本体は scripts/<host>-secrets.sh /
       # scripts/<host>-install.sh が所有する(app 名と script パスはホスト名から導出)。
-      # ホストごとのデータは runtimeInputs だけ。汎用 dispatcher は作らない。
+      # 引数 secrets / install は生成する 2 app に 1:1 対応し、ホストが決められるのは
+      # 各 app の runtimeInputs(script が PATH に持つコマンド群)だけ。
+      # 汎用 dispatcher は作らない。
       mkProvisioningApps =
         host:
-        { secretsInputs, installInputs }:
+        { secrets, install }:
         {
           "${host}-secrets" = {
             type = "app";
             program = "${
               pkgs.writeShellApplication {
                 name = "${host}-secrets";
-                runtimeInputs = secretsInputs;
+                runtimeInputs = secrets.runtimeInputs;
                 text = builtins.readFile (../../scripts + "/${host}-secrets.sh");
               }
             }/bin/${host}-secrets";
@@ -48,7 +50,7 @@
             program = "${
               pkgs.writeShellApplication {
                 name = "${host}-install";
-                runtimeInputs = installInputs;
+                runtimeInputs = install.runtimeInputs;
                 text = ''
                   export NIXOS_ANYWHERE_BIN=${verifiedNixosAnywhere}/bin/nixos-anywhere
                   ${builtins.readFile (../../scripts + "/${host}-install.sh")}
