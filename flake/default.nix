@@ -7,7 +7,7 @@
     ./packages.nix
     ./hosts.nix
     ./checks.nix
-    ./apps.nix
+    ./apps
     ./templates.nix
   ];
 
