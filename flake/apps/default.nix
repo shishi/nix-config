@@ -44,7 +44,8 @@
               }
             }/bin/${host}-secrets";
           };
-          # bootstrap.yaml を tmpfs で復号し、phase ごとに必要な秘密だけを配送する。
+          # 配送する秘密の内容と phase 制御は各 scripts/<host>-install.sh が所有する
+          # (phase ごとの絞り込みを行うのは jupiter のみ。dns-osaka-1 は全 phase 固定)。
           "${host}-install" = {
             type = "app";
             program = "${

@@ -11,7 +11,10 @@ Public IP `129.225.177.221`）である。`nixos-anywhere` は `/dev/sda` を全
 3. `tailscale-config` の `tag:dns` 追加を適用し、Tailscale で `auth_keys` scope と
    `tag:dns` を持つ、このホスト専用 OAuth client を作る。
 4. FreshRSS の Google Reader API を有効にし、API password を発行する。
-5. 次を実行し、暗号化された `runtime.yaml` の4項目を実値へ置換する。
+5. `secrets/management-age-key.txt`(または `SOPS_AGE_KEY_FILE` の指す先)に
+   管理用 age 鍵を用意する。この鍵は Git 追跡外で、jupiter の秘密情報と共通である
+   ([usage.md の秘密情報の節](usage.md#秘密情報)を参照)。
+6. 次を実行し、暗号化された `runtime.yaml` の4項目を実値へ置換する。
 
 ```console
 nix run .#dns-osaka-1-secrets
@@ -26,6 +29,7 @@ nix run .#dns-osaka-1-secrets
 
 ```console
 git add secrets/dns-osaka-1/.sops.yaml secrets/dns-osaka-1/bootstrap.yaml secrets/dns-osaka-1/runtime.yaml
+git commit
 ```
 
 ## NixOS インストール
