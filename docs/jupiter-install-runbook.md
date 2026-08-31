@@ -141,8 +141,9 @@ ssh -p <port> -o BatchMode=yes -o StrictHostKeyChecking=no -o UserKnownHostsFile
 ISO の `/etc/ssh` は tmpfs で **インストーラーのホスト鍵は起動のたびに作り直される**
 ため、`known_hosts` に記録するとインストーラーの 2 回目の起動でも、インストール後の
 jupiter へ同じアドレスで繋ぐときにも `REMOTE HOST IDENTIFICATION HAS CHANGED`
-になる。記録しなければどちらも起きない。`nixos-anywhere` も内部で同じ 2 つを
-使う。
+になる。記録しなければどちらも起きない。`jupiter-install` も同じ 2 つを
+`nixos-anywhere` の SSH 接続へ渡す(利用者が `--ssh-option` で先に指定した値が
+あればそちらが優先される)。
 
 この手順は自宅 LAN を信頼境界に含め、初回の SSH ホスト鍵を別経路では照合しない。
 信頼できないネットワークを経由する場合は、事前に確認したホスト鍵を専用の

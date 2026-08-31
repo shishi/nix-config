@@ -475,6 +475,10 @@ while [ "$#" -gt 0 ]; do
       printf '%s\n' --phases "$2" >>"$args_log"
       shift 2
       ;;
+    --ssh-option)
+      printf '%s\n' --ssh-option "$2" >>"$args_log"
+      shift 2
+      ;;
     *)
       shift
       ;;
@@ -951,6 +955,21 @@ test_manual_secret_arguments_are_rejected() {
   rg -F 'remove --disk-encryption-keys' "$work/wrapper.stderr" >/dev/null || fail "manual disk key rejection did not explain remediation"
 }
 
+test_installer_host_keys_are_not_recorded_by_default() {
+  local default_line user_line
+
+  reset_wrapper_fixture
+  run_wrapper --phases disko >"$work/wrapper.stdout" 2>"$work/wrapper.stderr" || \
+    fail "wrapper run with default ssh options failed"
+  assert_args_contain --ssh-option UserKnownHostsFile=/dev/null StrictHostKeyChecking=no
+  run_wrapper --phases disko --ssh-option StrictHostKeyChecking=yes \
+    >"$work/wrapper.stdout" 2>"$work/wrapper.stderr" || fail "wrapper rejected a user ssh option"
+  user_line=$(rg -nFx -- 'StrictHostKeyChecking=yes' "$work/fake.args" | cut -d: -f1)
+  default_line=$(rg -nFx -- 'StrictHostKeyChecking=no' "$work/fake.args" | cut -d: -f1)
+  { [ -n "$user_line" ] && [ -n "$default_line" ] && [ "$user_line" -lt "$default_line" ]; } || \
+    fail "user-supplied ssh option does not precede the wrapper default"
+}
+
 test_wrong_management_key_is_rejected() {
   reset_wrapper_fixture
   age-keygen -o "$work/wrong-age-key.txt" >/dev/null 2>&1
@@ -1144,6 +1163,7 @@ if [ "$suite" = wrapper ]; then
   test_missing_default_management_key_reports_a_controlled_error
   test_full_run_delivers_both_phase_inputs
   test_manual_secret_arguments_are_rejected
+  test_installer_host_keys_are_not_recorded_by_default
   test_wrong_management_key_is_rejected
   test_damaged_bootstrap_mac_is_rejected
   test_rewrite_bootstrap_isolated_from_repository_sops_config

@@ -230,7 +230,17 @@ validate_runtime_secret() {
 }
 
 run_nixos_anywhere() {
-  local -a command_args=(--flake .#jupiter "${original_args[@]}")
+  # インストーラーのホスト鍵は起動ごとに作り直される使い捨てで、照合する対象が無い。
+  # known_hosts へ記録すると、インストーラー再起動後とインストール後の接続が
+  # HOST IDENTIFICATION CHANGED で拒否されるため記録しない。OpenSSH は同一 option の
+  # 初出値を採用するため、利用者が --ssh-option で先に渡した値(例: 専用 known_hosts
+  # への固定)がこの既定に優先する。
+  local -a command_args=(
+    --flake .#jupiter
+    "${original_args[@]}"
+    --ssh-option UserKnownHostsFile=/dev/null
+    --ssh-option StrictHostKeyChecking=no
+  )
 
   [ -n "${NIXOS_ANYWHERE_BIN:-}" ] || die 'NIXOS_ANYWHERE_BIN を指定すること'
   [ -x "$NIXOS_ANYWHERE_BIN" ] || die 'NIXOS_ANYWHERE_BIN を実行できない'
