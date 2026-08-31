@@ -9,6 +9,8 @@ die() {
 }
 
 repo_root=$(git rev-parse --show-toplevel 2>/dev/null) || die 'Gitリポジトリ内で実行すること'
+exec 9>"$repo_root/secrets/dns-osaka-1/.dns-osaka-1-secrets.lock" || die 'lock を作成できない'
+flock -n 9 || die '別の dns-osaka-1-secrets が実行中'
 management_key=${SOPS_AGE_KEY_FILE:-$repo_root/secrets/management-age-key.txt}
 [ -f "$management_key" ] || die '管理用age鍵が読めない'
 

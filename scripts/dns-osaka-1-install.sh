@@ -81,7 +81,8 @@ HOME="$tmpdir" XDG_CONFIG_HOME="$tmpdir/config" SOPS_AGE_KEY_FILE="$management_k
 chmod 600 "$host_age_key"
 age-keygen -y "$host_age_key" >/dev/null 2>&1 || die 'ホストage鍵が不正'
 
-SOPS_AGE_KEY_FILE="$host_age_key" sops --decrypt --output-type json "$runtime" | \
+HOME="$tmpdir" XDG_CONFIG_HOME="$tmpdir/config" SOPS_AGE_KEY_FILE="$host_age_key" \
+  sops --decrypt --output-type json "$runtime" | \
   jq -e '
     type == "object" and
     (keys == ["freshrss-api-password", "freshrss-api-url", "freshrss-api-username", "tailscale-oauth-secret"]) and
