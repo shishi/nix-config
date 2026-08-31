@@ -8,6 +8,8 @@
       check-env = pkgs.writeShellApplication {
         name = "check-env";
         runtimeInputs = with pkgs; [
+          # fish 不在時の resolve() fallback が bash -lc を実行する
+          bash
           coreutils
           gnugrep
           iproute2
@@ -16,6 +18,8 @@
         ];
         text = builtins.readFile ../../scripts/check-env.sh;
       };
+      # sudo / apt / systemctl などホスト側 system tool を駆動する script 用。
+      # 依存は意図的に固定しない(nixpkgs の sudo は setuid を持たず動かない)。
       mkScriptApp = name: script: {
         type = "app";
         program = "${pkgs.writeShellScript name ''
@@ -84,9 +88,7 @@
               runtimeInputs = with pkgs; [
                 git
                 nix
-                jq
                 nix-update
-                nix-output-monitor
               ];
               text = builtins.readFile ../../scripts/update.sh;
             }

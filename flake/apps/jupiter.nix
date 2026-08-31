@@ -8,9 +8,7 @@
     age
     coreutils
     diffutils
-    findutils
     git
-    gnugrep
     gnupg
     jq
     openssh
@@ -21,7 +19,6 @@
   install.runtimeInputs = with pkgs; [
     age
     coreutils
-    findutils
     git
     gnugrep
     gnupg
@@ -29,6 +26,7 @@
     openssh
     sops
     util-linux
+    # mkpasswd(yescrypt ハッシュ生成)の供給元
     whois
   ];
 }

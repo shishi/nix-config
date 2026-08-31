@@ -7,7 +7,6 @@
   secrets.runtimeInputs = with pkgs; [
     age
     coreutils
-    findutils
     git
     jq
     sops
@@ -17,7 +16,6 @@
   install.runtimeInputs = with pkgs; [
     age
     coreutils
-    findutils
     git
     jq
     sops
