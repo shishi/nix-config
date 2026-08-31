@@ -9,9 +9,12 @@
     { pkgs, inputs', ... }:
     let
       # インストーラの pin(リハーサルと本番を同一 rev に。flake input 版を使用)。
-      # 固定中の nixos-anywhere 1.13.0 は host key 検証を無効化する SSH option を
-      # 先行指定するため上流 script から除去し、各 host wrapper が渡す検証を有効にする。
-      # ホスト間で共有するのはこの修正だけで、workflow は共有しない(.handoff.md)。
+      # 固定中の nixos-anywhere 1.13.0 は sshArgs の先頭で host key 検証を無効化する
+      # (UserKnownHostsFile=/dev/null, StrictHostKeyChecking=no)。OpenSSH は同一
+      # option の初出値を採用するため、後続の --ssh-option では上書きできない。
+      # この 2 項目だけを除去し、検証の決定権を呼び出し側へ返す
+      # (dns-osaka-1 wrapper は known_hosts 固定 + yes を明示、jupiter は ssh 既定)。
+      # ホスト間で共有するのはこの修正だけで、workflow は共有しない。
       verifiedNixosAnywhere = inputs'.nixos-anywhere.packages.default.overrideAttrs (old: {
         postPatch = (old.postPatch or "") + ''
           substituteInPlace src/nixos-anywhere.sh \
