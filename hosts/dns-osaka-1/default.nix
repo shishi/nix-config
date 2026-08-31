@@ -5,9 +5,16 @@
 {
   imports = [
     inputs.disko.nixosModules.disko
-    ../../nixos
+    ../../nixos/locale.nix
+    ../../nixos/nix-settings.nix
+    ../../nixos/ssh.nix
+    ../../nixos/sudo.nix
+    ../../nixos/users.nix
     ./disko.nix
     ./hardware-configuration.nix
+    ./oci-agent.nix
+    ./secrets.nix
+    ./services.nix
   ];
 
   networking = {

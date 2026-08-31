@@ -42,6 +42,14 @@
           exec ${pkgs.bash}/bin/bash ${script} "$@"
         ''}";
       };
+      dnsOsakaNixosAnywhere = inputs'.nixos-anywhere.packages.default.overrideAttrs (old: {
+        postPatch = (old.postPatch or "") + ''
+          substituteInPlace src/nixos-anywhere.sh \
+            --replace-fail \
+              'declare -a sshArgs=("-o" "IdentitiesOnly=yes" "-i" "$tempDir/nixos-anywhere" "-o" "UserKnownHostsFile=/dev/null" "-o" "StrictHostKeyChecking=no")' \
+              'declare -a sshArgs=("-o" "IdentitiesOnly=yes" "-i" "$tempDir/nixos-anywhere")'
+        '';
+      });
     in
     {
       apps = {
@@ -140,6 +148,47 @@
               '';
             }
           }/bin/nixos-anywhere-with-secrets";
+        };
+
+        dns-osaka-1-install = {
+          type = "app";
+          program = "${
+            pkgs.writeShellApplication {
+              name = "dns-osaka-1-install";
+              runtimeInputs = with pkgs; [
+                age
+                coreutils
+                findutils
+                git
+                jq
+                sops
+                util-linux
+              ];
+              text = ''
+                export NIXOS_ANYWHERE_BIN=${dnsOsakaNixosAnywhere}/bin/nixos-anywhere
+                ${builtins.readFile ../scripts/dns-osaka-1-install.sh}
+              '';
+            }
+          }/bin/dns-osaka-1-install";
+        };
+
+        dns-osaka-1-edit-secrets = {
+          type = "app";
+          program = "${
+            pkgs.writeShellApplication {
+              name = "dns-osaka-1-edit-secrets";
+              runtimeInputs = with pkgs; [
+                age
+                coreutils
+                findutils
+                git
+                jq
+                sops
+                util-linux
+              ];
+              text = builtins.readFile ../scripts/dns-osaka-1-edit-secrets.sh;
+            }
+          }/bin/dns-osaka-1-edit-secrets";
         };
 
         init-secrets = {

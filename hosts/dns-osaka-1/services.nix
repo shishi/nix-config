@@ -1,0 +1,213 @@
+{
+  config,
+  lib,
+  pkgs,
+  ...
+}:
+let
+  ollamaModel = "qwen3:4b-instruct-2507-q4_K_M";
+  freshrssDigest = pkgs.writeTextFile {
+    name = "freshrss-digest";
+    destination = "/bin/freshrss-digest";
+    executable = true;
+    text = ''
+      #!${pkgs.python3}/bin/python3
+      ${builtins.readFile ./freshrss_digest.py}
+    '';
+  };
+in
+{
+  services.tailscale = {
+    enable = true;
+    openFirewall = true;
+    authKeyFile = config.sops.secrets."tailscale-oauth-secret".path;
+    authKeyParameters = {
+      ephemeral = false;
+      preauthorized = true;
+    };
+    extraUpFlags = [ "--advertise-tags=tag:dns" ];
+  };
+
+  networking.firewall = {
+    enable = true;
+    interfaces.tailscale0 = {
+      allowedTCPPorts = [
+        53
+        3000
+        8080
+        11434
+      ];
+      allowedUDPPorts = [ 53 ];
+    };
+  };
+
+  services.adguardhome = {
+    enable = true;
+    host = "0.0.0.0";
+    port = 3000;
+    mutableSettings = true;
+    openFirewall = false;
+    settings = {
+      users = [ ];
+      dns = {
+        bind_hosts = [ "0.0.0.0" ];
+        port = 53;
+        upstream_dns = [ "https://cloudflare-dns.com/dns-query" ];
+        fallback_dns = [ "https://dns.google/dns-query" ];
+        bootstrap_dns = [
+          "1.1.1.1"
+          "8.8.8.8"
+        ];
+      };
+      querylog = {
+        enabled = true;
+        file_enabled = true;
+        # AdGuard Home keeps the current and previous file, so retention is
+        # twice this rotation interval: 15 days * 2 = 30 days maximum.
+        interval = "360h";
+        size_memory = 1000;
+      };
+      statistics = {
+        enabled = true;
+        interval = "720h";
+      };
+      filters = [
+        {
+          enabled = true;
+          id = 1;
+          name = "AdGuard DNS filter";
+          url = "https://adguardteam.github.io/HostlistsRegistry/assets/filter_1.txt";
+        }
+      ];
+      filtering = {
+        filtering_enabled = true;
+        filters_update_interval = 24;
+        protection_enabled = true;
+      };
+    };
+  };
+
+  services.ollama = {
+    enable = true;
+    package = pkgs.ollama-cpu;
+    host = "0.0.0.0";
+    port = 11434;
+    openFirewall = false;
+    loadModels = [ ollamaModel ];
+    syncModels = true;
+    environmentVariables = {
+      OLLAMA_CONTEXT_LENGTH = "8192";
+      OLLAMA_KEEP_ALIVE = "-1";
+      OLLAMA_MAX_LOADED_MODELS = "1";
+      OLLAMA_NUM_PARALLEL = "1";
+    };
+  };
+  systemd.services.ollama.serviceConfig = {
+    MemoryMax = "8G";
+    Restart = "on-failure";
+    RestartSec = "10s";
+  };
+  systemd.services.ollama-warm = {
+    description = "Keep the declared Ollama model resident";
+    wantedBy = [ "multi-user.target" ];
+    requires = [
+      "ollama.service"
+      "ollama-model-loader.service"
+    ];
+    after = [
+      "ollama.service"
+      "ollama-model-loader.service"
+    ];
+    partOf = [ "ollama.service" ];
+    serviceConfig = {
+      Type = "oneshot";
+      RemainAfterExit = true;
+      Restart = "on-failure";
+      RestartSec = "30s";
+    };
+    script = ''
+      ${lib.getExe pkgs.curl} --fail --silent --show-error \
+        --header 'Content-Type: application/json' \
+        --data-binary '${
+          builtins.toJSON {
+            model = ollamaModel;
+            prompt = "";
+            stream = false;
+            keep_alive = -1;
+          }
+        }' \
+        http://127.0.0.1:11434/api/generate >/dev/null
+    '';
+  };
+
+  users.groups.freshrss-digest = { };
+  users.users.freshrss-digest = {
+    isSystemUser = true;
+    group = "freshrss-digest";
+  };
+  users.users.nginx.extraGroups = [ "freshrss-digest" ];
+
+  systemd.services.freshrss-digest = {
+    description = "Create a daily FreshRSS digest with Ollama";
+    wants = [
+      "network-online.target"
+      "ollama-warm.service"
+      "tailscaled-autoconnect.service"
+    ];
+    after = [
+      "network-online.target"
+      "ollama-warm.service"
+      "tailscaled-autoconnect.service"
+    ];
+    environment = {
+      OLLAMA_MODEL = ollamaModel;
+      OLLAMA_URL = "http://127.0.0.1:11434";
+    };
+    serviceConfig = {
+      Type = "oneshot";
+      User = "freshrss-digest";
+      Group = "freshrss-digest";
+      StateDirectory = "freshrss-digest";
+      StateDirectoryMode = "0750";
+      LoadCredential = [
+        "freshrss-api-url:${config.sops.secrets."freshrss-api-url".path}"
+        "freshrss-api-username:${config.sops.secrets."freshrss-api-username".path}"
+        "freshrss-api-password:${config.sops.secrets."freshrss-api-password".path}"
+      ];
+      NoNewPrivileges = true;
+      PrivateTmp = true;
+      ProtectHome = true;
+      ProtectSystem = "strict";
+      TimeoutStartSec = "2h";
+      UMask = "0027";
+      ExecStart = lib.getExe freshrssDigest;
+    };
+  };
+  systemd.timers.freshrss-digest = {
+    description = "Run the FreshRSS digest every day at 06:00 JST";
+    wantedBy = [ "timers.target" ];
+    timerConfig = {
+      OnCalendar = "*-*-* 06:00:00";
+      Persistent = true;
+      Unit = "freshrss-digest.service";
+    };
+  };
+
+  services.nginx = {
+    enable = true;
+    virtualHosts."freshrss-digest" = {
+      default = true;
+      listen = [
+        {
+          addr = "0.0.0.0";
+          port = 8080;
+        }
+      ];
+      locations."= /digest.atom" = {
+        alias = "/var/lib/freshrss-digest/public/digest.atom";
+        extraConfig = "default_type application/atom+xml;";
+      };
+      locations."/".return = "404";
+    };
+  };
+}
