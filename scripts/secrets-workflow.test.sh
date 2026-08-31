@@ -43,6 +43,11 @@ assert_absent_outputs() {
   test ! -e "$repo/secrets/runtime.yaml" || fail "runtime output must not exist after failure"
 }
 
+reset_fixture() {
+  rm -rf -- "$repo" "$test_home"
+  mkdir -p "$repo" "$test_home"
+}
+
 copy_fixture_repo() {
   mkdir -p "$repo/scripts"
   cp "$repo_root/.gitignore" "$repo/.gitignore"
@@ -393,8 +398,7 @@ test_initialization_rejects_non_oauth_client_secrets() {
   local oauth_secret
 
   for oauth_secret in client-id-value tskey-auth-test-value tskey-client-; do
-    rm -rf -- "$repo" "$test_home"
-    mkdir -p "$repo" "$test_home"
+    reset_fixture
     copy_fixture_repo
     prepare_source_keys
     if run_init_with_oauth_secret "$oauth_secret" >"$work/stdout" 2>"$work/stderr"; then
@@ -495,19 +499,9 @@ run_wrapper() {
   )
 }
 
-run_wrapper_with_default_management_key() {
-  (
-    cd "$repo"
-    env -u HOME -u SOPS_AGE_KEY_FILE \
-      GNUPGHOME="$test_home/.gnupg" \
-      NIXOS_ANYWHERE_BIN="$work/fake-bin/nixos-anywhere" \
-      FAKE_ARGS_LOG="$work/fake.args" \
-      FAKE_EXTRA_PATH_LOG="$work/fake.extra-path" \
-        bash scripts/jupiter-install.sh "$@"
-  )
-}
-
-run_wrapper_without_management_key() {
+# HOME / SOPS_AGE_KEY_FILE を外して wrapper を実行する。
+# 既定 key path の解決と、key 不在時の失敗の両方の検査で使う。
+run_wrapper_without_key_env() {
   (
     cd "$repo"
     env -u HOME -u SOPS_AGE_KEY_FILE \
@@ -591,8 +585,7 @@ run_init_update() {
 }
 
 reset_init_update_fixture() {
-  rm -rf -- "$repo" "$test_home"
-  mkdir -p "$repo" "$test_home"
+  reset_fixture
   prepare_wrapper_fixture
 }
 
@@ -895,8 +888,7 @@ assert_wrapper_fails() {
 }
 
 reset_wrapper_fixture() {
-  rm -rf -- "$repo" "$test_home"
-  mkdir -p "$repo" "$test_home"
+  reset_fixture
   prepare_wrapper_fixture
   make_fake_nixos_anywhere
 }
@@ -923,7 +915,7 @@ test_default_management_key_path_is_used_when_env_is_unset() {
   reset_wrapper_fixture
   install -m 600 "$test_home/.config/sops/age/keys.txt" "$repo/secrets/management-age-key.txt"
   rm -f -- "$test_home/.config/sops/age/keys.txt"
-  run_wrapper_with_default_management_key --phases install >"$work/wrapper.stdout" 2>"$work/wrapper.stderr" || \
+  run_wrapper_without_key_env --phases install >"$work/wrapper.stdout" 2>"$work/wrapper.stderr" || \
     fail "wrapper did not use the default management key path"
   assert_args_contain --extra-files --chown home/shishi 1000:100
   assert_wrapper_logs_redacted
@@ -933,7 +925,7 @@ test_default_management_key_path_is_used_when_env_is_unset() {
 test_missing_default_management_key_reports_a_controlled_error() {
   reset_wrapper_fixture
   rm -f -- "$test_home/.config/sops/age/keys.txt" "$repo/secrets/management-age-key.txt"
-  if run_wrapper_without_management_key --phases install >"$work/wrapper.stdout" 2>"$work/wrapper.stderr"; then
+  if run_wrapper_without_key_env --phases install >"$work/wrapper.stdout" 2>"$work/wrapper.stderr"; then
     fail "wrapper unexpectedly accepted a missing management key"
   fi
   rg -F 'management age key が読めない' "$work/wrapper.stderr" >/dev/null || \
@@ -1166,35 +1158,25 @@ if [ "$suite" = wrapper ]; then
 fi
 
 test_missing_ssh_key_fails_before_input
-rm -rf -- "$repo" "$test_home"
-mkdir -p "$repo" "$test_home"
+reset_fixture
 test_mismatched_confirmation_leaves_no_outputs
-rm -rf -- "$repo" "$test_home"
-mkdir -p "$repo" "$test_home"
+reset_fixture
 test_existing_ciphertext_is_not_overwritten
-rm -rf -- "$repo" "$test_home"
-mkdir -p "$repo" "$test_home"
+reset_fixture
 test_dangling_symlink_is_not_overwritten
-rm -rf -- "$repo" "$test_home"
-mkdir -p "$repo" "$test_home"
+reset_fixture
 test_default_management_key_is_created_in_repository
-rm -rf -- "$repo" "$test_home"
-mkdir -p "$repo" "$test_home"
+reset_fixture
 test_failed_installation_rolls_back_outputs
-rm -rf -- "$repo" "$test_home"
-mkdir -p "$repo" "$test_home"
+reset_fixture
 test_publish_race_preserves_competing_entry
-rm -rf -- "$repo" "$test_home"
-mkdir -p "$repo" "$test_home"
+reset_fixture
 test_concurrent_initializer_is_rejected_before_input
-rm -rf -- "$repo" "$test_home"
-mkdir -p "$repo" "$test_home"
+reset_fixture
 test_short_luks_passphrase_is_rejected
-rm -rf -- "$repo" "$test_home"
-mkdir -p "$repo" "$test_home"
+reset_fixture
 test_control_character_in_luks_passphrase_is_rejected
-rm -rf -- "$repo" "$test_home"
-mkdir -p "$repo" "$test_home"
+reset_fixture
 test_successful_initialization_encrypts_expected_boundaries
 test_initialization_rejects_non_oauth_client_secrets
 test_init_update_updates_entered_values_and_preserves_empty_values

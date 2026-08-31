@@ -40,11 +40,6 @@ find_repo_root() {
     current=$(dirname "$current")
   done
 
-  if [ -f /flake.nix ]; then
-    printf '/\n'
-    return 0
-  fi
-
   die 'flake.nix が見つからない。リポジトリ内で実行すること'
 }
 

@@ -80,9 +80,7 @@ if grep -Eq -- '--commit|^nix build ' "$clean_fixture/calls"; then
   exit 1
 fi
 
-if ! git -C "$clean_fixture" diff --quiet -- flake.lock; then
-  :
-else
+if git -C "$clean_fixture" diff --quiet -- flake.lock; then
   echo "FAIL: update must leave dependency changes in the current checkout" >&2
   exit 1
 fi

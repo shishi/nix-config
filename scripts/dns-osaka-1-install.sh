@@ -54,7 +54,7 @@ cd "$repo_root"
 known_hosts=${SSH_KNOWN_HOSTS_FILE:-$HOME/.ssh/known_hosts}
 [ -f "$known_hosts" ] || die "SSH known_hosts が無い: $known_hosts"
 
-common_arguments=(
+nixos_anywhere_arguments=(
   --flake .#dns-osaka-1
   --target-host ubuntu@129.225.177.221
   --ssh-option "UserKnownHostsFile=$known_hosts"
@@ -96,7 +96,7 @@ install -d -m 700 "$extra_files/var/lib/sops-nix"
 install -m 600 "$host_age_key" "$extra_files/var/lib/sops-nix/dns-osaka-1-age-key.txt"
 
 "$NIXOS_ANYWHERE_BIN" \
-  "${common_arguments[@]}" \
+  "${nixos_anywhere_arguments[@]}" \
   --extra-files "$extra_files" \
   --copy-host-keys \
   --phases kexec,disko,install,reboot
