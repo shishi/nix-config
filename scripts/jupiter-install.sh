@@ -1,4 +1,10 @@
 #!/usr/bin/env bash
+#
+# nixos-anywhere の phase のうち disko と install を秘密注入の単位として扱う。
+# 2 回に分けて実行するのは、disko(ディスク全消去 + LUKS 鍵の注入)と
+# install(SSH/GPG 鍵・パスワードハッシュ・sops 鍵の配送 + NixOS 本体)の間に
+# Secure Boot 鍵の準備という人間の工程が挟まるため(docs/jupiter-install-runbook.md)。
+# 暗黙の既定でディスクを消さないよう、実行する phase は --phases で必ず明示させる。
 
 set -eEuo pipefail
 umask 077
@@ -122,10 +128,8 @@ parse_phases() {
     index=$((index + 1))
   done
 
-  if [ "$phase_specified" -eq 0 ]; then
-    run_disko=1
-    run_install=1
-  fi
+  [ "$phase_specified" -eq 1 ] || \
+    die '実行する phase を --phases で明示すること(disko: ディスク全消去と LUKS 鍵の注入 / install: 鍵と秘密の配送 + NixOS 本体。連続実行は --phases disko,install)'
 }
 
 require_tracked_ciphertext() {

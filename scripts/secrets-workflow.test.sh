@@ -939,9 +939,13 @@ test_missing_default_management_key_reports_a_controlled_error() {
   assert_extra_files_cleaned_up
 }
 
-test_full_run_delivers_both_phase_inputs() {
+test_full_run_requires_explicit_phases() {
   reset_wrapper_fixture
-  run_wrapper >"$work/wrapper.stdout" 2>"$work/wrapper.stderr" || fail "full wrapper run failed"
+  assert_wrapper_fails
+  rg -F -- '--phases で明示すること' "$work/wrapper.stderr" >/dev/null || \
+    fail "missing --phases rejection did not explain which phase does what"
+  run_wrapper --phases disko,install >"$work/wrapper.stdout" 2>"$work/wrapper.stderr" || \
+    fail "explicit full wrapper run failed"
   assert_args_contain --disk-encryption-keys /tmp/secret.key --extra-files --chown home/shishi 1000:100
   assert_wrapper_logs_redacted
   assert_extra_files_cleaned_up
@@ -1156,7 +1160,7 @@ if [ "$suite" = wrapper ]; then
   test_install_phase_delivers_checked_extra_files
   test_default_management_key_path_is_used_when_env_is_unset
   test_missing_default_management_key_reports_a_controlled_error
-  test_full_run_delivers_both_phase_inputs
+  test_full_run_requires_explicit_phases
   test_manual_secret_arguments_are_rejected
   test_installer_host_keys_are_not_recorded
   test_wrong_management_key_is_rejected
