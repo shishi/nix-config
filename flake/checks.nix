@@ -37,7 +37,9 @@
       checks = {
         direnv-contract = pkgs.runCommand "direnv-contract" { } ''
           ${pkgs.bash}/bin/bash ${../scripts/direnv.test.sh} ${../.envrc}
+          ${pkgs.bash}/bin/bash ${../scripts/direnv.test.sh} ${../templates/basic/.envrc}
           ${pkgs.bash}/bin/bash ${../scripts/direnv.test.sh} ${../templates/ruby/.envrc}
+          ${pkgs.bash}/bin/bash ${../scripts/direnv.test.sh} ${../templates/rust/.envrc}
           touch $out
         '';
 
@@ -393,7 +395,7 @@
 
           # dns-osaka-1 の暗号文も同じ境界で検査する。管理鍵は jupiter と共通
           # (docs/dns-osaka-1-runbook.md 手順 5)なので、bootstrap の宛先は
-          # root .sops.yaml の management recipient と一致していなければならない。
+          # jupiter 側 .sops.yaml の management recipient と一致していなければならない。
           dns_sops_config=${../secrets/dns-osaka-1/.sops.yaml}
           dns_bootstrap_file=${../secrets/dns-osaka-1/bootstrap.yaml}
           dns_runtime_file=${../secrets/dns-osaka-1/runtime.yaml}

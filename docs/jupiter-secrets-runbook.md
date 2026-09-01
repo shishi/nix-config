@@ -53,7 +53,7 @@ ASCII だけの値ではバイト数と文字数が一致する。暗号文だ�
 - グローバル Git 設定の `user.signingkey` が参照する GPG 署名秘密鍵
 - `auth_keys` スコープと `tag:jupiter` を持つ、`tskey-client-` で始まる
   Tailscale OAuth クライアントシークレット（クライアント ID や通常の認証キーではない）
-- `.sops.yaml`、`secrets/jupiter/bootstrap.yaml`、`secrets/jupiter/runtime.yaml` がすべて未作成であること
+- `secrets/jupiter/.sops.yaml`、`secrets/jupiter/bootstrap.yaml`、`secrets/jupiter/runtime.yaml` がすべて未作成であること
 
 リポジトリのルートで実行する。
 
@@ -105,7 +105,7 @@ nix run .#jupiter-secrets
 
 ## 4. 破棄して作り直す
 
-`.sops.yaml`、`secrets/jupiter/bootstrap.yaml`、`secrets/jupiter/runtime.yaml` は 1 セットとして扱う。
+`secrets/jupiter/.sops.yaml`、`secrets/jupiter/bootstrap.yaml`、`secrets/jupiter/runtime.yaml` は 1 セットとして扱う。
 1 ファイルだけを削除すると `jupiter-secrets` は部分的な状態として拒否する。
 やり直す前に、3 ファイルが同じコミットに保存済みで、管理用 age 鍵のバックアップが
 あることを確認する。誤って単体で削除した場合も、3 ファイルすべてを同じコミットから
@@ -115,7 +115,7 @@ nix run .#jupiter-secrets
 `jupiter-secrets` を実行する。
 
 ```bash
-rm -- .sops.yaml secrets/jupiter/bootstrap.yaml secrets/jupiter/runtime.yaml
+rm -- secrets/jupiter/.sops.yaml secrets/jupiter/bootstrap.yaml secrets/jupiter/runtime.yaml
 nix run .#jupiter-secrets
 ```
 
@@ -129,7 +129,7 @@ LUKS、ログイン、SMB、Tailscale の 4 項目を再入力し、SSH・GPG �
 末尾の管理用鍵パスを、指定先の実ファイルへ置き換える。
 
 ```bash
-rm -- .sops.yaml secrets/jupiter/bootstrap.yaml secrets/jupiter/runtime.yaml secrets/management-age-key.txt
+rm -- secrets/jupiter/.sops.yaml secrets/jupiter/bootstrap.yaml secrets/jupiter/runtime.yaml secrets/management-age-key.txt
 nix run .#jupiter-secrets
 ```
 
