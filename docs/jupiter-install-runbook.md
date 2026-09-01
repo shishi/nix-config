@@ -88,7 +88,7 @@ SOPS を使う現行ラッパーはフィクスチャで自動テストしてい
 Git 管理対象外の管理用 age 鍵を準備する。3 つの暗号化済みファイルを
 同じコミットに含めてから次へ進む。
 
-### 2.2 インストーラーを起動して root に鍵を置く
+### 2.2 インストーラーを起動して root パスワードを設定する
 
 **USB イーサネットアダプタを挿してから起動する。** この機体に有線 LAN ポートは
 無く、`nixos-anywhere` はワークステーションから対象機の sshd へ繋ぐので、対象機が
@@ -113,72 +113,51 @@ ip -brief addr show
 `--ssh-port` / `-p` は省いてよい(リハーサルでは VM の NAT ポート転送を挟んだ
 ため明示した)。
 
-**`root` に自分の公開鍵を置く。実機のコンソールでは打たない。**
+**コンソールで `nixos` として `sudo passwd root` を 1 回実行する。**
 `nixos-anywhere` は disko と install の両フェーズで `root@` へ接続するが、素の
 `nixos-minimal` ISO には root の `authorized_keys` が無い。インストーラーの `root` と
-`nixos` は空パスワードで、空パスワードでの SSH ログインは sshd が拒否するため、
-コンソールで `nixos` として `sudo passwd root` を 1 回実行してから、
-**ワークステーション側で** `ssh-copy-id` を実行する(いま設定した root の
-パスワードを 1 回だけ尋ねられる。以降の `ssh` と `jupiter-install` はすべて
-鍵で認証する)。
-
-```bash
-ssh-copy-id -p <port> -o StrictHostKeyChecking=no -o UserKnownHostsFile=/dev/null root@<target>
-```
-
-**この 1 行にもホスト鍵のオプションを付ける。** 付けずに実行するとインストーラーの
-使い捨てホスト鍵が `known_hosts` に残り、インストール後に同じアドレスへ繋いだ
-ときに `REMOTE HOST IDENTIFICATION HAS CHANGED` で拒否される(実測: 付け忘れて
-実際にこうなった)。インストール後の機体はインストーラーとは別のホスト鍵を出す。
+`nixos` は空パスワードで、空パスワードでの SSH ログインは sshd が拒否される。
+公開鍵の配置は `jupiter-install` が冒頭に `ssh-copy-id` で行い、いま設定した root の
+パスワードをそのとき 1 回だけ尋ねられる。以降の SSH 接続はすべて鍵で認証する。
 
 インストーラーの `nixos` は wheel に属し `security.sudo.wheelNeedsPassword` が false
 なので、`sudo` はパスワードを聞かない。実機で打つのは `sudo passwd root` だけになる。
 
-疎通を確認してから先へ進む。
-
-```bash
-ssh -p <port> -o BatchMode=yes -o StrictHostKeyChecking=no -o UserKnownHostsFile=/dev/null root@<target> true && echo ok
-```
-
-**`StrictHostKeyChecking=no` と `UserKnownHostsFile=/dev/null` は、この手順書で
-インストーラーへ繋ぐ `ssh` すべてに付ける**(§2.2〜§2.4 の各コマンドにも書いてある)。
-ISO の `/etc/ssh` は tmpfs で **インストーラーのホスト鍵は起動のたびに作り直される**
-ため、`known_hosts` に記録するとインストーラーの 2 回目の起動でも、インストール後の
-jupiter へ同じアドレスで繋ぐときにも `REMOTE HOST IDENTIFICATION HAS CHANGED`
-になる。記録しなければどちらも起きない。`jupiter-install` も同じ 2 つを
-`nixos-anywhere` の SSH 接続へ渡す(SSH host key の扱いは wrapper が固定しており、
-`--ssh-option` は受け付けない)。
+インストーラーへ繋ぐ SSH 接続はすべて `jupiter-install` が行い、
+`StrictHostKeyChecking=no` と `UserKnownHostsFile=/dev/null` を wrapper が固定で
+付ける(`--ssh-option` は受け付けない)。ISO の `/etc/ssh` は tmpfs で
+**インストーラーのホスト鍵は起動のたびに作り直される**ため、`known_hosts` に
+記録するとインストーラーの 2 回目の起動でも、インストール後の jupiter へ
+同じアドレスで繋ぐときにも `REMOTE HOST IDENTIFICATION HAS CHANGED` になる。
+記録しなければどちらも起きない。手で `ssh` する場合も同じ 2 つを付ける。
 
 この手順は自宅 LAN を信頼境界に含め、初回の SSH ホスト鍵を別経路では照合しない。
 信頼できないネットワーク越しのインストールは、この手順と `jupiter-install` の
 対象外である。
 
-**`BatchMode=yes` は疎通確認にだけ付ける。** 鍵が拒否されたときに ssh が
-パスワード入力へフォールバックして無言に待ち続けるのを防ぐため(実測: 付けずに
-5 分ハングした)。`Permission denied (publickey)` の原因は 2 つ — ISO に鍵が
-焼けていない場合と、ワークステーション側の秘密鍵がパスフレーズ付きで
-`ssh-agent` に入っていない場合(`BatchMode=yes` はパスフレーズ入力も封じる)。
-後者なら `ssh-add -l` に鍵が出ない。
-
 ラッパーは対象機上の鍵生成に `nix run` を使うため、`nix-command` と `flakes` を
 コマンドで明示している。素の `nixos-minimal` ISO ではどちらも有効になっていない
 (実測: `nix config show` が `nix-command` 不足で失敗する)。
 
-### 2.3 インストールを実行する(disko → 鍵生成 → install)
+### 2.3 インストールを実行する(鍵配置 → disko → 鍵生成 → install → 配送確認)
 
 ワークステーション側の nix-config チェックアウトで実行する。ラッパーは次の固定順で
 進める。順序と秘密の配送はラッパーが所有し、`--phases` や秘密配送の引数は受け付けない。
 
-1. `secrets/bootstrap.yaml` を管理用 age 鍵で tmpfs 上へ復号・検証し、`disko` フェーズへ
+1. `ssh-copy-id` で自分の公開鍵を対象機の root へ置く。未配置なら §2.2 で設定した
+   root パスワードをここで 1 回だけ聞かれる(配置済みなら何も聞かれない)
+2. `secrets/bootstrap.yaml` を管理用 age 鍵で tmpfs 上へ復号・検証し、`disko` フェーズへ
    LUKS パスフレーズだけを渡してディスクを消去・暗号化・マウントする
    (`hosts/jupiter/disko.nix` の `passwordFile = "/tmp/secret.key"` に対応する引数は
    内部で追加する)。値を引数、ログ、Nix ストア、永続ファイルへ出さない
-2. 対象機上で sbctl の鍵(`GUID` と `keys/{PK,KEK,db}/*.{key,pem}`)と initrd SSH
+3. 対象機上で sbctl の鍵(`GUID` と `keys/{PK,KEK,db}/*.{key,pem}`)と initrd SSH
    ホスト鍵を生成し、`/mnt/var/lib` へ置く。Secure Boot の秘密鍵はワークステーションを
    経由しない
-3. `install` フェーズで SSH 鍵、GPG エクスポート、ログイン用 yescrypt ハッシュ、
+4. `install` フェーズで SSH 鍵、GPG エクスポート、ログイン用 yescrypt ハッシュ、
    Jupiter 用 age 鍵を配送し、NixOS 本体をインストールする。`secrets/runtime.yaml` も
    Jupiter 用鍵で復号検証してから進む。一時平文は成功時と失敗時の両方で削除する
+5. 配送された秘密の所有者・mode の一覧を表示し、空のファイルがあれば失敗にする
+   (値そのものは表示しない)
 
 ```bash
 nix run .#jupiter-install -- --target-host root@<target> --ssh-port <port>
@@ -203,27 +182,19 @@ nix run .#jupiter-install -- --target-host root@<target> --ssh-port <port>
 インストーラーの tmpfs(root のパスワードと `authorized_keys`)も消えているため
 §2.2 からやり直す。
 
-確認(§2.4 の停止前に):
-
-```bash
-ssh -p <port> -o StrictHostKeyChecking=no -o UserKnownHostsFile=/dev/null root@<target> 'find /mnt/home/shishi/.ssh -maxdepth 1 -printf "%M %U:%G %p\n" | sort; find /mnt/var/lib/secrets /mnt/var/lib/sops-nix -maxdepth 1 -printf "%M %U:%G %p\n" | sort'
-```
-
-期待: shishi の `.ssh` と秘密鍵は `1000:100`、Jupiter 用 age 鍵とログイン用
-ハッシュは `root:root` である。秘密鍵、age 鍵、GPG エクスポート、ハッシュのパーミッションは
-`0600`、SSH 公開鍵は `0644` である。
-
-パーミッションだけでは 0 バイトのファイルを見分けられないので、中身が空でないことも見る
-(**値そのものは表示しない**)。
-
-```bash
-ssh -p <port> -o StrictHostKeyChecking=no -o UserKnownHostsFile=/dev/null root@<target> 'test -s /mnt/var/lib/secrets/shishi-password-hash && test -s /mnt/var/lib/sops-nix/key.txt && test -s /mnt/home/shishi/.ssh/id_ed25519 && test -s /mnt/home/shishi/gpg-secret.asc && echo secrets-ok || echo secrets-INCOMPLETE'
-```
+最後にラッパーが配送された秘密の一覧を表示する。期待: shishi の `.ssh` と秘密鍵は
+`1000:100`、Jupiter 用 age 鍵とログイン用ハッシュは `root:root` である。秘密鍵、
+age 鍵、GPG エクスポート、ハッシュのパーミッションは `0600`、SSH 公開鍵は `0644`
+である。空のファイルはラッパーが失敗にするので、人間が照合するのは所有者と
+mode だけである。
 
 ### 2.4 停止してインストーラーメディアを外す
 
+ラッパーが完了時に `<target>` と `<port>` を埋めた停止コマンドを表示するので、
+一覧を確認できたらそれを実行する。
+
 ```bash
-ssh -p <port> -o StrictHostKeyChecking=no -o UserKnownHostsFile=/dev/null root@<target> 'swapoff -a; umount -R /mnt && cryptsetup close cryptroot'
+ssh -p <port> -o UserKnownHostsFile=/dev/null -o StrictHostKeyChecking=no root@<target> 'swapoff -a; umount -R /mnt && cryptsetup close cryptroot'
 ```
 
 `umount` と `cryptsetup close` が成功したことを確認してから再起動する。

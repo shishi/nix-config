@@ -496,6 +496,13 @@ case "$*" in
 esac
 EOF
   chmod 700 "$work/fake-bin/ssh"
+
+  printf '#!%s\n' "$test_bash" >"$work/fake-bin/ssh-copy-id"
+  cat >>"$work/fake-bin/ssh-copy-id" <<'EOF'
+set -euo pipefail
+printf 'ssh-copy-id %s\n' "$*" >>"${FAKE_ARGS_LOG:?}"
+EOF
+  chmod 700 "$work/fake-bin/ssh-copy-id"
 }
 
 # --target-host / --ssh-port は helper が供給する。追加引数は "$@" で後置する。
@@ -944,7 +951,7 @@ test_run_executes_disko_keygen_install_in_order() {
   reset_wrapper_fixture
   run_wrapper >"$work/wrapper.stdout" 2>"$work/wrapper.stderr" || fail "wrapper run failed"
   assert_args_contain --disk-encryption-keys /tmp/secret.key --extra-files --chown home/shishi 1000:100
-  assert_args_order '^disko$' 'create-keys' '^install$'
+  assert_args_order '^ssh-copy-id ' '^disko$' 'create-keys' '^install$' 'find /mnt/home/shishi/\.ssh'
   assert_args_order '^--disk-encryption-keys$' 'ssh_host_ed25519_key' '^--extra-files$'
   rg -F 'SHA256:fake-fingerprint' "$work/wrapper.stdout" "$work/wrapper.stderr" >/dev/null || \
     fail "wrapper did not surface the initrd host key fingerprint"
@@ -1003,6 +1010,8 @@ test_installer_host_keys_are_not_recorded() {
   assert_args_contain --ssh-option UserKnownHostsFile=/dev/null StrictHostKeyChecking=no
   rg -- '^ssh .*UserKnownHostsFile=/dev/null .*StrictHostKeyChecking=no' "$work/fake.args" >/dev/null || \
     fail "wrapper-owned ssh commands do not carry the host key options"
+  rg -- '^ssh-copy-id .*UserKnownHostsFile=/dev/null .*StrictHostKeyChecking=no' "$work/fake.args" >/dev/null || \
+    fail "wrapper-owned ssh-copy-id does not carry the host key options"
   assert_wrapper_fails --ssh-option StrictHostKeyChecking=yes
   rg -F -- '--ssh-option は指定しないこと' "$work/wrapper.stderr" >/dev/null || \
     fail "manual ssh option rejection did not explain the wrapper contract"

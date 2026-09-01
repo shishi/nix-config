@@ -33,7 +33,7 @@ nix run .#switch
 | app | コマンド | 使う場面 |
 |---|---|---|
 | `jupiter-secrets` | `nix run .#jupiter-secrets` | SOPS ファイルを手作業で編集せず、Jupiter の秘密情報を一時領域で作成・更新して暗号化する |
-| `jupiter-install` | `nix run .#jupiter-install -- --target-host root@<target> …` | Jupiter の構成を固定し、disko(ディスク全消去 + LUKS)→ 対象機上での Secure Boot 鍵生成 → install(秘密の配送 + NixOS 本体)を固定順で実行する |
+| `jupiter-install` | `nix run .#jupiter-install -- --target-host root@<target> …` | Jupiter の構成を固定し、公開鍵配置(未配置なら root パスワードを 1 回)→ disko(ディスク全消去 + LUKS)→ 対象機上での Secure Boot 鍵生成 → install(秘密の配送 + NixOS 本体)→ 配送確認を固定順で実行する |
 | `bootstrap` | `nix run github:shishi/nix-config#bootstrap` | Jupiter の初回起動後にリポジトリと dotfiles を配置し、設定適用までまとめて進める |
 
 ### 初期構築

@@ -1,8 +1,9 @@
 #!/usr/bin/env bash
 #
-# nixos-anywhere を disko(ディスク全消去 + LUKS 鍵の注入)→ 対象機上での鍵生成 →
-# install(SSH/GPG 鍵・パスワードハッシュ・sops 鍵の配送 + NixOS 本体)の固定順で
-# 実行する。lanzaboote の lzbt install が /var/lib/sbctl の署名鍵を要求するため、
+# 公開鍵の配置(ssh-copy-id、未配置ならコンソールで設定した root パスワードを 1 回)→
+# nixos-anywhere の disko(ディスク全消去 + LUKS 鍵の注入)→ 対象機上での鍵生成 →
+# install(SSH/GPG 鍵・パスワードハッシュ・sops 鍵の配送 + NixOS 本体)→ 配送確認の
+# 固定順で実行する。lanzaboote の lzbt install が /var/lib/sbctl の署名鍵を要求するため、
 # sbctl 鍵と initrd SSH ホスト鍵は install の前に対象機上で生成して /mnt へ置く
 # (秘密鍵はワークステーションを経由しない)。順序は wrapper が所有し、
 # --phases は受け付けない(docs/jupiter-install-runbook.md)。
@@ -24,6 +25,7 @@ password_hash=""
 extra_files=""
 target_host=""
 ssh_port=""
+ssh_base_args=()
 primary_credential_min_chars=15
 primary_credential_max_chars=128
 original_args=()
@@ -230,15 +232,26 @@ validate_runtime_secret() {
     ' >/dev/null || die 'runtime.yaml を Jupiter 鍵で復号・検証できない'
 }
 
-target_ssh() {
+build_ssh_base_args() {
   # インストーラーのホスト鍵は起動ごとに作り直される使い捨てで、照合する対象が無い。
   # known_hosts へ記録すると、インストーラー再起動後とインストール後の接続が
   # HOST IDENTIFICATION CHANGED で拒否されるため記録しない。
-  local -a ssh_args=(-o UserKnownHostsFile=/dev/null -o StrictHostKeyChecking=no)
+  ssh_base_args=(-o UserKnownHostsFile=/dev/null -o StrictHostKeyChecking=no)
+  [ -z "$ssh_port" ] || ssh_base_args+=(-p "$ssh_port")
+}
 
-  [ -z "$ssh_port" ] || ssh_args+=(-p "$ssh_port")
+target_ssh() {
   # shellcheck disable=SC2029 # 渡すのはリテラルのコマンド文字列で、クライアント側展開は意図どおり。
-  ssh "${ssh_args[@]}" "$target_host" "$@"
+  ssh "${ssh_base_args[@]}" "$target_host" "$@"
+}
+
+# インストーラーの root には authorized_keys が無く、以降の ssh と nixos-anywhere は
+# すべて鍵認証で進むため、最初に自分の公開鍵を置く。未配置ならコンソールで設定した
+# root パスワードを 1 回だけ聞かれ、配置済みなら何も聞かれない(再実行しても安全)。
+ensure_key_auth() {
+  printf 'jupiter-install: 対象機へ SSH 公開鍵を配置する(未配置なら root パスワードを 1 回聞かれる)\n'
+  ssh-copy-id "${ssh_base_args[@]}" "$target_host" || \
+    die '公開鍵を配置できない。対象機のコンソールで sudo passwd root を実行したか確認すること(docs/jupiter-install-runbook.md §2.2)'
 }
 
 # lanzaboote の lzbt install は /var/lib/sbctl の鍵で boot entry を署名し、
@@ -250,6 +263,17 @@ generate_target_keys() {
   printf 'jupiter-install: initrd SSH ホスト鍵の fingerprint(復旧時の照合用。Jupiter 以外から読める場所へ保存する):\n'
   target_ssh 'ssh-keygen -lf /mnt/var/lib/initrd-ssh/ssh_host_ed25519_key.pub' || \
     die 'initrd SSH ホスト鍵の fingerprint を取得できない'
+}
+
+# 配送された秘密の配置を install 後に確認する(値そのものは表示しない)。
+# 所有者と mode の照合は人間が行い、空ファイルは wrapper が失敗にする。
+verify_delivered_secrets() {
+  printf 'jupiter-install: 配送された秘密の一覧(期待: .ssh と SSH 鍵は 1000:100、age 鍵とハッシュは root:root、秘密は 0600、SSH 公開鍵は 0644):\n'
+  target_ssh 'find /mnt/home/shishi/.ssh -maxdepth 1 -printf "%M %U:%G %p\n" | sort; find /mnt/var/lib/secrets /mnt/var/lib/sops-nix -maxdepth 1 -printf "%M %U:%G %p\n" | sort' || \
+    die '配送された秘密の一覧を取得できない'
+  target_ssh 'test -s /mnt/home/shishi/.ssh/id_ed25519 && test -s /mnt/home/shishi/gpg-secret.asc && test -s /mnt/var/lib/secrets/shishi-password-hash && test -s /mnt/var/lib/sops-nix/key.txt' || \
+    die '配送された秘密に空のファイルがある'
+  printf 'jupiter-install: 配送された秘密はすべて空でない\n'
 }
 
 run_nixos_anywhere() {
@@ -301,6 +325,11 @@ extract_and_validate
 build_extra_files
 validate_runtime_secret
 
+build_ssh_base_args
+ensure_key_auth
 run_nixos_anywhere disko
 generate_target_keys
 run_nixos_anywhere install
+verify_delivered_secrets
+printf 'jupiter-install: 完了。一覧を確認できたら停止する(docs/jupiter-install-runbook.md §2.4):\n'
+printf '  ssh %s %s '\''swapoff -a; umount -R /mnt && cryptsetup close cryptroot'\''\n' "${ssh_base_args[*]}" "$target_host"
