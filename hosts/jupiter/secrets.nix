@@ -8,7 +8,7 @@
   imports = [ inputs.sops-nix.nixosModules.sops ];
 
   sops = {
-    defaultSopsFile = ../../secrets/runtime.yaml;
+    defaultSopsFile = ../../secrets/jupiter/runtime.yaml;
     defaultSopsFormat = "yaml";
     age = {
       keyFile = "/var/lib/sops-nix/key.txt";

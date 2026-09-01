@@ -136,10 +136,10 @@ parse_arguments() {
 }
 
 require_tracked_ciphertext() {
-  git -C "$repo_root" ls-files --error-unmatch -- secrets/bootstrap.yaml >/dev/null 2>&1 || \
-    die 'secrets/bootstrap.yaml が Git で追跡されていない'
-  git -C "$repo_root" ls-files --error-unmatch -- secrets/runtime.yaml >/dev/null 2>&1 || \
-    die 'secrets/runtime.yaml が Git で追跡されていない'
+  git -C "$repo_root" ls-files --error-unmatch -- secrets/jupiter/bootstrap.yaml >/dev/null 2>&1 || \
+    die 'secrets/jupiter/bootstrap.yaml が Git で追跡されていない'
+  git -C "$repo_root" ls-files --error-unmatch -- secrets/jupiter/runtime.yaml >/dev/null 2>&1 || \
+    die 'secrets/jupiter/runtime.yaml が Git で追跡されていない'
 }
 
 decrypt_bootstrap() {
@@ -152,7 +152,7 @@ decrypt_bootstrap() {
   HOME="$sops_home" \
   XDG_CONFIG_HOME="$sops_config_home" \
   SOPS_AGE_KEY_FILE="$management_age_key_file" \
-    sops --decrypt --output-type json "$repo_root/secrets/bootstrap.yaml" >"$bootstrap_json" || \
+    sops --decrypt --output-type json "$repo_root/secrets/jupiter/bootstrap.yaml" >"$bootstrap_json" || \
     die 'bootstrap.yaml を復号・検証できない'
 }
 
@@ -226,7 +226,7 @@ build_extra_files() {
 
 validate_runtime_secret() {
   SOPS_AGE_KEY_FILE="$jupiter_age_key" \
-    sops --decrypt --output-type json "$repo_root/secrets/runtime.yaml" | \
+    sops --decrypt --output-type json "$repo_root/secrets/jupiter/runtime.yaml" | \
     jq -e '
       type == "object" and
       (keys == ["smb-mars-shishi", "tailscale-oauth-secret"]) and

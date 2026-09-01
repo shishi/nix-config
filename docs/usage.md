@@ -67,9 +67,9 @@ install -m 600 /path/to/management-age-key.txt secrets/management-age-key.txt
 
 ```bash
 nix run .#jupiter-secrets
-git add .sops.yaml secrets/bootstrap.yaml secrets/runtime.yaml
+git add secrets/jupiter/.sops.yaml secrets/jupiter/bootstrap.yaml secrets/jupiter/runtime.yaml
 git check-ignore secrets/management-age-key.txt
-git commit .sops.yaml secrets/bootstrap.yaml secrets/runtime.yaml -m "chore(secrets): update encrypted inputs"
+git commit secrets/jupiter/.sops.yaml secrets/jupiter/bootstrap.yaml secrets/jupiter/runtime.yaml -m "chore(secrets): update encrypted inputs"
 ```
 
 入力項目:

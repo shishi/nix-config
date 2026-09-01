@@ -38,9 +38,9 @@ assert_file() {
 }
 
 assert_absent_outputs() {
-  test ! -e "$repo/.sops.yaml" || fail ".sops.yaml must not exist after failure"
-  test ! -e "$repo/secrets/bootstrap.yaml" || fail "bootstrap output must not exist after failure"
-  test ! -e "$repo/secrets/runtime.yaml" || fail "runtime output must not exist after failure"
+  test ! -e "$repo/secrets/jupiter/.sops.yaml" || fail ".sops.yaml must not exist after failure"
+  test ! -e "$repo/secrets/jupiter/bootstrap.yaml" || fail "bootstrap output must not exist after failure"
+  test ! -e "$repo/secrets/jupiter/runtime.yaml" || fail "runtime output must not exist after failure"
 }
 
 reset_fixture() {
@@ -49,7 +49,7 @@ reset_fixture() {
 }
 
 copy_fixture_repo() {
-  mkdir -p "$repo/scripts"
+  mkdir -p "$repo/scripts" "$repo/secrets/jupiter"
   cp "$repo_root/.gitignore" "$repo/.gitignore"
   cp "$repo_root/flake.nix" "$repo/flake.nix"
   cp "$repo_root/scripts/jupiter-secrets.sh" "$repo/scripts/jupiter-secrets.sh"
@@ -181,8 +181,8 @@ run_init_with_publish_race() {
     SOPS_AGE_KEY_FILE="$test_home/.config/sops/age/keys.txt" \
     PATH="$work/publish-race-bin:$PATH" \
     REAL_LN="$real_ln" \
-    RACE_FINAL="$repo/secrets/runtime.yaml" \
-    RACE_REPLACED_FINAL="$repo/.sops.yaml" \
+    RACE_FINAL="$repo/secrets/jupiter/runtime.yaml" \
+    RACE_REPLACED_FINAL="$repo/secrets/jupiter/.sops.yaml" \
       bash scripts/jupiter-secrets.sh
   ) <<'EOF'
 luks-test-value
@@ -222,26 +222,26 @@ test_mismatched_confirmation_leaves_no_outputs() {
 test_existing_ciphertext_is_not_overwritten() {
   copy_fixture_repo
   prepare_source_keys
-  printf 'existing-ciphertext\n' >"$repo/.sops.yaml"
+  printf 'existing-ciphertext\n' >"$repo/secrets/jupiter/.sops.yaml"
   if run_init >"$work/stdout" 2>"$work/stderr"; then
     fail "initializer unexpectedly overwrote existing ciphertext"
   fi
-  test "$(cat "$repo/.sops.yaml")" = 'existing-ciphertext' || fail "existing ciphertext changed"
-  test ! -e "$repo/secrets/bootstrap.yaml" || fail "bootstrap was created despite existing output"
-  test ! -e "$repo/secrets/runtime.yaml" || fail "runtime was created despite existing output"
+  test "$(cat "$repo/secrets/jupiter/.sops.yaml")" = 'existing-ciphertext' || fail "existing ciphertext changed"
+  test ! -e "$repo/secrets/jupiter/bootstrap.yaml" || fail "bootstrap was created despite existing output"
+  test ! -e "$repo/secrets/jupiter/runtime.yaml" || fail "runtime was created despite existing output"
 }
 
 test_dangling_symlink_is_not_overwritten() {
   copy_fixture_repo
   prepare_source_keys
-  ln -s missing-sops-config "$repo/.sops.yaml"
+  ln -s missing-sops-config "$repo/secrets/jupiter/.sops.yaml"
   if run_init >"$work/stdout" 2>"$work/stderr"; then
     fail "initializer unexpectedly overwrote a dangling symlink"
   fi
-  test -L "$repo/.sops.yaml" || fail "dangling symlink was replaced"
-  test "$(readlink "$repo/.sops.yaml")" = missing-sops-config || fail "dangling symlink changed"
-  test ! -e "$repo/secrets/bootstrap.yaml" || fail "bootstrap was created despite dangling symlink"
-  test ! -e "$repo/secrets/runtime.yaml" || fail "runtime was created despite dangling symlink"
+  test -L "$repo/secrets/jupiter/.sops.yaml" || fail "dangling symlink was replaced"
+  test "$(readlink "$repo/secrets/jupiter/.sops.yaml")" = missing-sops-config || fail "dangling symlink changed"
+  test ! -e "$repo/secrets/jupiter/bootstrap.yaml" || fail "bootstrap was created despite dangling symlink"
+  test ! -e "$repo/secrets/jupiter/runtime.yaml" || fail "runtime was created despite dangling symlink"
 }
 
 test_default_management_key_is_created_in_repository() {
@@ -263,12 +263,11 @@ test_default_management_key_is_created_in_repository() {
 test_failed_installation_rolls_back_outputs() {
   copy_fixture_repo
   prepare_source_keys
-  mkdir "$repo/secrets"
-  chmod 500 "$repo/secrets"
+  chmod 500 "$repo/secrets/jupiter"
   if run_init >"$work/stdout" 2>"$work/stderr"; then
     fail "initializer unexpectedly succeeded with an unwritable output directory"
   fi
-  chmod 700 "$repo/secrets"
+  chmod 700 "$repo/secrets/jupiter"
   assert_absent_outputs
 }
 
@@ -278,12 +277,12 @@ test_publish_race_preserves_competing_entry() {
   if run_init_with_publish_race >"$work/stdout" 2>"$work/stderr"; then
     fail "initializer unexpectedly succeeded despite a publish race"
   fi
-  if [ ! -f "$repo/.sops.yaml" ] || [ "$(cat "$repo/.sops.yaml")" != competing-sops-ciphertext ]; then
+  if [ ! -f "$repo/secrets/jupiter/.sops.yaml" ] || [ "$(cat "$repo/secrets/jupiter/.sops.yaml")" != competing-sops-ciphertext ]; then
     sed 's/^/initializer stderr: /' "$work/stderr" >&2
     fail "replacement entry was deleted or overwritten"
   fi
-  test ! -e "$repo/secrets/bootstrap.yaml" || fail "initializer bootstrap output remained after publish race"
-  test "$(cat "$repo/secrets/runtime.yaml")" = competing-runtime-ciphertext || fail "competing entry was overwritten"
+  test ! -e "$repo/secrets/jupiter/bootstrap.yaml" || fail "initializer bootstrap output remained after publish race"
+  test "$(cat "$repo/secrets/jupiter/runtime.yaml")" = competing-runtime-ciphertext || fail "competing entry was overwritten"
 }
 
 test_concurrent_initializer_is_rejected_before_input() {
@@ -291,8 +290,8 @@ test_concurrent_initializer_is_rejected_before_input() {
 
   copy_fixture_repo
   prepare_source_keys
-  mkdir -p "$repo/secrets"
-  exec {lock_fd}>"$repo/secrets/.jupiter-secrets.lock"
+  mkdir -p "$repo/secrets/jupiter"
+  exec {lock_fd}>"$repo/secrets/jupiter/.jupiter-secrets.lock"
   flock -n "$lock_fd" || fail "test could not acquire the initializer lock"
   if run_init >"$work/stdout" 2>"$work/stderr"; then
     fail "initializer ignored an existing repository lock"
@@ -346,20 +345,20 @@ test_successful_initialization_encrypts_expected_boundaries() {
     fail "successful initializer run failed"
   fi
 
-  assert_file "$repo/.sops.yaml"
-  assert_file "$repo/secrets/bootstrap.yaml"
-  assert_file "$repo/secrets/runtime.yaml"
-  rg -F 'path_regex: ^secrets/bootstrap\.yaml$' "$repo/.sops.yaml" >/dev/null || fail "bootstrap creation rule is missing"
-  rg -F 'path_regex: ^secrets/runtime\.yaml$' "$repo/.sops.yaml" >/dev/null || fail "runtime creation rule is missing"
-  ! rg -F 'AGE-SECRET-KEY-' "$repo/.sops.yaml" || fail "SOPS config contains a private age key"
+  assert_file "$repo/secrets/jupiter/.sops.yaml"
+  assert_file "$repo/secrets/jupiter/bootstrap.yaml"
+  assert_file "$repo/secrets/jupiter/runtime.yaml"
+  rg -F "path_regex: '(^|/)bootstrap\\.yaml\$'" "$repo/secrets/jupiter/.sops.yaml" >/dev/null || fail "bootstrap creation rule is missing"
+  rg -F "path_regex: '(^|/)runtime\\.yaml\$'" "$repo/secrets/jupiter/.sops.yaml" >/dev/null || fail "runtime creation rule is missing"
+  ! rg -F 'AGE-SECRET-KEY-' "$repo/secrets/jupiter/.sops.yaml" || fail "SOPS config contains a private age key"
   test "$(stat -c %a "$test_home/.config/sops/age/keys.txt")" = 600 || fail "management age key mode is not 600"
   ! rg -F -e 'luks-test-value' -e 'login-test-value' -e 'smb-test-value' -e 'tskey-client-test-value' \
-    "$repo/.sops.yaml" "$repo/secrets" || fail "ciphertext contains a fixture secret"
+    "$repo/secrets/jupiter/.sops.yaml" "$repo/secrets" || fail "ciphertext contains a fixture secret"
   ! rg -F -e 'luks-test-value' -e 'login-test-value' -e 'smb-test-value' -e 'tskey-client-test-value' \
     "$work/stdout" "$work/stderr" || fail "logs contain a fixture secret"
 
   SOPS_AGE_KEY_FILE="$test_home/.config/sops/age/keys.txt" \
-    sops --decrypt --output-type json "$repo/secrets/bootstrap.yaml" >"$work/bootstrap.json"
+    sops --decrypt --output-type json "$repo/secrets/jupiter/bootstrap.yaml" >"$work/bootstrap.json"
   jq -e '
     keys == ["gpg-secret-key", "jupiter-age-key", "login-password", "luks-passphrase", "ssh-private-key"] and
     .["luks-passphrase"] == "luks-test-value" and
@@ -372,7 +371,7 @@ test_successful_initialization_encrypts_expected_boundaries() {
   chmod 600 "$work/jupiter-age-key.txt"
 
   SOPS_AGE_KEY_FILE="$work/jupiter-age-key.txt" \
-    sops --decrypt --output-type json "$repo/secrets/runtime.yaml" >"$work/runtime.json"
+    sops --decrypt --output-type json "$repo/secrets/jupiter/runtime.yaml" >"$work/runtime.json"
   jq -e '. == {
     "smb-mars-shishi": "username=shishi\npassword=smb-test-value",
     "tailscale-oauth-secret": "tskey-client-test-value"
@@ -381,15 +380,15 @@ test_successful_initialization_encrypts_expected_boundaries() {
 
   age-keygen -o "$work/unrelated-age-key.txt" >/dev/null 2>&1
   if SOPS_AGE_KEY_FILE="$work/unrelated-age-key.txt" \
-    sops --decrypt "$repo/secrets/bootstrap.yaml" >/dev/null 2>"$work/unrelated-bootstrap.stderr"; then
+    sops --decrypt "$repo/secrets/jupiter/bootstrap.yaml" >/dev/null 2>"$work/unrelated-bootstrap.stderr"; then
     fail "unrelated key decrypted bootstrap ciphertext"
   fi
   if SOPS_AGE_KEY_FILE="$test_home/.config/sops/age/keys.txt" \
-    sops --decrypt "$repo/secrets/runtime.yaml" >/dev/null 2>"$work/management-runtime.stderr"; then
+    sops --decrypt "$repo/secrets/jupiter/runtime.yaml" >/dev/null 2>"$work/management-runtime.stderr"; then
     fail "management key decrypted runtime ciphertext"
   fi
   if SOPS_AGE_KEY_FILE="$work/jupiter-age-key.txt" \
-    sops --decrypt "$repo/secrets/bootstrap.yaml" >/dev/null 2>"$work/jupiter-bootstrap.stderr"; then
+    sops --decrypt "$repo/secrets/jupiter/bootstrap.yaml" >/dev/null 2>"$work/jupiter-bootstrap.stderr"; then
     fail "Jupiter key decrypted bootstrap ciphertext"
   fi
 }
@@ -422,8 +421,8 @@ prepare_wrapper_fixture() {
     git init -q
     git config user.email secrets-workflow@example.test
     git config user.name 'Secrets Workflow Test'
-    git add flake.nix scripts/jupiter-secrets.sh .sops.yaml
-    git add -f secrets/bootstrap.yaml secrets/runtime.yaml
+    git add flake.nix scripts/jupiter-secrets.sh secrets/jupiter/.sops.yaml
+    git add -f secrets/jupiter/bootstrap.yaml secrets/jupiter/runtime.yaml
     git commit -qm fixture
   )
 }
@@ -671,14 +670,14 @@ rewrite_bootstrap() {
   local filter=$1 recipient
   recipient=$(age-keygen -y "$test_home/.config/sops/age/keys.txt")
   SOPS_AGE_KEY_FILE="$test_home/.config/sops/age/keys.txt" \
-    sops --decrypt --output-type json "$repo/secrets/bootstrap.yaml" >"$work/bootstrap.json"
+    sops --decrypt --output-type json "$repo/secrets/jupiter/bootstrap.yaml" >"$work/bootstrap.json"
   jq "$filter" "$work/bootstrap.json" >"$work/bootstrap-mutated.json"
   (
     cd "$work"
     sops --encrypt --age "$recipient" --input-type json --output-type yaml \
       "$work/bootstrap-mutated.json"
-  ) >"$repo/secrets/bootstrap.yaml"
-  git -C "$repo" add -f secrets/bootstrap.yaml
+  ) >"$repo/secrets/jupiter/bootstrap.yaml"
+  git -C "$repo" add -f secrets/jupiter/bootstrap.yaml
   git -C "$repo" commit -qm mutated-bootstrap
 }
 
@@ -686,19 +685,19 @@ rewrite_runtime() {
   local filter=$1 recipient
 
   SOPS_AGE_KEY_FILE="$test_home/.config/sops/age/keys.txt" \
-    sops --decrypt --output-type json "$repo/secrets/bootstrap.yaml" | \
+    sops --decrypt --output-type json "$repo/secrets/jupiter/bootstrap.yaml" | \
     jq -r '."jupiter-age-key"' >"$work/jupiter-age-key.txt"
   chmod 600 "$work/jupiter-age-key.txt"
   recipient=$(age-keygen -y "$work/jupiter-age-key.txt")
   SOPS_AGE_KEY_FILE="$work/jupiter-age-key.txt" \
-    sops --decrypt --output-type json "$repo/secrets/runtime.yaml" >"$work/runtime.json"
+    sops --decrypt --output-type json "$repo/secrets/jupiter/runtime.yaml" >"$work/runtime.json"
   jq "$filter" "$work/runtime.json" >"$work/runtime-mutated.json"
   (
     cd "$work"
     sops --encrypt --age "$recipient" --input-type json --output-type yaml \
       "$work/runtime-mutated.json"
-  ) >"$repo/secrets/runtime.yaml"
-  git -C "$repo" add -f secrets/runtime.yaml
+  ) >"$repo/secrets/jupiter/runtime.yaml"
+  git -C "$repo" add -f secrets/jupiter/runtime.yaml
   git -C "$repo" commit -qm mutated-runtime
 }
 
@@ -719,16 +718,16 @@ reset_init_update_fixture() {
 
 decrypt_runtime_fixture() {
   SOPS_AGE_KEY_FILE="$test_home/.config/sops/age/keys.txt" \
-    sops --decrypt --output-type json "$repo/secrets/bootstrap.yaml" | \
+    sops --decrypt --output-type json "$repo/secrets/jupiter/bootstrap.yaml" | \
     jq -r '."jupiter-age-key"' >"$work/jupiter-age-key.txt"
   chmod 600 "$work/jupiter-age-key.txt"
   SOPS_AGE_KEY_FILE="$work/jupiter-age-key.txt" \
-    sops --decrypt --output-type json "$repo/secrets/runtime.yaml"
+    sops --decrypt --output-type json "$repo/secrets/jupiter/runtime.yaml"
 }
 
 decrypt_bootstrap_fixture() {
   SOPS_AGE_KEY_FILE="$test_home/.config/sops/age/keys.txt" \
-    sops --decrypt --output-type json "$repo/secrets/bootstrap.yaml"
+    sops --decrypt --output-type json "$repo/secrets/jupiter/bootstrap.yaml"
 }
 
 test_init_update_updates_entered_values_and_preserves_empty_values() {
@@ -781,17 +780,17 @@ test_init_update_preserves_all_existing_secrets_on_empty_input() {
   local bootstrap_before runtime_before
 
   reset_init_update_fixture
-  bootstrap_before=$(sha256sum "$repo/secrets/bootstrap.yaml")
-  runtime_before=$(sha256sum "$repo/secrets/runtime.yaml")
+  bootstrap_before=$(sha256sum "$repo/secrets/jupiter/bootstrap.yaml")
+  runtime_before=$(sha256sum "$repo/secrets/jupiter/runtime.yaml")
   run_init_update >"$work/update.stdout" 2>"$work/update.stderr" <<'EOF'
 
 
 
 
 EOF
-  test "$(sha256sum "$repo/secrets/bootstrap.yaml")" = "$bootstrap_before" || \
+  test "$(sha256sum "$repo/secrets/jupiter/bootstrap.yaml")" = "$bootstrap_before" || \
     fail "init update changed bootstrap.yaml after all-empty input"
-  test "$(sha256sum "$repo/secrets/runtime.yaml")" = "$runtime_before" || \
+  test "$(sha256sum "$repo/secrets/jupiter/runtime.yaml")" = "$runtime_before" || \
     fail "init update changed runtime.yaml after empty input"
 }
 
@@ -800,8 +799,8 @@ test_init_update_preserves_an_existing_short_primary_credential() {
 
   reset_init_update_fixture
   rewrite_bootstrap '."luks-passphrase" = "short"'
-  bootstrap_before=$(sha256sum "$repo/secrets/bootstrap.yaml")
-  runtime_before=$(sha256sum "$repo/secrets/runtime.yaml")
+  bootstrap_before=$(sha256sum "$repo/secrets/jupiter/bootstrap.yaml")
+  runtime_before=$(sha256sum "$repo/secrets/jupiter/runtime.yaml")
   if ! run_init_update >"$work/update.stdout" 2>"$work/update.stderr" <<'EOF'
 
 
@@ -811,9 +810,9 @@ EOF
   then
     fail "init update rejected preserving an existing short LUKS passphrase"
   fi
-  test "$bootstrap_before" = "$(sha256sum "$repo/secrets/bootstrap.yaml")" || \
+  test "$bootstrap_before" = "$(sha256sum "$repo/secrets/jupiter/bootstrap.yaml")" || \
     fail "preserving an existing short LUKS passphrase changed bootstrap.yaml"
-  test "$runtime_before" = "$(sha256sum "$repo/secrets/runtime.yaml")" || \
+  test "$runtime_before" = "$(sha256sum "$repo/secrets/jupiter/runtime.yaml")" || \
     fail "preserving an existing short LUKS passphrase changed runtime.yaml"
 }
 
@@ -825,8 +824,8 @@ test_init_update_rejects_invalid_input_without_changes() {
     if [ "$filter" = empty ]; then
       rewrite_runtime 'del(."tailscale-oauth-secret")'
     fi
-    bootstrap_before=$(sha256sum "$repo/secrets/bootstrap.yaml")
-    runtime_before=$(sha256sum "$repo/secrets/runtime.yaml")
+    bootstrap_before=$(sha256sum "$repo/secrets/jupiter/bootstrap.yaml")
+    runtime_before=$(sha256sum "$repo/secrets/jupiter/runtime.yaml")
     case "$filter" in
       mismatch)
         if run_init_update >"$work/update.stdout" 2>"$work/update.stderr" <<'EOF'
@@ -853,9 +852,9 @@ EOF
         fi
         ;;
     esac
-    test "$(sha256sum "$repo/secrets/bootstrap.yaml")" = "$bootstrap_before" || \
+    test "$(sha256sum "$repo/secrets/jupiter/bootstrap.yaml")" = "$bootstrap_before" || \
       fail "init update changed bootstrap.yaml after invalid input"
-    test "$(sha256sum "$repo/secrets/runtime.yaml")" = "$runtime_before" || \
+    test "$(sha256sum "$repo/secrets/jupiter/runtime.yaml")" = "$runtime_before" || \
       fail "init update changed runtime.yaml after invalid input"
     ! rg -F -e 'luks-updated-value' -e 'tskey-client-first-value' -e 'tskey-client-second-value' \
       "$work/update.stdout" "$work/update.stderr" || fail "init update logged invalid secret input"
@@ -867,8 +866,8 @@ test_init_update_rejects_non_oauth_client_secrets_without_changes() {
 
   for oauth_secret in client-id-value tskey-auth-test-value tskey-client-; do
     reset_init_update_fixture
-    bootstrap_before=$(sha256sum "$repo/secrets/bootstrap.yaml")
-    runtime_before=$(sha256sum "$repo/secrets/runtime.yaml")
+    bootstrap_before=$(sha256sum "$repo/secrets/jupiter/bootstrap.yaml")
+    runtime_before=$(sha256sum "$repo/secrets/jupiter/runtime.yaml")
     if run_init_update >"$work/update.stdout" 2>"$work/update.stderr" <<EOF
 
 
@@ -879,9 +878,9 @@ EOF
     then
       fail "init update accepted a non-OAuth-client secret: $oauth_secret"
     fi
-    test "$(sha256sum "$repo/secrets/bootstrap.yaml")" = "$bootstrap_before" || \
+    test "$(sha256sum "$repo/secrets/jupiter/bootstrap.yaml")" = "$bootstrap_before" || \
       fail "init update changed bootstrap.yaml after invalid OAuth input"
-    test "$(sha256sum "$repo/secrets/runtime.yaml")" = "$runtime_before" || \
+    test "$(sha256sum "$repo/secrets/jupiter/runtime.yaml")" = "$runtime_before" || \
       fail "init update changed runtime.yaml after invalid OAuth input"
     if [ "$oauth_secret" != tskey-client- ]; then
       ! rg -F -- "$oauth_secret" "$work/update.stdout" "$work/update.stderr" || \
@@ -899,7 +898,7 @@ test_init_update_rejects_existing_non_oauth_client_secrets() {
     '."tailscale-oauth-secret" = "tskey-client-"'; do
     reset_init_update_fixture
     rewrite_runtime "$filter"
-    runtime_before=$(sha256sum "$repo/secrets/runtime.yaml")
+    runtime_before=$(sha256sum "$repo/secrets/jupiter/runtime.yaml")
     if run_init_update >"$work/update.stdout" 2>"$work/update.stderr" <<'EOF'
 
 
@@ -911,7 +910,7 @@ EOF
     fi
     rg -F 'runtime.yaml の形式が不正' "$work/update.stderr" >/dev/null || \
       fail "init update rejected invalid runtime.yaml for an unexpected reason"
-    test "$(sha256sum "$repo/secrets/runtime.yaml")" = "$runtime_before" || \
+    test "$(sha256sum "$repo/secrets/jupiter/runtime.yaml")" = "$runtime_before" || \
       fail "init update changed an invalid existing runtime.yaml"
   done
 }
@@ -920,8 +919,8 @@ test_init_update_rejects_eof_without_changes() {
   local bootstrap_before runtime_before
 
   reset_init_update_fixture
-  bootstrap_before=$(sha256sum "$repo/secrets/bootstrap.yaml")
-  runtime_before=$(sha256sum "$repo/secrets/runtime.yaml")
+  bootstrap_before=$(sha256sum "$repo/secrets/jupiter/bootstrap.yaml")
+  runtime_before=$(sha256sum "$repo/secrets/jupiter/runtime.yaml")
   if run_init_update >"$work/update.stdout" 2>"$work/update.stderr" <<'EOF'
 luks-updated-value
 luks-updated-value
@@ -929,9 +928,9 @@ EOF
   then
     fail "init update accepted EOF before all secret prompts completed"
   fi
-  test "$(sha256sum "$repo/secrets/bootstrap.yaml")" = "$bootstrap_before" || \
+  test "$(sha256sum "$repo/secrets/jupiter/bootstrap.yaml")" = "$bootstrap_before" || \
     fail "init update changed bootstrap.yaml after EOF"
-  test "$(sha256sum "$repo/secrets/runtime.yaml")" = "$runtime_before" || \
+  test "$(sha256sum "$repo/secrets/jupiter/runtime.yaml")" = "$runtime_before" || \
     fail "init update changed runtime.yaml after EOF"
 }
 
@@ -939,14 +938,14 @@ test_init_update_rolls_back_both_files_when_second_publish_fails() {
   local bootstrap_before real_mv runtime_before
 
   reset_init_update_fixture
-  bootstrap_before=$(sha256sum "$repo/secrets/bootstrap.yaml")
-  runtime_before=$(sha256sum "$repo/secrets/runtime.yaml")
+  bootstrap_before=$(sha256sum "$repo/secrets/jupiter/bootstrap.yaml")
+  runtime_before=$(sha256sum "$repo/secrets/jupiter/runtime.yaml")
   real_mv=$(command -v mv)
   mkdir -p "$work/failing-bin"
   printf '#!%s\n' "$test_bash" >"$work/failing-bin/mv"
   cat >>"$work/failing-bin/mv" <<'EOF'
 set -euo pipefail
-if [ "${@: -1}" = secrets/runtime.yaml ] && [ ! -e "$FAILURE_MARKER" ]; then
+if [ "${@: -1}" = secrets/jupiter/runtime.yaml ] && [ ! -e "$FAILURE_MARKER" ]; then
   : >"$FAILURE_MARKER"
   exit 71
 fi
@@ -966,9 +965,9 @@ EOF
   then
     fail "init update succeeded after the second publish failed"
   fi
-  test "$(sha256sum "$repo/secrets/bootstrap.yaml")" = "$bootstrap_before" || \
+  test "$(sha256sum "$repo/secrets/jupiter/bootstrap.yaml")" = "$bootstrap_before" || \
     fail "init update left bootstrap.yaml partially updated"
-  test "$(sha256sum "$repo/secrets/runtime.yaml")" = "$runtime_before" || \
+  test "$(sha256sum "$repo/secrets/jupiter/runtime.yaml")" = "$runtime_before" || \
     fail "init update changed runtime.yaml after the second publish failed"
 }
 
@@ -976,8 +975,8 @@ test_init_update_preserves_files_when_sops_set_fails() {
   local bootstrap_before real_sops runtime_before
 
   reset_init_update_fixture
-  bootstrap_before=$(sha256sum "$repo/secrets/bootstrap.yaml")
-  runtime_before=$(sha256sum "$repo/secrets/runtime.yaml")
+  bootstrap_before=$(sha256sum "$repo/secrets/jupiter/bootstrap.yaml")
+  runtime_before=$(sha256sum "$repo/secrets/jupiter/runtime.yaml")
   real_sops=$(command -v sops)
   mkdir -p "$work/failing-bin"
   printf '#!%s\n' "$test_bash" >"$work/failing-bin/sops"
@@ -1001,9 +1000,9 @@ EOF
   then
     fail "init update succeeded after sops set failed"
   fi
-  test "$(sha256sum "$repo/secrets/bootstrap.yaml")" = "$bootstrap_before" || \
+  test "$(sha256sum "$repo/secrets/jupiter/bootstrap.yaml")" = "$bootstrap_before" || \
     fail "init update damaged bootstrap.yaml after sops set failed"
-  test "$(sha256sum "$repo/secrets/runtime.yaml")" = "$runtime_before" || \
+  test "$(sha256sum "$repo/secrets/jupiter/runtime.yaml")" = "$runtime_before" || \
     fail "init update damaged runtime.yaml after sops set failed"
 }
 
@@ -1116,7 +1115,7 @@ test_wrong_management_key_is_rejected() {
 
 test_damaged_bootstrap_mac_is_rejected() {
   reset_wrapper_fixture
-  sed -i '/^    mac:/c\    mac: ENC[AES256_GCM,data:broken,type:str]' "$repo/secrets/bootstrap.yaml"
+  sed -i '/^    mac:/c\    mac: ENC[AES256_GCM,data:broken,type:str]' "$repo/secrets/jupiter/bootstrap.yaml"
   assert_wrapper_fails
 }
 
@@ -1124,7 +1123,7 @@ test_rewrite_bootstrap_isolated_from_repository_sops_config() {
   reset_wrapper_fixture
   rewrite_bootstrap '."login-password" = ""'
   SOPS_AGE_KEY_FILE="$test_home/.config/sops/age/keys.txt" \
-    sops --decrypt --output-type json "$repo/secrets/bootstrap.yaml" | \
+    sops --decrypt --output-type json "$repo/secrets/jupiter/bootstrap.yaml" | \
     jq -e '."login-password" == ""' >/dev/null || fail "fixture bootstrap rewrite did not preserve the requested mutation"
 }
 
@@ -1189,7 +1188,7 @@ test_malformed_runtime_values_are_rejected() {
 
 test_untracked_ciphertext_is_rejected() {
   reset_wrapper_fixture
-  git -C "$repo" rm --cached -q secrets/runtime.yaml
+  git -C "$repo" rm --cached -q secrets/jupiter/runtime.yaml
   assert_wrapper_fails
   rg -F 'Git で追跡されていない' "$work/wrapper.stderr" >/dev/null || fail "untracked ciphertext was not explained"
 }

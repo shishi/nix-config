@@ -4,7 +4,9 @@ result-*
 .worktrees/
 .envrc.local
 secrets/**
-!secrets/bootstrap.yaml
-!secrets/runtime.yaml
+!secrets/*/
+!secrets/*/.sops.yaml
+!secrets/*/bootstrap.yaml
+!secrets/*/runtime.yaml
 *.swp
 .DS_Store

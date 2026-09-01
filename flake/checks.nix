@@ -343,9 +343,9 @@
             exit 1
           }
 
-          sops_config=${../.sops.yaml}
-          bootstrap_file=${../secrets/bootstrap.yaml}
-          runtime_file=${../secrets/runtime.yaml}
+          sops_config=${../secrets/jupiter/.sops.yaml}
+          bootstrap_file=${../secrets/jupiter/bootstrap.yaml}
+          runtime_file=${../secrets/jupiter/runtime.yaml}
 
           if ${pkgs.gnugrep}/bin/grep -q 'AGE-SECRET-KEY-' "$sops_config"; then
             fail ".sops.yaml contains an age private key"
@@ -354,7 +354,7 @@
             fail ".sops.yaml must contain exactly two creation rules"
           rule_paths=$(${pkgs.yq-go}/bin/yq -o=json -I=0 \
             '[.creation_rules[].path_regex] | sort' "$sops_config")
-          [ "$rule_paths" = '["^secrets/bootstrap\\.yaml$","^secrets/runtime\\.yaml$"]' ] || \
+          [ "$rule_paths" = '["(^|/)bootstrap\\.yaml$","(^|/)runtime\\.yaml$"]' ] || \
             fail ".sops.yaml creation rules target unexpected paths"
 
           management_recipient=$(${pkgs.yq-go}/bin/yq -r \
@@ -1026,7 +1026,7 @@
             requiredSecretsRunbookText = [
               "nix run .#jupiter-secrets"
               "secrets/management-age-key.txt"
-              "git add .sops.yaml secrets/bootstrap.yaml secrets/runtime.yaml"
+              "git add secrets/jupiter/.sops.yaml secrets/jupiter/bootstrap.yaml secrets/jupiter/runtime.yaml"
             ];
             requiredDnsRunbookText = [
               "nix run .#dns-osaka-1-secrets"

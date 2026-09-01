@@ -15,18 +15,18 @@ Jupiter の初期インストール用と実行時用の秘密情報を、平文
 - `secrets/management-age-key.txt`
   - 管理用 age 秘密鍵
   - Git 管理対象外、パーミッション `0600`
-  - `secrets/bootstrap.yaml` を復号
+  - `secrets/jupiter/bootstrap.yaml` を復号
 - `jupiter-age-key`
-  - `secrets/bootstrap.yaml` 内に暗号化して保管
+  - `secrets/jupiter/bootstrap.yaml` 内に暗号化して保管
   - インストール時に `/var/lib/sops-nix/key.txt` へ配置
-  - `secrets/runtime.yaml` を復号
-- `secrets/bootstrap.yaml`
+  - `secrets/jupiter/runtime.yaml` を復号
+- `secrets/jupiter/bootstrap.yaml`
   - LUKS、ログイン、SSH、GPG、Jupiter 用 age 秘密鍵
-- `secrets/runtime.yaml`
+- `secrets/jupiter/runtime.yaml`
   - SMB 資格情報、Tailscale OAuth クライアントシークレット
 
 管理用 age 鍵はパスワードマネージャーにもバックアップする。
-ローカルファイルとバックアップの両方を失うと、`secrets/bootstrap.yaml` を復旧できない。
+ローカルファイルとバックアップの両方を失うと、`secrets/jupiter/bootstrap.yaml` を復旧できない。
 別の鍵を使う場合だけ `SOPS_AGE_KEY_FILE` を指定する。
 
 SOPS は値を暗号化するが、YAML の項目名、値の型、暗号文の長さは隠さない。
@@ -53,7 +53,7 @@ ASCII だけの値ではバイト数と文字数が一致する。暗号文だ�
 - グローバル Git 設定の `user.signingkey` が参照する GPG 署名秘密鍵
 - `auth_keys` スコープと `tag:jupiter` を持つ、`tskey-client-` で始まる
   Tailscale OAuth クライアントシークレット（クライアント ID や通常の認証キーではない）
-- `.sops.yaml`、`secrets/bootstrap.yaml`、`secrets/runtime.yaml` がすべて未作成であること
+- `.sops.yaml`、`secrets/jupiter/bootstrap.yaml`、`secrets/jupiter/runtime.yaml` がすべて未作成であること
 
 リポジトリのルートで実行する。
 
@@ -68,7 +68,7 @@ tmpfs 上で暗号化する。入力値と秘密鍵は表示しない。
 作成後、暗号文と暗号化先の公開鍵だけを Git 管理する。
 
 ```bash
-git add .sops.yaml secrets/bootstrap.yaml secrets/runtime.yaml
+git add secrets/jupiter/.sops.yaml secrets/jupiter/bootstrap.yaml secrets/jupiter/runtime.yaml
 ```
 
 `secrets/management-age-key.txt` がステージまたは追跡対象になっていないことを
@@ -96,7 +96,7 @@ nix run .#jupiter-secrets
 不正な形式として停止する。
 
 3 つの暗号化済みファイルの一部だけが存在する場合や、管理用 age 鍵で
-`secrets/bootstrap.yaml` を復号できない場合は停止する。既存の暗号文がある状態で
+`secrets/jupiter/bootstrap.yaml` を復号できない場合は停止する。既存の暗号文がある状態で
 管理用 age 鍵を再生成してはならない。バックアップから同じ鍵を復元する。
 
 この操作が更新するのはリポジトリの暗号文だけである。稼働中の Jupiter にある
@@ -105,7 +105,7 @@ nix run .#jupiter-secrets
 
 ## 4. 破棄して作り直す
 
-`.sops.yaml`、`secrets/bootstrap.yaml`、`secrets/runtime.yaml` は 1 セットとして扱う。
+`.sops.yaml`、`secrets/jupiter/bootstrap.yaml`、`secrets/jupiter/runtime.yaml` は 1 セットとして扱う。
 1 ファイルだけを削除すると `jupiter-secrets` は部分的な状態として拒否する。
 やり直す前に、3 ファイルが同じコミットに保存済みで、管理用 age 鍵のバックアップが
 あることを確認する。誤って単体で削除した場合も、3 ファイルすべてを同じコミットから
@@ -115,13 +115,13 @@ nix run .#jupiter-secrets
 `jupiter-secrets` を実行する。
 
 ```bash
-rm -- .sops.yaml secrets/bootstrap.yaml secrets/runtime.yaml
+rm -- .sops.yaml secrets/jupiter/bootstrap.yaml secrets/jupiter/runtime.yaml
 nix run .#jupiter-secrets
 ```
 
 LUKS、ログイン、SMB、Tailscale の 4 項目を再入力し、SSH・GPG 鍵を既存ソースから
 再取得して、Jupiter 用 age 鍵を新しく生成する。このため、稼働中の Jupiter にある
-`/var/lib/sops-nix/key.txt` では新しい `secrets/runtime.yaml` を復号できない。この操作は
+`/var/lib/sops-nix/key.txt` では新しい `secrets/jupiter/runtime.yaml` を復号できない。この操作は
 再インストールと組み合わせ、新しい Jupiter 用鍵をインストール時に配送する。
 
 管理用 age 鍵も作り直す場合は、暗号文 3 ファイルと管理用鍵をすべて削除してから実行する。
@@ -129,11 +129,11 @@ LUKS、ログイン、SMB、Tailscale の 4 項目を再入力し、SSH・GPG �
 末尾の管理用鍵パスを、指定先の実ファイルへ置き換える。
 
 ```bash
-rm -- .sops.yaml secrets/bootstrap.yaml secrets/runtime.yaml secrets/management-age-key.txt
+rm -- .sops.yaml secrets/jupiter/bootstrap.yaml secrets/jupiter/runtime.yaml secrets/management-age-key.txt
 nix run .#jupiter-secrets
 ```
 
-古い管理用鍵のバックアップがなければ、古い `secrets/bootstrap.yaml` は復号できなくなる。
+古い管理用鍵のバックアップがなければ、古い `secrets/jupiter/bootstrap.yaml` は復号できなくなる。
 新しい管理用鍵はパスワードマネージャーへ改めてバックアップする。
 
 管理用鍵だけを削除しても再初期化にはならない。既存の暗号文を維持するなら
@@ -149,7 +149,7 @@ nix run .#jupiter-secrets
 
 ### 5.1 ログインパスワード
 
-`secrets/bootstrap.yaml` のログインパスワードは、初回インストールで shishi を
+`secrets/jupiter/bootstrap.yaml` のログインパスワードは、初回インストールで shishi を
 作成するときだけ使う。稼働中の Jupiter は `mutableUsers = true` なので、暗号文を
 更新して `nh os switch` を実行しても既存ユーザーのパスワードを変更しない。
 
@@ -214,7 +214,7 @@ sudo cryptsetup luksHeaderBackup --header-backup-file <secure-backup-path>/jupit
 ## 6. SMB パスワードの変更
 
 「既存値の更新」を実行し、SMB パスワードだけ新しい値を入力する。
-ほかの 3 項目は空 Enter で維持する。変更した `secrets/runtime.yaml` をコミットしてプッシュし、
+ほかの 3 項目は空 Enter で維持する。変更した `secrets/jupiter/runtime.yaml` をコミットしてプッシュし、
 Jupiter 側でチェックアウトを更新して `nh os switch` を実行する。
 
 既存の CIFS セッションを切断し、自動マウントから再接続する。

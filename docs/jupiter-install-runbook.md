@@ -68,7 +68,7 @@ SOPS を使う現行ラッパーはフィクスチャで自動テストしてい
 `/mnt` へ作る。**
 
 - 初期インストール用の秘密は SOPS で暗号化して Git 管理する。
-- リポジトリのラッパーは `secrets/bootstrap.yaml` 全体を tmpfs へ復号・検証し、フェーズごとに
+- リポジトリのラッパーは `secrets/jupiter/bootstrap.yaml` 全体を tmpfs へ復号・検証し、フェーズごとに
   配送する秘密だけを絞る。手動の秘密配送オプションは受け付けない。
 - sbctl の鍵と initrd ホスト鍵は対象機上で生成する。Secure Boot の秘密鍵を
   ワークステーションへ経由させず、ディスク上の配置も手作業しない。
@@ -94,7 +94,7 @@ SOPS を使う現行ラッパーはフィクスチャで自動テストしてい
 ### 2.1 暗号化済みの秘密を準備する
 
 [秘密情報手順書](jupiter-secrets-runbook.md) に従い、暗号化済みの
-`.sops.yaml`、`secrets/bootstrap.yaml`、`secrets/runtime.yaml` と、
+`secrets/jupiter/.sops.yaml`、`secrets/jupiter/bootstrap.yaml`、`secrets/jupiter/runtime.yaml` と、
 Git 管理対象外の管理用 age 鍵を準備する。3 つの暗号化済みファイルを
 同じコミットに含めてから次へ進む。
 
@@ -159,7 +159,7 @@ ip -brief addr show
 
 1. `ssh-copy-id` で自分の公開鍵を対象機の root へ置く。未配置なら §2.2 で設定した
    root パスワードをここで 1 回だけ聞かれる(配置済みなら何も聞かれない)
-2. `secrets/bootstrap.yaml` を管理用 age 鍵で tmpfs 上へ復号・検証し、`disko` フェーズへ
+2. `secrets/jupiter/bootstrap.yaml` を管理用 age 鍵で tmpfs 上へ復号・検証し、`disko` フェーズへ
    LUKS パスフレーズだけを渡してディスクを消去・暗号化・マウントする
    (`hosts/jupiter/disko.nix` の `passwordFile = "/tmp/secret.key"` に対応する引数は
    内部で追加する)。値を引数、ログ、Nix ストア、永続ファイルへ出さない
@@ -167,7 +167,7 @@ ip -brief addr show
    ホスト鍵を生成し、`/mnt/var/lib` へ置く。Secure Boot の秘密鍵はワークステーションを
    経由しない
 4. `install` フェーズで SSH 鍵、GPG エクスポート、ログイン用 yescrypt ハッシュ、
-   Jupiter 用 age 鍵を配送し、NixOS 本体をインストールする。`secrets/runtime.yaml` も
+   Jupiter 用 age 鍵を配送し、NixOS 本体をインストールする。`secrets/jupiter/runtime.yaml` も
    Jupiter 用鍵で復号検証してから進む。一時平文は成功時と失敗時の両方で削除する
 5. 配送された秘密の所有者・mode の一覧を表示し、空のファイルがあれば失敗にする
    (値そのものは表示しない)

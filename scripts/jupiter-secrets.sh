@@ -44,8 +44,8 @@ find_repo_root() {
 }
 
 acquire_repo_lock() {
-  mkdir -p "$repo_root/secrets"
-  exec 9>"$repo_root/secrets/.jupiter-secrets.lock" || die 'jupiter-secrets lock を作成できない'
+  mkdir -p "$repo_root/secrets/jupiter"
+  exec 9>"$repo_root/secrets/jupiter/.jupiter-secrets.lock" || die 'jupiter-secrets lock を作成できない'
   flock -n 9 || die '別の jupiter-secrets が実行中'
 }
 
@@ -177,7 +177,9 @@ write_plaintext_json() {
 }
 
 encrypt_outputs() {
-  printf 'creation_rules:\n  - path_regex: ^secrets/bootstrap\\.yaml$\n    age: %s\n  - path_regex: ^secrets/runtime\\.yaml$\n    age: %s\n' \
+  # path_regex は .sops.yaml と同じディレクトリからの相対パスに一致させる
+  # (secrets/dns-osaka-1/.sops.yaml と同じ形)
+  printf "creation_rules:\n  - path_regex: '(^|/)bootstrap\\\\.yaml\$'\n    age: %s\n  - path_regex: '(^|/)runtime\\\\.yaml\$'\n    age: %s\n" \
     "$management_age_recipient" "$jupiter_age_recipient" >"$tmpdir/.sops.yaml"
 
   sops --encrypt --age "$management_age_recipient" --input-type json --output-type yaml \
@@ -188,18 +190,18 @@ encrypt_outputs() {
   SOPS_AGE_KEY_FILE="$management_age_key_file" sops --decrypt "$tmpdir/bootstrap.yaml" >"$tmpdir/bootstrap.verify"
   SOPS_AGE_KEY_FILE="$tmpdir/jupiter-age-key.txt" sops --decrypt "$tmpdir/runtime.yaml" >"$tmpdir/runtime.verify"
 
-  mkdir -p "$repo_root/secrets"
-  staged_sops_config=$(mktemp "$repo_root/.jupiter-secrets-sops.XXXXXXXX")
-  staged_bootstrap=$(mktemp "$repo_root/secrets/.jupiter-secrets-bootstrap.XXXXXXXX")
-  staged_runtime=$(mktemp "$repo_root/secrets/.jupiter-secrets-runtime.XXXXXXXX")
+  mkdir -p "$repo_root/secrets/jupiter"
+  staged_sops_config=$(mktemp "$repo_root/secrets/jupiter/.jupiter-secrets-sops.XXXXXXXX")
+  staged_bootstrap=$(mktemp "$repo_root/secrets/jupiter/.jupiter-secrets-bootstrap.XXXXXXXX")
+  staged_runtime=$(mktemp "$repo_root/secrets/jupiter/.jupiter-secrets-runtime.XXXXXXXX")
   cp "$tmpdir/.sops.yaml" "$staged_sops_config"
   cp "$tmpdir/bootstrap.yaml" "$staged_bootstrap"
   cp "$tmpdir/runtime.yaml" "$staged_runtime"
 
   installation_started=1
-  ln -T "$staged_sops_config" "$repo_root/.sops.yaml"
-  ln -T "$staged_bootstrap" "$repo_root/secrets/bootstrap.yaml"
-  ln -T "$staged_runtime" "$repo_root/secrets/runtime.yaml"
+  ln -T "$staged_sops_config" "$repo_root/secrets/jupiter/.sops.yaml"
+  ln -T "$staged_bootstrap" "$repo_root/secrets/jupiter/bootstrap.yaml"
+  ln -T "$staged_runtime" "$repo_root/secrets/jupiter/runtime.yaml"
   installation_committed=1
 }
 
@@ -208,7 +210,7 @@ update_existing_secrets() {
 
   [ -f "$management_age_key_file" ] || die 'management age key が読めない'
   SOPS_AGE_KEY_FILE="$management_age_key_file" \
-    sops --decrypt --output-type json secrets/bootstrap.yaml >"$tmpdir/bootstrap-current.json"
+    sops --decrypt --output-type json secrets/jupiter/bootstrap.yaml >"$tmpdir/bootstrap-current.json"
   jq -e '
     type == "object" and
     (keys == ["gpg-secret-key", "jupiter-age-key", "login-password", "luks-passphrase", "ssh-private-key"]) and
@@ -219,7 +221,7 @@ update_existing_secrets() {
   age-keygen -y "$jupiter_age_key" >/dev/null 2>&1 || die 'Jupiter age key が無効'
 
   SOPS_AGE_KEY_FILE="$jupiter_age_key" \
-    sops --decrypt --output-type json secrets/runtime.yaml >"$tmpdir/runtime-current.json"
+    sops --decrypt --output-type json secrets/jupiter/runtime.yaml >"$tmpdir/runtime-current.json"
   jq -e '
     type == "object" and
     ((keys == ["smb-mars-shishi"]) or
@@ -262,8 +264,8 @@ update_existing_secrets() {
   fi
 
   if [ "$bootstrap_changed" -eq 1 ]; then
-    bootstrap_tmp=$(mktemp "secrets/bootstrap.tmp.XXXXXXXX.yaml")
-    cp --preserve=mode -- secrets/bootstrap.yaml "$bootstrap_tmp"
+    bootstrap_tmp=$(mktemp "secrets/jupiter/bootstrap.tmp.XXXXXXXX.yaml")
+    cp --preserve=mode -- secrets/jupiter/bootstrap.yaml "$bootstrap_tmp"
     if [ -f "$tmpdir/luks-passphrase" ]; then
       jq -Rs . <"$tmpdir/luks-passphrase" | \
         SOPS_AGE_KEY_FILE="$management_age_key_file" \
@@ -277,8 +279,8 @@ update_existing_secrets() {
   fi
 
   if [ "$runtime_changed" -eq 1 ]; then
-    runtime_tmp=$(mktemp "secrets/runtime.tmp.XXXXXXXX.yaml")
-    cp --preserve=mode -- secrets/runtime.yaml "$runtime_tmp"
+    runtime_tmp=$(mktemp "secrets/jupiter/runtime.tmp.XXXXXXXX.yaml")
+    cp --preserve=mode -- secrets/jupiter/runtime.yaml "$runtime_tmp"
     if [ -f "$tmpdir/smb-credential" ]; then
       jq -Rs . <"$tmpdir/smb-credential" | \
         SOPS_AGE_KEY_FILE="$jupiter_age_key" \
@@ -327,21 +329,21 @@ update_existing_secrets() {
   fi
 
   if [ "$bootstrap_changed" -eq 1 ]; then
-    bootstrap_backup=$(mktemp "secrets/bootstrap.rollback.XXXXXXXX.yaml")
-    cp --preserve=mode -- secrets/bootstrap.yaml "$bootstrap_backup"
+    bootstrap_backup=$(mktemp "secrets/jupiter/bootstrap.rollback.XXXXXXXX.yaml")
+    cp --preserve=mode -- secrets/jupiter/bootstrap.yaml "$bootstrap_backup"
   fi
   if [ "$runtime_changed" -eq 1 ]; then
-    runtime_backup=$(mktemp "secrets/runtime.rollback.XXXXXXXX.yaml")
-    cp --preserve=mode -- secrets/runtime.yaml "$runtime_backup"
+    runtime_backup=$(mktemp "secrets/jupiter/runtime.rollback.XXXXXXXX.yaml")
+    cp --preserve=mode -- secrets/jupiter/runtime.yaml "$runtime_backup"
   fi
 
   update_started=1
   if [ "$bootstrap_changed" -eq 1 ]; then
-    mv -f -- "$bootstrap_tmp" secrets/bootstrap.yaml
+    mv -f -- "$bootstrap_tmp" secrets/jupiter/bootstrap.yaml
     bootstrap_tmp=""
   fi
   if [ "$runtime_changed" -eq 1 ]; then
-    mv -f -- "$runtime_tmp" secrets/runtime.yaml
+    mv -f -- "$runtime_tmp" secrets/jupiter/runtime.yaml
     runtime_tmp=""
   fi
   update_committed=1
@@ -367,11 +369,11 @@ remove_staged_outputs() {
 
 restore_update_backups() {
   if [ -n "$bootstrap_backup" ] && [ -e "$bootstrap_backup" ]; then
-    mv -f -- "$bootstrap_backup" secrets/bootstrap.yaml
+    mv -f -- "$bootstrap_backup" secrets/jupiter/bootstrap.yaml
     bootstrap_backup=""
   fi
   if [ -n "$runtime_backup" ] && [ -e "$runtime_backup" ]; then
-    mv -f -- "$runtime_backup" secrets/runtime.yaml
+    mv -f -- "$runtime_backup" secrets/jupiter/runtime.yaml
     runtime_backup=""
   fi
 }
@@ -388,9 +390,9 @@ cleanup() {
   # スキップされるため、rollback と削除は最後まで実行する
   set +e
   if [ "$installation_started" -eq 1 ] && [ "$installation_committed" -eq 0 ]; then
-    rollback_published_output "$staged_sops_config" "$repo_root/.sops.yaml"
-    rollback_published_output "$staged_bootstrap" "$repo_root/secrets/bootstrap.yaml"
-    rollback_published_output "$staged_runtime" "$repo_root/secrets/runtime.yaml"
+    rollback_published_output "$staged_sops_config" "$repo_root/secrets/jupiter/.sops.yaml"
+    rollback_published_output "$staged_bootstrap" "$repo_root/secrets/jupiter/bootstrap.yaml"
+    rollback_published_output "$staged_runtime" "$repo_root/secrets/jupiter/runtime.yaml"
   fi
   if [ "$update_started" -eq 1 ] && [ "$update_committed" -eq 0 ]; then
     restore_update_backups
@@ -417,7 +419,7 @@ acquire_repo_lock
 resolve_management_age_key_file
 
 existing_outputs=0
-for output in .sops.yaml secrets/bootstrap.yaml secrets/runtime.yaml; do
+for output in secrets/jupiter/.sops.yaml secrets/jupiter/bootstrap.yaml secrets/jupiter/runtime.yaml; do
   if [ -e "$output" ] || [ -L "$output" ]; then
     existing_outputs=$((existing_outputs + 1))
   fi

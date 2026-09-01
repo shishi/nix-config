@@ -359,14 +359,14 @@ LUKS2 は新規の鍵スロットの追加時にも既存の資格情報での�
 無期限にハングする。`--unlock-key-file=/dev/stdin` で現在のパスフレーズを
 渡す。
 
-管理用 age 鍵で `secrets/bootstrap.yaml` を復号し、`jq` が抽出した LUKS 値だけを
+管理用 age 鍵で `secrets/jupiter/bootstrap.yaml` を復号し、`jq` が抽出した LUKS 値だけを
 標準入力で送る。コマンドライン、画面、永続ファイルには出さない。
 ワークステーション側の nix-config チェックアウトで、`sops` と `jq` が使える
 開発シェルから実行する。
 
 ```bash
 set -o pipefail
-SOPS_AGE_KEY_FILE=secrets/management-age-key.txt sops --decrypt --output-type json secrets/bootstrap.yaml | jq -jer '."luks-passphrase"' | ssh <target> 'sudo systemd-cryptenroll --unlock-key-file=/dev/stdin --tpm2-device=auto --tpm2-pcrs=7 /dev/disk/by-partlabel/disk-main-luks'
+SOPS_AGE_KEY_FILE=secrets/management-age-key.txt sops --decrypt --output-type json secrets/jupiter/bootstrap.yaml | jq -jer '."luks-passphrase"' | ssh <target> 'sudo systemd-cryptenroll --unlock-key-file=/dev/stdin --tpm2-device=auto --tpm2-pcrs=7 /dev/disk/by-partlabel/disk-main-luks'
 ```
 
 `sudo` は NOPASSWD(`nixos/sudo.nix`)なので標準入力を奪わない。奪う設定に
@@ -416,12 +416,12 @@ sudo cryptsetup token export --token-id=<N> /dev/disk/by-partlabel/disk-main-luk
 ```bash
 ssh <target> 'sudo systemd-cryptenroll --wipe-slot=tpm2 /dev/disk/by-partlabel/disk-main-luks'
 set -o pipefail
-SOPS_AGE_KEY_FILE=secrets/management-age-key.txt sops --decrypt --output-type json secrets/bootstrap.yaml | jq -jer '."luks-passphrase"' | ssh <target> 'sudo systemd-cryptenroll --unlock-key-file=/dev/stdin --tpm2-device=auto --tpm2-pcrs=7 /dev/disk/by-partlabel/disk-main-luks'
+SOPS_AGE_KEY_FILE=secrets/management-age-key.txt sops --decrypt --output-type json secrets/jupiter/bootstrap.yaml | jq -jer '."luks-passphrase"' | ssh <target> 'sudo systemd-cryptenroll --unlock-key-file=/dev/stdin --tpm2-device=auto --tpm2-pcrs=7 /dev/disk/by-partlabel/disk-main-luks'
 ```
 
 **削除した状態で再起動すると initrd の解錠待ちになる。** そこを抜けるには
 §5 の initrd SSH でパスフレーズを入れる必要がある。管理用 age 鍵と
-`secrets/bootstrap.yaml` の両方を復旧可能な状態にしてから削除する。
+`secrets/jupiter/bootstrap.yaml` の両方を復旧可能な状態にしてから削除する。
 
 **この 2 コマンド構成を VM で通した。** `--wipe-slot=tpm2` の直後に
 `luksDump` の `Tokens:` が空になり、再起動すると initrd で解錠待ちになる。
@@ -510,13 +510,13 @@ ssh -tt -p <port> root@<host>
 
 ### 5.3 パスフレーズ投入
 
-管理用 age 鍵で `secrets/bootstrap.yaml` を復号し、`jq` が抽出した LUKS 値だけをパイプへ流す。
+管理用 age 鍵で `secrets/jupiter/bootstrap.yaml` を復号し、`jq` が抽出した LUKS 値だけをパイプへ流す。
 画面へ表示せず、永続ファイルにも保存しない。ワークステーション側の nix-config
 チェックアウトで、`sops` と `jq` が使える開発シェルから実行する。
 
 ```bash
 set -o pipefail
-SOPS_AGE_KEY_FILE=secrets/management-age-key.txt sops --decrypt --output-type json secrets/bootstrap.yaml | jq -jer '."luks-passphrase" + "\n"' | { cat; sleep 90; } | timeout 150 ssh -tt -p <port> root@<host>
+SOPS_AGE_KEY_FILE=secrets/management-age-key.txt sops --decrypt --output-type json secrets/jupiter/bootstrap.yaml | jq -jer '."luks-passphrase" + "\n"' | { cat; sleep 90; } | timeout 150 ssh -tt -p <port> root@<host>
 ```
 
 `sleep 90` は、プロンプトが出るより先に標準入力が閉じて ssh が終了するのを
