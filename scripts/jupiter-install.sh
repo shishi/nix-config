@@ -26,6 +26,7 @@ extra_files=""
 target_host=""
 ssh_port=""
 ssh_base_args=()
+initrd_key_fingerprint=""
 primary_credential_min_chars=15
 primary_credential_max_chars=128
 original_args=()
@@ -126,6 +127,12 @@ parse_arguments() {
 
   [ -n "$target_host" ] || \
     die 'インストール先を --target-host root@<target> で指定すること(手順は docs/jupiter-install-runbook.md)'
+  # disko と対象機上の鍵生成は root 権限で実行する。root 以外だと、ディスクを
+  # 消去した後の鍵生成で初めて権限エラーになるため、ここで止める。
+  case "$target_host" in
+    root@*) ;;
+    *) die '--target-host は root@<target> にすること。disko と対象機上の鍵生成は root で実行する(docs/jupiter-install-runbook.md §2.2)' ;;
+  esac
 }
 
 require_tracked_ciphertext() {
@@ -249,9 +256,10 @@ target_ssh() {
 # すべて鍵認証で進むため、最初に自分の公開鍵を置く。未配置ならコンソールで設定した
 # root パスワードを 1 回だけ聞かれ、配置済みなら何も聞かれない(再実行しても安全)。
 ensure_key_auth() {
-  printf 'jupiter-install: 対象機へ SSH 公開鍵を配置する(未配置なら root パスワードを 1 回聞かれる)\n'
+  printf 'jupiter-install: [操作] SSH 公開鍵を配置する。未配置なら、コンソールで設定した root パスワードをここで 1 回入力する:\n'
   ssh-copy-id "${ssh_base_args[@]}" "$target_host" || \
     die '公開鍵を配置できない。対象機のコンソールで sudo passwd root を実行したか確認すること(docs/jupiter-install-runbook.md §2.2)'
+  printf 'jupiter-install: ここから完了表示まで操作は無い(disko → 鍵生成 → install → 配送確認を自動で進める)\n'
 }
 
 # lanzaboote の lzbt install は /var/lib/sbctl の鍵で boot entry を署名し、
@@ -260,8 +268,8 @@ ensure_key_auth() {
 generate_target_keys() {
   target_ssh 'rm -rf /var/lib/sbctl && nix --extra-experimental-features "nix-command flakes" run nixpkgs#sbctl -- create-keys && mkdir -p /mnt/var/lib && cp -a /var/lib/sbctl /mnt/var/lib/ && mkdir -p /mnt/var/lib/initrd-ssh && ssh-keygen -t ed25519 -N "" -f /mnt/var/lib/initrd-ssh/ssh_host_ed25519_key && chmod 600 /mnt/var/lib/initrd-ssh/ssh_host_ed25519_key' || \
     die '対象機での Secure Boot 鍵と initrd SSH ホスト鍵の生成に失敗した'
-  printf 'jupiter-install: initrd SSH ホスト鍵の fingerprint(復旧時の照合用。Jupiter 以外から読める場所へ保存する):\n'
-  target_ssh 'ssh-keygen -lf /mnt/var/lib/initrd-ssh/ssh_host_ed25519_key.pub' || \
+  # fingerprint は完了表示でまとめて案内する(長い install の間、人間は離席していてよい)。
+  initrd_key_fingerprint=$(target_ssh 'ssh-keygen -lf /mnt/var/lib/initrd-ssh/ssh_host_ed25519_key.pub') || \
     die 'initrd SSH ホスト鍵の fingerprint を取得できない'
 }
 
@@ -331,5 +339,9 @@ run_nixos_anywhere disko
 generate_target_keys
 run_nixos_anywhere install
 verify_delivered_secrets
-printf 'jupiter-install: 完了。一覧を確認できたら停止する(docs/jupiter-install-runbook.md §2.4):\n'
-printf '  ssh %s %s '\''swapoff -a; umount -R /mnt && cryptsetup close cryptroot'\''\n' "${ssh_base_args[*]}" "$target_host"
+printf 'jupiter-install: 完了。[操作] 残りは 3 つ(docs/jupiter-install-runbook.md §2.3〜§2.4):\n'
+printf '  1. initrd SSH ホスト鍵の fingerprint を Jupiter 以外から読める場所へ保存する(復旧時の照合用):\n'
+printf '     %s\n' "$initrd_key_fingerprint"
+printf '  2. 上の一覧の所有者と mode を照合する\n'
+printf '  3. 照合できたら停止し、インストーラーメディアを外す:\n'
+printf '     ssh %s %s '\''swapoff -a; umount -R /mnt && cryptsetup close cryptroot'\''\n' "${ssh_base_args[*]}" "$target_host"

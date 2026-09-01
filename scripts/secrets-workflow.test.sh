@@ -969,6 +969,11 @@ test_phases_and_target_host_are_wrapper_owned() {
   fi
   rg -F -- '--target-host' "$work/wrapper.stderr" >/dev/null || \
     fail "missing target host rejection did not name the required argument"
+  if run_wrapper_raw --target-host nixos@fake-target >"$work/wrapper.stdout" 2>"$work/wrapper.stderr"; then
+    fail "wrapper unexpectedly accepted a non-root target host"
+  fi
+  rg -F -- 'root@<target> にすること' "$work/wrapper.stderr" >/dev/null || \
+    fail "non-root target rejection did not explain the root requirement"
 }
 
 test_default_management_key_path_is_used_when_env_is_unset() {
