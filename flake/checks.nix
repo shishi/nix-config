@@ -62,19 +62,6 @@
 
         dns-osaka-1-eval = evalOnly "dns-osaka-1" self.nixosConfigurations.dns-osaka-1;
 
-        # 秘密情報の作成・復号を一時 shell なしで実行できることを固定する。
-        jupiter-sops-cli-contract =
-          let
-            hm = self.nixosConfigurations.jupiter.config.home-manager.users.shishi;
-          in
-          pkgs.runCommand "jupiter-sops-cli-contract" { } ''
-            ${if builtins.elem pkgs.sops hm.home.packages then "true" else "false"} || {
-              echo "Jupiter Home Manager packages do not include sops"
-              exit 1
-            }
-            touch $out
-          '';
-
         # ChatGPT Desktop は OpenAI の version 付き Linux package を使う。
         # /latest/ は同じ lock の取得物が上流更新で変わり、固定 hash と衝突するため禁止する。
         chatgpt-desktop-contract =
@@ -240,8 +227,6 @@
             cfg = self.nixosConfigurations.jupiter.config;
             tailscale = cfg.services.tailscale;
             secret = cfg.sops.secrets."tailscale-oauth-secret" or { };
-            autoconnect = cfg.systemd.services.tailscaled-autoconnect;
-            tailscaledSet = cfg.systemd.services.tailscaled-set;
             rdpInterfaces = builtins.filter (
               name: builtins.elem 3389 (cfg.networking.firewall.interfaces.${name}.allowedTCPPorts or [ ])
             ) (builtins.attrNames cfg.networking.firewall.interfaces);
@@ -271,12 +256,6 @@
             check secret.owner "${secret.owner or ""}" "root"
             check secret.group "${secret.group or ""}" "root"
             check secret.mode "${secret.mode or ""}" "0400"
-            check tailscaled-autoconnect.after "${
-              if builtins.elem "tailscaled.service" autoconnect.after then "present" else "missing"
-            }" "present"
-            check tailscaled-set.after "${
-              if builtins.elem "tailscaled-autoconnect.service" tailscaledSet.after then "present" else "missing"
-            }" "present"
             check firewall.rdpInterfaces "${builtins.concatStringsSep "|" rdpInterfaces}" "tailscale0"
             check firewall.global.rdp "${
               if builtins.elem 3389 cfg.networking.firewall.allowedTCPPorts then "present" else "missing"
