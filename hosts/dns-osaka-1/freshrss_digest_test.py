@@ -48,6 +48,7 @@ class FreshRSSDigestTest(unittest.TestCase):
         self.assertEqual(requests[1][0], "GET")
         self.assertIn("/api/greader.php/reader/api/0/stream/contents/reading-list?", requests[1][1])
         self.assertIn("n=10000", requests[1][1])
+        self.assertIn(f"ot={1_800_000_000 - 7 * 24 * 60 * 60}", requests[1][1])
         self.assertNotIn("edit-tag", requests[1][1])
 
     def test_job_publishes_one_daily_entry_and_deduplicates_items(self):
@@ -125,6 +126,41 @@ class FreshRSSDigestTest(unittest.TestCase):
             with sqlite3.connect(database) as connection:
                 count = connection.execute("SELECT count(*) FROM processed_items").fetchone()[0]
             self.assertEqual(count, 0)
+
+    def test_selection_skips_digest_entries_and_caps_the_batch(self):
+        items = [
+            {
+                "id": "digest-1",
+                "title": f"{freshrss_digest.DIGEST_TITLE_PREFIX}2026-09-01",
+                "summary": {"content": "old digest"},
+            }
+        ] + [
+            {
+                "id": f"item-{index}",
+                "title": f"Title {index}",
+                "summary": {"content": "Body"},
+            }
+            for index in range(101)
+        ]
+
+        with tempfile.TemporaryDirectory() as directory:
+            directory = Path(directory)
+            summarized = []
+
+            def summarize(article):
+                summarized.append(article["id"])
+                return "Summary"
+
+            freshrss_digest.run_job(
+                items,
+                summarize,
+                directory / "state.sqlite3",
+                directory / "public" / "digest.atom",
+                now=1_800_000_000,
+            )
+
+            self.assertEqual(len(summarized), 100)
+            self.assertNotIn("digest-1", summarized)
 
     def test_http_attempts_are_limited_to_three(self):
         attempts = 0

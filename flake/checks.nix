@@ -270,6 +270,20 @@
             touch $out
           '';
 
+        # freshrss digest の挙動契約。runbook が約束する取得窓(過去 7 日)、
+        # 1 バッチ最大 100 件、digest 自身の再要約除外、全成功時だけの
+        # SQLite 記録と Atom 更新、HTTP 3 回制限を unittest で検証する。
+        # 対象機(aarch64)と同じ pkgs.python3 系列の stdlib だけで走る。
+        # PYTHONTZPATH: run_job が Asia/Tokyo で日付を切るため、sandbox に
+        # 無い tzdata を明示する(実機では NixOS が /etc/zoneinfo を持つ)。
+        freshrss-digest-contract = pkgs.runCommand "freshrss-digest-contract" { } ''
+          cp ${../hosts/dns-osaka-1/freshrss_digest.py} freshrss_digest.py
+          cp ${../hosts/dns-osaka-1/freshrss_digest_test.py} freshrss_digest_test.py
+          PYTHONTZPATH=${pkgs.tzdata}/share/zoneinfo \
+            ${pkgs.python3.interpreter} -m unittest -v freshrss_digest_test
+          touch $out
+        '';
+
         # dns-osaka-1 は SOPS で復号した OAuth client secret で tailnet へ自動参加し、
         # DNS・AdGuard 管理画面・Ollama API・Atom feed を tailscale0 だけに公開する。
         # この VPS は Public IP を持つので、公開範囲が global firewall へ漏れると
