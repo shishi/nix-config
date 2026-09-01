@@ -17,14 +17,7 @@
       systems = import systems;
 
       perSystem =
-        {
-          config,
-          self',
-          inputs',
-          pkgs,
-          system,
-          ...
-        }:
+        { pkgs, system, ... }:
         let
           # Fenixを使用したRustツールチェイン
           rust = inputs.fenix.packages.${system}.stable.withComponents [

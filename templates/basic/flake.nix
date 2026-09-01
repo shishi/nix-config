@@ -18,14 +18,7 @@
       systems = import systems;
 
       perSystem =
-        {
-          config,
-          self',
-          inputs',
-          pkgs,
-          system,
-          ...
-        }:
+        { pkgs, ... }:
         {
           # treefmtの設定
           treefmt = {
@@ -34,8 +27,8 @@
 
             # 各言語のフォーマッター設定
             programs = {
-              # Nixファイル
-              nixpkgs-fmt.enable = true;
+              # Nixファイル(この repo 本体と同じ formatter)
+              nixfmt.enable = true;
 
               # その他の言語の例（必要に応じて有効化）
               # prettier = {
