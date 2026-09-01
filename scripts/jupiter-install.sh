@@ -79,6 +79,9 @@ reject_managed_args() {
       --disk-encryption-keys|--disk-encryption-keys=*)
         die 'wrapper manages --disk-encryption-keys; remove --disk-encryption-keys'
         ;;
+      --ssh-option|--ssh-option=*)
+        die 'SSH host key の扱いは wrapper が固定するため --ssh-option は指定しないこと'
+        ;;
     esac
   done
 }
@@ -232,9 +235,7 @@ validate_runtime_secret() {
 run_nixos_anywhere() {
   # インストーラーのホスト鍵は起動ごとに作り直される使い捨てで、照合する対象が無い。
   # known_hosts へ記録すると、インストーラー再起動後とインストール後の接続が
-  # HOST IDENTIFICATION CHANGED で拒否されるため記録しない。OpenSSH は同一 option の
-  # 初出値を採用するため、利用者が --ssh-option で先に渡した値(例: 専用 known_hosts
-  # への固定)がこの既定に優先する。
+  # HOST IDENTIFICATION CHANGED で拒否されるため記録しない。
   local -a command_args=(
     --flake .#jupiter
     "${original_args[@]}"
