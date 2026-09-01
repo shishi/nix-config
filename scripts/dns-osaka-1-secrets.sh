@@ -35,8 +35,7 @@ SOPS_AGE_KEY_FILE="$management_key" \
 chmod 600 "$host_key"
 age-keygen -y "$host_key" >/dev/null 2>&1 || die 'ホストage鍵が不正'
 
-# sops は .sops.yaml を cwd から上へ探すため、repo root で実行すると root の
-# .sops.yaml(jupiter 用ルール)に当たり "no matching creation rules" になる(実測)。
-# dns 用ルールを明示する。
+# sops は設定を cwd から上へ探すため、実行場所しだいで見つかる設定が変わる。
+# このホストの規則を明示する。
 SOPS_AGE_KEY_FILE="$host_key" sops --config "$repo_root/secrets/dns-osaka-1/.sops.yaml" \
   "$repo_root/secrets/dns-osaka-1/runtime.yaml"
