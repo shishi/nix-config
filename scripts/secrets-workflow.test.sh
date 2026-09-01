@@ -437,20 +437,27 @@ set -euo pipefail
 args_log=${FAKE_ARGS_LOG:?}
 extra_path_log=${FAKE_EXTRA_PATH_LOG:?}
 
+# 期待する配送物は FAKE_EXTRA_SPEC(path:mode の行)で上書きできる。
+# 既定は jupiter の配送物。dns-osaka-1 のテストが自分の配送物を渡す。
+jupiter_extra_spec='home/shishi/.ssh/id_ed25519:600
+home/shishi/.ssh/id_ed25519.pub:644
+home/shishi/gpg-secret.asc:600
+var/lib/secrets/shishi-password-hash:600
+var/lib/sops-nix/key.txt:600'
+
 check_extra_files() {
   local extra=$1 path mode hash
   printf '%s\n' "$extra" >"$extra_path_log"
   while IFS=: read -r path mode; do
+    [ -n "$path" ] || continue
     test "$(stat -c %a "$extra/$path")" = "$mode" || { printf '%s\n' 'fake extra-files mode mismatch' >&2; exit 91; }
-  done <<'MODES'
-home/shishi/.ssh/id_ed25519:600
-home/shishi/.ssh/id_ed25519.pub:644
-home/shishi/gpg-secret.asc:600
-var/lib/secrets/shishi-password-hash:600
-var/lib/sops-nix/key.txt:600
-MODES
-  hash=$(head -c 3 "$extra/var/lib/secrets/shishi-password-hash")
-  test "$hash" = '$y$' || { printf '%s\n' 'fake password hash is not yescrypt' >&2; exit 92; }
+  done <<<"${FAKE_EXTRA_SPEC:-$jupiter_extra_spec}"
+  # jupiter spec は上の loop がハッシュファイルの存在を強制する(stat が落ちる)ので、
+  # この分岐で jupiter 側の検査が弱まることはない。
+  if [ -e "$extra/var/lib/secrets/shishi-password-hash" ]; then
+    hash=$(head -c 3 "$extra/var/lib/secrets/shishi-password-hash")
+    test "$hash" = '$y$' || { printf '%s\n' 'fake password hash is not yescrypt' >&2; exit 92; }
+  fi
 }
 
 while [ "$#" -gt 0 ]; do
@@ -476,6 +483,10 @@ while [ "$#" -gt 0 ]; do
     --ssh-option)
       printf '%s\n' --ssh-option "$2" >>"$args_log"
       shift 2
+      ;;
+    --copy-host-keys)
+      printf '%s\n' --copy-host-keys >>"$args_log"
+      shift
       ;;
     *)
       shift
@@ -553,6 +564,69 @@ run_wrapper_without_key_env() {
       FAKE_EXTRA_PATH_LOG="$work/fake.extra-path" \
       PATH="$work/fake-bin:$PATH" \
         bash scripts/jupiter-install.sh --target-host root@fake-target --ssh-port 2222 "$@"
+  )
+}
+
+# dns-osaka-1 の暗号文フィクスチャ。本番と同じ境界で、bootstrap は管理鍵
+# (テスト鍵)宛て、runtime はホスト age 鍵宛てに暗号化する。
+# dns-osaka-1-secrets.sh は対話 editor を開くため fixture 生成には使えない。
+prepare_dns_fixture() {
+  local management_recipient
+  cp "$repo_root/scripts/dns-osaka-1-install.sh" "$repo/scripts/dns-osaka-1-install.sh"
+  chmod +x "$repo/scripts/dns-osaka-1-install.sh"
+  mkdir -p "$repo/secrets/dns-osaka-1"
+  # age-keygen -o は既存ファイルを上書きしない(2 回目の fixture 準備で落ちる)
+  rm -f "$work/dns-host-age-key.txt"
+  age-keygen -o "$work/dns-host-age-key.txt" >/dev/null 2>&1
+  management_recipient=$(age-keygen -y "$test_home/.config/sops/age/keys.txt")
+  jq -n --rawfile key "$work/dns-host-age-key.txt" '{"dns-osaka-1-age-key": $key}' \
+    >"$work/dns-bootstrap.json"
+  (
+    cd "$work"
+    sops --encrypt --age "$management_recipient" --input-type json --output-type yaml \
+      dns-bootstrap.json
+  ) >"$repo/secrets/dns-osaka-1/bootstrap.yaml"
+  write_dns_runtime '.'
+  printf 'fake-target ssh-ed25519 AAAA-fake-host-key\n' >"$test_home/.ssh/known_hosts"
+  (
+    cd "$repo"
+    git add scripts/dns-osaka-1-install.sh
+    git add -f secrets/dns-osaka-1/bootstrap.yaml secrets/dns-osaka-1/runtime.yaml
+    git commit -qm dns-fixture
+  )
+}
+
+# jq filter を適用した runtime 平文を dns ホスト鍵宛てに暗号化して置き直す。
+write_dns_runtime() {
+  local filter=$1 dns_recipient
+  dns_recipient=$(age-keygen -y "$work/dns-host-age-key.txt")
+  jq -n '{
+    "freshrss-api-password": "freshrss-password-test-value",
+    "freshrss-api-url": "https://freshrss.example.test",
+    "freshrss-api-username": "freshrss-user",
+    "tailscale-oauth-secret": "tskey-client-test-value-0123456789"
+  } | '"$filter" >"$work/dns-runtime.json"
+  (
+    cd "$work"
+    sops --encrypt --age "$dns_recipient" --input-type json --output-type yaml \
+      dns-runtime.json
+  ) >"$repo/secrets/dns-osaka-1/runtime.yaml"
+}
+
+run_dns_wrapper() {
+  : >"$work/fake.args"
+  : >"$work/fake.extra-path"
+  (
+    cd "$repo"
+    HOME="$test_home" \
+    SOPS_AGE_KEY_FILE="$test_home/.config/sops/age/keys.txt" \
+    SSH_KNOWN_HOSTS_FILE="$test_home/.ssh/known_hosts" \
+    NIXOS_ANYWHERE_BIN="$work/fake-bin/nixos-anywhere" \
+    FAKE_ARGS_LOG="$work/fake.args" \
+    FAKE_EXTRA_PATH_LOG="$work/fake.extra-path" \
+    FAKE_EXTRA_SPEC='var/lib/sops-nix/dns-osaka-1-age-key.txt:600' \
+    PATH="$work/fake-bin:$PATH" \
+      bash scripts/dns-osaka-1-install.sh "$@"
   )
 }
 
@@ -1209,6 +1283,43 @@ if [ "$suite" = gpg-import ]; then
   exit 0
 fi
 
+# dns-osaka-1 wrapper: 配送物(ホスト age 鍵、mode 600)と、登録済み known_hosts での
+# 厳格なホスト鍵検証、固定 phase 列を fake nixos-anywhere で検査する。
+test_dns_install_delivers_host_key_with_verified_host_identity() {
+  reset_wrapper_fixture
+  prepare_dns_fixture
+  run_dns_wrapper >"$work/wrapper.stdout" 2>"$work/wrapper.stderr" || fail "dns wrapper run failed"
+  assert_args_contain --extra-files --copy-host-keys --phases kexec,disko,install,reboot \
+    --ssh-option StrictHostKeyChecking=yes "UserKnownHostsFile=$test_home/.ssh/known_hosts"
+  assert_args_absent StrictHostKeyChecking=no UserKnownHostsFile=/dev/null
+  assert_wrapper_logs_redacted
+  assert_extra_files_cleaned_up
+}
+
+test_dns_install_rejects_bad_preconditions() {
+  reset_wrapper_fixture
+  prepare_dns_fixture
+  if run_dns_wrapper --phases disko >"$work/wrapper.stdout" 2>"$work/wrapper.stderr"; then
+    fail "dns wrapper accepted arguments"
+  fi
+  rg -F -- '引数は指定しないこと' "$work/wrapper.stderr" >/dev/null || \
+    fail "dns wrapper argument rejection did not explain the contract"
+  rm -f "$test_home/.ssh/known_hosts"
+  if run_dns_wrapper >"$work/wrapper.stdout" 2>"$work/wrapper.stderr"; then
+    fail "dns wrapper ran without a registered host key"
+  fi
+  rg -F 'known_hosts' "$work/wrapper.stderr" >/dev/null || \
+    fail "missing known_hosts was not reported"
+  printf 'fake-target ssh-ed25519 AAAA-fake-host-key\n' >"$test_home/.ssh/known_hosts"
+  write_dns_runtime 'del(."freshrss-api-password")'
+  if run_dns_wrapper >"$work/wrapper.stdout" 2>"$work/wrapper.stderr"; then
+    fail "dns wrapper accepted an incomplete runtime secret"
+  fi
+  rg -F 'runtime.yamlの値が未設定または不正' "$work/wrapper.stderr" >/dev/null || \
+    fail "incomplete runtime secret was not reported"
+  assert_wrapper_logs_redacted
+}
+
 if [ "$suite" = wrapper ]; then
   test_run_executes_disko_keygen_install_in_order
   test_phases_and_target_host_are_wrapper_owned
@@ -1225,6 +1336,8 @@ if [ "$suite" = wrapper ]; then
   test_malformed_runtime_values_are_rejected
   test_untracked_ciphertext_is_rejected
   test_child_status_and_cleanup_are_preserved
+  test_dns_install_delivers_host_key_with_verified_host_identity
+  test_dns_install_rejects_bad_preconditions
   echo "secrets wrapper tests: PASS"
   exit 0
 fi

@@ -270,6 +270,59 @@
             touch $out
           '';
 
+        # dns-osaka-1 は SOPS で復号した OAuth client secret で tailnet へ自動参加し、
+        # DNS・AdGuard 管理画面・Ollama API・Atom feed を tailscale0 だけに公開する。
+        # この VPS は Public IP を持つので、公開範囲が global firewall へ漏れると
+        # そのままインターネット全体へ開く。install wrapper が配送する age 鍵の
+        # 置き場所(sops.age.keyFile)も config と突き合わせる。
+        dns-osaka-1-tailscale-contract =
+          let
+            cfg = self.nixosConfigurations.dns-osaka-1.config;
+            tailscale = cfg.services.tailscale;
+            secret = cfg.sops.secrets."tailscale-oauth-secret" or { };
+            tailnetTCP = cfg.networking.firewall.interfaces.tailscale0.allowedTCPPorts or [ ];
+            tailnetUDP = cfg.networking.firewall.interfaces.tailscale0.allowedUDPPorts or [ ];
+            leakedTCP = builtins.filter (
+              port: builtins.elem port cfg.networking.firewall.allowedTCPPorts
+            ) tailnetTCP;
+            leakedUDP = builtins.filter (
+              port: builtins.elem port cfg.networking.firewall.allowedUDPPorts
+            ) tailnetUDP;
+            showNullable = value: if value == null then "" else toString value;
+          in
+          pkgs.runCommand "dns-osaka-1-tailscale-contract" { } ''
+            ok=1
+            check() {
+              if [ "$2" != "$3" ]; then
+                echo "$1: expected '$3' but got '$2'"
+                ok=0
+              fi
+            }
+            check tailscale.enable "${if tailscale.enable then "true" else "false"}" "true"
+            check tailscale.authKeyFile "${showNullable tailscale.authKeyFile}" \
+              "/run/secrets/tailscale-oauth-secret"
+            check tailscale.authKeyParameters.ephemeral "${
+              if tailscale.authKeyParameters.ephemeral == false then "false" else "not-false"
+            }" "false"
+            check tailscale.authKeyParameters.preauthorized "${
+              if tailscale.authKeyParameters.preauthorized == true then "true" else "not-true"
+            }" "true"
+            check tailscale.extraUpFlags '${builtins.toJSON tailscale.extraUpFlags}' \
+              '["--advertise-tags=tag:dns"]'
+            check sops.age.keyFile "${cfg.sops.age.keyFile}" "/var/lib/sops-nix/dns-osaka-1-age-key.txt"
+            check sops.age.generateKey "${if cfg.sops.age.generateKey then "true" else "false"}" "false"
+            check secret.path "${secret.path or ""}" "/run/secrets/tailscale-oauth-secret"
+            check secret.owner "${secret.owner or ""}" "root"
+            check secret.group "${secret.group or ""}" "root"
+            check secret.mode "${secret.mode or ""}" "0400"
+            check firewall.tailscale0.tcp '${builtins.toJSON tailnetTCP}' '[53,3000,8080,11434]'
+            check firewall.tailscale0.udp '${builtins.toJSON tailnetUDP}' '[53]'
+            check firewall.leaked.tcp '${builtins.toJSON leakedTCP}' '[]'
+            check firewall.leaked.udp '${builtins.toJSON leakedUDP}' '[]'
+            [ "$ok" = 1 ] || exit 1
+            touch $out
+          '';
+
         encrypted-secrets-contract = pkgs.runCommand "encrypted-secrets-contract" { } ''
           fail() {
             echo "$1"
@@ -323,6 +376,39 @@
             "$management_recipient"
           check_secret_file runtime "$runtime_file" \
             '["smb-mars-shishi","tailscale-oauth-secret"]' "$runtime_recipient"
+
+          # dns-osaka-1 の暗号文も同じ境界で検査する。管理鍵は jupiter と共通
+          # (docs/dns-osaka-1-runbook.md 手順 5)なので、bootstrap の宛先は
+          # root .sops.yaml の management recipient と一致していなければならない。
+          dns_sops_config=${../secrets/dns-osaka-1/.sops.yaml}
+          dns_bootstrap_file=${../secrets/dns-osaka-1/bootstrap.yaml}
+          dns_runtime_file=${../secrets/dns-osaka-1/runtime.yaml}
+
+          if ${pkgs.gnugrep}/bin/grep -q 'AGE-SECRET-KEY-' "$dns_sops_config"; then
+            fail "dns-osaka-1 .sops.yaml contains an age private key"
+          fi
+          [ "$(${pkgs.yq-go}/bin/yq -r '.creation_rules | length' "$dns_sops_config")" = 2 ] || \
+            fail "dns-osaka-1 .sops.yaml must contain exactly two creation rules"
+          dns_rule_paths=$(${pkgs.yq-go}/bin/yq -o=json -I=0 \
+            '[.creation_rules[].path_regex] | sort' "$dns_sops_config")
+          [ "$dns_rule_paths" = '["(^|/)bootstrap\\.yaml$","(^|/)runtime\\.yaml$"]' ] || \
+            fail "dns-osaka-1 .sops.yaml creation rules target unexpected paths"
+
+          dns_bootstrap_recipient=$(${pkgs.yq-go}/bin/yq -r \
+            '.creation_rules[] | select(.path_regex | contains("bootstrap")) | .age' "$dns_sops_config")
+          dns_runtime_recipient=$(${pkgs.yq-go}/bin/yq -r \
+            '.creation_rules[] | select(.path_regex | contains("runtime")) | .age' "$dns_sops_config")
+          [ "$dns_bootstrap_recipient" = "$management_recipient" ] || \
+            fail "dns-osaka-1 bootstrap must be encrypted to the shared management key"
+          case "$dns_runtime_recipient" in age1*) ;; *) fail "dns-osaka-1 runtime creation rule has no public age recipient" ;; esac
+          [ "$dns_runtime_recipient" != "$dns_bootstrap_recipient" ] || \
+            fail "dns-osaka-1 bootstrap and runtime recipients must differ"
+
+          check_secret_file dns-bootstrap "$dns_bootstrap_file" \
+            '["dns-osaka-1-age-key"]' "$dns_bootstrap_recipient"
+          check_secret_file dns-runtime "$dns_runtime_file" \
+            '["freshrss-api-password","freshrss-api-url","freshrss-api-username","tailscale-oauth-secret"]' \
+            "$dns_runtime_recipient"
           touch $out
         '';
 
@@ -928,6 +1014,10 @@
               "secrets/management-age-key.txt"
               "git add .sops.yaml secrets/bootstrap.yaml secrets/runtime.yaml"
             ];
+            requiredDnsRunbookText = [
+              "nix run .#dns-osaka-1-secrets"
+              "nix run .#dns-osaka-1-install"
+            ];
             obsoleteRunbookText = [
               "secrets/luks-passphrase"
               "secrets/login-password"
@@ -943,11 +1033,13 @@
               readme = builtins.readFile ../README.md;
               secretsRunbook = builtins.readFile ../docs/jupiter-secrets-runbook.md;
               secureBootRunbook = builtins.readFile ../docs/jupiter-secure-boot-runbook.md;
+              dnsRunbook = builtins.readFile ../docs/dns-osaka-1-runbook.md;
               passAsFile = [
                 "installRunbook"
                 "readme"
                 "secretsRunbook"
                 "secureBootRunbook"
+                "dnsRunbook"
               ];
             }
             ''
@@ -964,6 +1056,12 @@
                   ok=0
                 }
               '') requiredSecretsRunbookText}
+              ${lib.concatMapStringsSep "\n" (required: ''
+                grep -qF -- '${required}' "$dnsRunbookPath" || {
+                  echo "dns-osaka-1 runbook に必要な手順が無い。期待: ${required}"
+                  ok=0
+                }
+              '') requiredDnsRunbookText}
               ${lib.concatMapStringsSep "\n" (obsolete: ''
                 if grep -qF -- '${obsolete}' \
                   "$readmePath" \
