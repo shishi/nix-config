@@ -1,6 +1,8 @@
 #!/usr/bin/env bash
 # ホスト前提の機械検証。--critical は switch に組み込まれる高速サブセット。
-# 検査項目は hosts/ubuntu-wsl/README.md の対応表と 1:1。
+# hosts/ubuntu-wsl/README.md の対応表のうち機械検証できる行(日本語入力は
+# Windows 側なので対象外)と、home/ 側の解決経路(rustup、nix profile、
+# PATH 順序、NH_FLAKE)を検査する。
 # writeShellApplication が set -euo pipefail を注入するため errexit-safe に書く。
 MODE="${1:---full}"
 FAIL=0
@@ -19,7 +21,7 @@ resolve() {
 login_shell="$(getent passwd "$USER" | cut -d: -f7)"
 case "$login_shell" in
   */fish) ok "login shell is fish" ;;
-  *) ng "login shell is $login_shell (expected fish; hearing #8)" ;;
+  *) ng "login shell is $login_shell (expected fish)" ;;
 esac
 
 # rustc/cargo は rustup 実体へ解決されること。
@@ -45,11 +47,11 @@ for b in bat fd rg eza; do
   r="$(resolve "$b")"
   case "$r" in
     "$HOME/.nix-profile/bin/"* | /etc/profiles/per-user/* | /nix/store/*) ok "$b -> nix" ;;
-    *) ng "$b resolves to '$r' (expected nix; stale ~/.cargo/bin copy? see #39)" ;;
+    *) ng "$b resolves to '$r' (expected nix; remove stale ~/.cargo/bin copy)" ;;
   esac
 done
 
-# --- critical: 適用経路(スペック: preflight(現 check-env)検査対象 (c))---
+# --- critical: 適用経路 ---
 FLAKE_DIR="$HOME/dev/src/github.com/shishi/nix-config"
 if [ -f "$FLAKE_DIR/flake.nix" ]; then
   ok "flake at standard path"
@@ -70,13 +72,13 @@ fi
 
 # PATH 順序契約: nix profile が ~/.cargo/bin より前(standalone のみ。
 # 掃除後は衝突バイナリが消えて解決結果だけでは順序違反を検出できないため、
-# 順序そのものを検査する — 2 巡目レビュー指摘)
+# 順序そのものを検査する)
 if [ ! -e /etc/NIXOS ] && command -v fish >/dev/null 2>&1; then
   # shellcheck disable=SC2016
   if fish -lc 'set -l ip (contains -i ~/.nix-profile/bin $PATH); set -l ic (contains -i ~/.cargo/bin $PATH); test -n "$ip"; and test -n "$ic"; and test "$ip" -lt "$ic"' 2>/dev/null; then
     ok "PATH order: nix profile before ~/.cargo/bin"
   else
-    ng "PATH order violated (dotfiles config.fish の cargo 前置行を確認 — Task 15 Step 4)"
+    ng "PATH order violated (dotfiles config.fish の cargo 前置行を確認)"
   fi
 fi
 
@@ -88,9 +90,10 @@ fi
 # --- full: 非 Nix 前提(ubuntu-wsl のみ。NixOS では宣言側が担う)---
 if [ ! -e /etc/NIXOS ]; then
   command -v gcc >/dev/null 2>&1 || ng "build-essential missing (run install-system-packages)"
+  command -v pkg-config >/dev/null 2>&1 || ng "pkg-config missing (run install-system-packages)"
   command -v docker >/dev/null 2>&1 || ng "docker missing"
   if ss -tln 2>/dev/null | grep -q ':2375'; then
-    ng "docker listening on tcp/2375 (removed by #38; fix daemon config)"
+    ng "docker listening on tcp/2375 (TCP 公開は廃止済み。daemon 設定を確認)"
   else
     ok "no docker tcp exposure"
   fi

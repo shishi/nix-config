@@ -10,8 +10,7 @@
 # NixOS 実機は checked nixos-anywhere wrapper が SSH / GPG 鍵を配送する。
 # その経路でインストール済みなら [4/4] は認証 OK 側を通る。
 
-# パスは NH_FLAKE / check-env の契約と一致していなければならないため固定
-# (README「初回起動後の手順」参照)
+# パスは NH_FLAKE / check-env の契約(scripts/check-env.sh)と一致していなければならないため固定
 GHQ_ROOT="$HOME/dev/src"
 NIX_CONFIG_DIR="$GHQ_ROOT/github.com/shishi/nix-config"
 DOTFILES_DIR="$GHQ_ROOT/github.com/shishi/dotfiles"
