@@ -942,8 +942,7 @@
               );
             hashRel = if u.hashedPasswordFile == null then null else lib.removePrefix "/" u.hashedPasswordFile;
             requiredInstallRunbookText = [
-              "nix run .#jupiter-install -- --target-host root@<target> --ssh-port <port> --phases disko"
-              "nix run .#jupiter-install -- --target-host root@<target> --ssh-port <port> --phases install"
+              "nix run .#jupiter-install -- --target-host root@<target> --ssh-port <port>"
             ];
             requiredSecretsRunbookText = [
               "nix run .#jupiter-secrets"

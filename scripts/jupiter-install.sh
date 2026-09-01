@@ -1,10 +1,11 @@
 #!/usr/bin/env bash
 #
-# nixos-anywhere の phase のうち disko と install を秘密注入の単位として扱う。
-# 2 回に分けて実行するのは、disko(ディスク全消去 + LUKS 鍵の注入)と
-# install(SSH/GPG 鍵・パスワードハッシュ・sops 鍵の配送 + NixOS 本体)の間に
-# Secure Boot 鍵の準備という人間の工程が挟まるため(docs/jupiter-install-runbook.md)。
-# 暗黙の既定でディスクを消さないよう、実行する phase は --phases で必ず明示させる。
+# nixos-anywhere を disko(ディスク全消去 + LUKS 鍵の注入)→ 対象機上での鍵生成 →
+# install(SSH/GPG 鍵・パスワードハッシュ・sops 鍵の配送 + NixOS 本体)の固定順で
+# 実行する。lanzaboote の lzbt install が /var/lib/sbctl の署名鍵を要求するため、
+# sbctl 鍵と initrd SSH ホスト鍵は install の前に対象機上で生成して /mnt へ置く
+# (秘密鍵はワークステーションを経由しない)。順序は wrapper が所有し、
+# --phases は受け付けない(docs/jupiter-install-runbook.md)。
 
 set -eEuo pipefail
 umask 077
@@ -21,9 +22,8 @@ gpg_secret_key=""
 jupiter_age_key=""
 password_hash=""
 extra_files=""
-run_disko=0
-run_install=0
-phase_specified=0
+target_host=""
+ssh_port=""
 primary_credential_min_chars=15
 primary_credential_max_chars=128
 original_args=()
@@ -88,48 +88,42 @@ reject_managed_args() {
       --ssh-option|--ssh-option=*)
         die 'SSH host key の扱いは wrapper が固定するため --ssh-option は指定しないこと'
         ;;
+      --phases|--phases=*)
+        die 'インストールの順序(disko → 鍵生成 → install)は wrapper が固定するため --phases は指定しないこと'
+        ;;
     esac
   done
 }
 
-add_phases() {
-  local phases=$1 phase
-  local -a values=()
-
-  IFS=, read -r -a values <<<"$phases"
-  for phase in "${values[@]}"; do
-    case "$phase" in
-      disko) run_disko=1 ;;
-      install) run_install=1 ;;
-    esac
-  done
-}
-
-parse_phases() {
+parse_arguments() {
   local index=0 arg
 
   original_args=("$@")
   while [ "$index" -lt "$#" ]; do
     arg=${original_args[index]}
     case "$arg" in
-      --phases)
-        [ "$phase_specified" -eq 0 ] || die '--phases は 1 回だけ指定すること'
+      --target-host)
         index=$((index + 1))
-        [ "$index" -lt "$#" ] || die '--phases の値が無い'
-        phase_specified=1
-        add_phases "${original_args[index]}"
+        [ "$index" -lt "$#" ] || die '--target-host の値が無い'
+        target_host=${original_args[index]}
         ;;
-      --phases=*)
-        [ "$phase_specified" -eq 0 ] || die '--phases は 1 回だけ指定すること'
-        phase_specified=1
-        add_phases "${arg#--phases=}"
+      --target-host=*)
+        target_host=${arg#--target-host=}
+        ;;
+      --ssh-port)
+        index=$((index + 1))
+        [ "$index" -lt "$#" ] || die '--ssh-port の値が無い'
+        ssh_port=${original_args[index]}
+        ;;
+      --ssh-port=*)
+        ssh_port=${arg#--ssh-port=}
         ;;
     esac
     index=$((index + 1))
   done
 
-  [ "$phase_specified" -eq 1 ] || \
-    die '実行する phase を --phases で明示すること。手順は docs/jupiter-install-runbook.md — --phases disko(ディスク全消去と LUKS 鍵の注入)→ Secure Boot 鍵の準備 → --phases install(鍵と秘密の配送 + NixOS 本体)の順に進める'
+  [ -n "$target_host" ] || \
+    die 'インストール先を --target-host root@<target> で指定すること(手順は docs/jupiter-install-runbook.md)'
 }
 
 require_tracked_ciphertext() {
@@ -236,13 +230,34 @@ validate_runtime_secret() {
     ' >/dev/null || die 'runtime.yaml を Jupiter 鍵で復号・検証できない'
 }
 
-run_nixos_anywhere() {
+target_ssh() {
   # インストーラーのホスト鍵は起動ごとに作り直される使い捨てで、照合する対象が無い。
   # known_hosts へ記録すると、インストーラー再起動後とインストール後の接続が
   # HOST IDENTIFICATION CHANGED で拒否されるため記録しない。
+  local -a ssh_args=(-o UserKnownHostsFile=/dev/null -o StrictHostKeyChecking=no)
+
+  [ -z "$ssh_port" ] || ssh_args+=(-p "$ssh_port")
+  # shellcheck disable=SC2029 # 渡すのはリテラルのコマンド文字列で、クライアント側展開は意図どおり。
+  ssh "${ssh_args[@]}" "$target_host" "$@"
+}
+
+# lanzaboote の lzbt install は /var/lib/sbctl の鍵で boot entry を署名し、
+# initrd SSH ホスト鍵は boot.initrd.secrets が /mnt から initrd へ取り込む。
+# どちらも install の前に /mnt に存在する必要があり、秘密鍵は対象機の外へ出さない。
+generate_target_keys() {
+  target_ssh 'rm -rf /var/lib/sbctl && nix --extra-experimental-features "nix-command flakes" run nixpkgs#sbctl -- create-keys && mkdir -p /mnt/var/lib && cp -a /var/lib/sbctl /mnt/var/lib/ && mkdir -p /mnt/var/lib/initrd-ssh && ssh-keygen -t ed25519 -N "" -f /mnt/var/lib/initrd-ssh/ssh_host_ed25519_key && chmod 600 /mnt/var/lib/initrd-ssh/ssh_host_ed25519_key' || \
+    die '対象機での Secure Boot 鍵と initrd SSH ホスト鍵の生成に失敗した'
+  printf 'jupiter-install: initrd SSH ホスト鍵の fingerprint(復旧時の照合用。Jupiter 以外から読める場所へ保存する):\n'
+  target_ssh 'ssh-keygen -lf /mnt/var/lib/initrd-ssh/ssh_host_ed25519_key.pub' || \
+    die 'initrd SSH ホスト鍵の fingerprint を取得できない'
+}
+
+run_nixos_anywhere() {
+  local phase=$1
   local -a command_args=(
     --flake .#jupiter
     "${original_args[@]}"
+    --phases "$phase"
     --ssh-option UserKnownHostsFile=/dev/null
     --ssh-option StrictHostKeyChecking=no
   )
@@ -250,10 +265,9 @@ run_nixos_anywhere() {
   [ -n "${NIXOS_ANYWHERE_BIN:-}" ] || die 'NIXOS_ANYWHERE_BIN を指定すること'
   [ -x "$NIXOS_ANYWHERE_BIN" ] || die 'NIXOS_ANYWHERE_BIN を実行できない'
 
-  if [ "$run_disko" -eq 1 ]; then
+  if [ "$phase" = disko ]; then
     command_args+=(--disk-encryption-keys /tmp/secret.key "$luks_key")
-  fi
-  if [ "$run_install" -eq 1 ]; then
+  else
     command_args+=(--extra-files "$extra_files" --chown home/shishi 1000:100)
   fi
 
@@ -279,15 +293,14 @@ repo_root=$(find_repo_root)
 cd "$repo_root"
 resolve_management_age_key_file
 reject_managed_args "$@"
-parse_phases "$@"
+parse_arguments "$@"
 require_tracked_ciphertext
 tmpdir=$(mktemp -d "$(select_tmpfs_root)/jupiter-install.XXXXXXXX")
 decrypt_bootstrap
 extract_and_validate
+build_extra_files
+validate_runtime_secret
 
-if [ "$run_install" -eq 1 ]; then
-  build_extra_files
-  validate_runtime_secret
-fi
-
-run_nixos_anywhere
+run_nixos_anywhere disko
+generate_target_keys
+run_nixos_anywhere install

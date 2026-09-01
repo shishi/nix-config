@@ -436,8 +436,6 @@ set -euo pipefail
 
 args_log=${FAKE_ARGS_LOG:?}
 extra_path_log=${FAKE_EXTRA_PATH_LOG:?}
-: >"$args_log"
-: >"$extra_path_log"
 
 check_extra_files() {
   local extra=$1 path mode hash
@@ -488,9 +486,22 @@ done
 exit "${FAKE_NIXOS_ANYWHERE_STATUS:-0}"
 EOF
   chmod 700 "$work/fake-bin/nixos-anywhere"
+
+  printf '#!%s\n' "$test_bash" >"$work/fake-bin/ssh"
+  cat >>"$work/fake-bin/ssh" <<'EOF'
+set -euo pipefail
+printf 'ssh %s\n' "$*" >>"${FAKE_ARGS_LOG:?}"
+case "$*" in
+  *'ssh-keygen -lf'*) printf '256 SHA256:fake-fingerprint root@installer (ED25519)\n' ;;
+esac
+EOF
+  chmod 700 "$work/fake-bin/ssh"
 }
 
+# --target-host / --ssh-port は helper が供給する。追加引数は "$@" で後置する。
 run_wrapper() {
+  : >"$work/fake.args"
+  : >"$work/fake.extra-path"
   (
     cd "$repo"
     HOME="$test_home" \
@@ -499,6 +510,24 @@ run_wrapper() {
     NIXOS_ANYWHERE_BIN="$work/fake-bin/nixos-anywhere" \
     FAKE_ARGS_LOG="$work/fake.args" \
     FAKE_EXTRA_PATH_LOG="$work/fake.extra-path" \
+    PATH="$work/fake-bin:$PATH" \
+      bash scripts/jupiter-install.sh --target-host root@fake-target --ssh-port 2222 "$@"
+  )
+}
+
+# --target-host を渡さずに素で起動する(必須引数の検査用)。
+run_wrapper_raw() {
+  : >"$work/fake.args"
+  : >"$work/fake.extra-path"
+  (
+    cd "$repo"
+    HOME="$test_home" \
+    GNUPGHOME="$test_home/.gnupg" \
+    SOPS_AGE_KEY_FILE="$test_home/.config/sops/age/keys.txt" \
+    NIXOS_ANYWHERE_BIN="$work/fake-bin/nixos-anywhere" \
+    FAKE_ARGS_LOG="$work/fake.args" \
+    FAKE_EXTRA_PATH_LOG="$work/fake.extra-path" \
+    PATH="$work/fake-bin:$PATH" \
       bash scripts/jupiter-install.sh "$@"
   )
 }
@@ -506,6 +535,8 @@ run_wrapper() {
 # HOME / SOPS_AGE_KEY_FILE を外して wrapper を実行する。
 # 既定 key path の解決と、key 不在時の失敗の両方の検査で使う。
 run_wrapper_without_key_env() {
+  : >"$work/fake.args"
+  : >"$work/fake.extra-path"
   (
     cd "$repo"
     env -u HOME -u SOPS_AGE_KEY_FILE \
@@ -513,7 +544,8 @@ run_wrapper_without_key_env() {
       NIXOS_ANYWHERE_BIN="$work/fake-bin/nixos-anywhere" \
       FAKE_ARGS_LOG="$work/fake.args" \
       FAKE_EXTRA_PATH_LOG="$work/fake.extra-path" \
-        bash scripts/jupiter-install.sh "$@"
+      PATH="$work/fake-bin:$PATH" \
+        bash scripts/jupiter-install.sh --target-host root@fake-target --ssh-port 2222 "$@"
   )
 }
 
@@ -528,6 +560,17 @@ assert_args_absent() {
   local unwanted
   for unwanted in "$@"; do
     ! rg -Fx -- "$unwanted" "$work/fake.args" >/dev/null || fail "unexpected wrapper argument: $unwanted"
+  done
+}
+
+# 各パターンが args log にこの順で現れることを検査する。
+assert_args_order() {
+  local pattern line previous_line=0
+  for pattern in "$@"; do
+    line=$(rg -n -- "$pattern" "$work/fake.args" | head -1 | cut -d: -f1)
+    [ -n "$line" ] || fail "missing ordered wrapper step: $pattern"
+    [ "$line" -gt "$previous_line" ] || fail "wrapper step out of order: $pattern"
+    previous_line=$line
   done
 }
 
@@ -897,29 +940,35 @@ reset_wrapper_fixture() {
   make_fake_nixos_anywhere
 }
 
-test_disko_phase_only_injects_luks_key() {
+test_run_executes_disko_keygen_install_in_order() {
   reset_wrapper_fixture
-  run_wrapper --phases disko >"$work/wrapper.stdout" 2>"$work/wrapper.stderr" || fail "disko wrapper run failed"
-  assert_args_contain --disk-encryption-keys /tmp/secret.key
-  assert_args_absent --extra-files
+  run_wrapper >"$work/wrapper.stdout" 2>"$work/wrapper.stderr" || fail "wrapper run failed"
+  assert_args_contain --disk-encryption-keys /tmp/secret.key --extra-files --chown home/shishi 1000:100
+  assert_args_order '^disko$' 'create-keys' '^install$'
+  assert_args_order '^--disk-encryption-keys$' 'ssh_host_ed25519_key' '^--extra-files$'
+  rg -F 'SHA256:fake-fingerprint' "$work/wrapper.stdout" "$work/wrapper.stderr" >/dev/null || \
+    fail "wrapper did not surface the initrd host key fingerprint"
   assert_wrapper_logs_redacted
   assert_extra_files_cleaned_up
 }
 
-test_install_phase_delivers_checked_extra_files() {
+test_phases_and_target_host_are_wrapper_owned() {
   reset_wrapper_fixture
-  run_wrapper --phases install >"$work/wrapper.stdout" 2>"$work/wrapper.stderr" || fail "install wrapper run failed"
-  assert_args_contain --extra-files --chown home/shishi 1000:100
-  assert_args_absent --disk-encryption-keys
-  assert_wrapper_logs_redacted
-  assert_extra_files_cleaned_up
+  assert_wrapper_fails --phases disko
+  rg -F -- '--phases は指定しないこと' "$work/wrapper.stderr" >/dev/null || \
+    fail "manual phases rejection did not explain the wrapper contract"
+  if run_wrapper_raw >"$work/wrapper.stdout" 2>"$work/wrapper.stderr"; then
+    fail "wrapper unexpectedly ran without --target-host"
+  fi
+  rg -F -- '--target-host' "$work/wrapper.stderr" >/dev/null || \
+    fail "missing target host rejection did not name the required argument"
 }
 
 test_default_management_key_path_is_used_when_env_is_unset() {
   reset_wrapper_fixture
   install -m 600 "$test_home/.config/sops/age/keys.txt" "$repo/secrets/management-age-key.txt"
   rm -f -- "$test_home/.config/sops/age/keys.txt"
-  run_wrapper_without_key_env --phases install >"$work/wrapper.stdout" 2>"$work/wrapper.stderr" || \
+  run_wrapper_without_key_env >"$work/wrapper.stdout" 2>"$work/wrapper.stderr" || \
     fail "wrapper did not use the default management key path"
   assert_args_contain --extra-files --chown home/shishi 1000:100
   assert_wrapper_logs_redacted
@@ -929,7 +978,7 @@ test_default_management_key_path_is_used_when_env_is_unset() {
 test_missing_default_management_key_reports_a_controlled_error() {
   reset_wrapper_fixture
   rm -f -- "$test_home/.config/sops/age/keys.txt" "$repo/secrets/management-age-key.txt"
-  if run_wrapper_without_key_env --phases install >"$work/wrapper.stdout" 2>"$work/wrapper.stderr"; then
+  if run_wrapper_without_key_env >"$work/wrapper.stdout" 2>"$work/wrapper.stderr"; then
     fail "wrapper unexpectedly accepted a missing management key"
   fi
   rg -F 'management age key が読めない' "$work/wrapper.stderr" >/dev/null || \
@@ -939,34 +988,22 @@ test_missing_default_management_key_reports_a_controlled_error() {
   assert_extra_files_cleaned_up
 }
 
-test_full_run_requires_explicit_phases() {
-  reset_wrapper_fixture
-  assert_wrapper_fails
-  rg -F -- '--phases で明示すること' "$work/wrapper.stderr" >/dev/null || \
-    fail "missing --phases rejection did not explain which phase does what"
-  rg -F -- 'jupiter-install-runbook.md' "$work/wrapper.stderr" >/dev/null || \
-    fail "missing --phases rejection did not point to the runbook"
-  run_wrapper --phases disko,install >"$work/wrapper.stdout" 2>"$work/wrapper.stderr" || \
-    fail "explicit full wrapper run failed"
-  assert_args_contain --disk-encryption-keys /tmp/secret.key --extra-files --chown home/shishi 1000:100
-  assert_wrapper_logs_redacted
-  assert_extra_files_cleaned_up
-}
-
 test_manual_secret_arguments_are_rejected() {
   reset_wrapper_fixture
-  assert_wrapper_fails --extra-files arbitrary --phases install
+  assert_wrapper_fails --extra-files arbitrary
   rg -F 'remove --extra-files' "$work/wrapper.stderr" >/dev/null || fail "manual extra-files rejection did not explain remediation"
-  assert_wrapper_fails --disk-encryption-keys /tmp/secret.key arbitrary --phases disko
+  assert_wrapper_fails --disk-encryption-keys /tmp/secret.key arbitrary
   rg -F 'remove --disk-encryption-keys' "$work/wrapper.stderr" >/dev/null || fail "manual disk key rejection did not explain remediation"
 }
 
 test_installer_host_keys_are_not_recorded() {
   reset_wrapper_fixture
-  run_wrapper --phases disko >"$work/wrapper.stdout" 2>"$work/wrapper.stderr" || \
+  run_wrapper >"$work/wrapper.stdout" 2>"$work/wrapper.stderr" || \
     fail "wrapper run with wrapper-owned ssh options failed"
   assert_args_contain --ssh-option UserKnownHostsFile=/dev/null StrictHostKeyChecking=no
-  assert_wrapper_fails --ssh-option StrictHostKeyChecking=yes --phases disko
+  rg -- '^ssh .*UserKnownHostsFile=/dev/null .*StrictHostKeyChecking=no' "$work/fake.args" >/dev/null || \
+    fail "wrapper-owned ssh commands do not carry the host key options"
+  assert_wrapper_fails --ssh-option StrictHostKeyChecking=yes
   rg -F -- '--ssh-option は指定しないこと' "$work/wrapper.stderr" >/dev/null || \
     fail "manual ssh option rejection did not explain the wrapper contract"
 }
@@ -980,7 +1017,8 @@ test_wrong_management_key_is_rejected() {
     SOPS_AGE_KEY_FILE="$work/wrong-age-key.txt" \
     NIXOS_ANYWHERE_BIN="$work/fake-bin/nixos-anywhere" \
     FAKE_ARGS_LOG="$work/fake.args" FAKE_EXTRA_PATH_LOG="$work/fake.extra-path" \
-      bash scripts/jupiter-install.sh --phases install
+    PATH="$work/fake-bin:$PATH" \
+      bash scripts/jupiter-install.sh --target-host root@fake-target
   ) >"$work/wrapper.stdout" 2>"$work/wrapper.stderr"; then
     fail "wrapper accepted a wrong management key"
   fi
@@ -991,7 +1029,7 @@ test_wrong_management_key_is_rejected() {
 test_damaged_bootstrap_mac_is_rejected() {
   reset_wrapper_fixture
   sed -i '/^    mac:/c\    mac: ENC[AES256_GCM,data:broken,type:str]' "$repo/secrets/bootstrap.yaml"
-  assert_wrapper_fails --phases install
+  assert_wrapper_fails
 }
 
 test_rewrite_bootstrap_isolated_from_repository_sops_config() {
@@ -1012,7 +1050,7 @@ test_malformed_bootstrap_values_are_rejected() {
     '."login-password" = ""'; do
     reset_wrapper_fixture
     rewrite_bootstrap "$filter"
-    assert_wrapper_fails --phases install
+    assert_wrapper_fails
   done
 }
 
@@ -1025,7 +1063,7 @@ test_primary_credential_length_policy_is_enforced_by_wrapper() {
     '."login-password" = ("x" * 129)'; do
     reset_wrapper_fixture
     rewrite_bootstrap "$filter"
-    assert_wrapper_fails --phases install
+    assert_wrapper_fails
     rg -F '15文字以上128文字以下' "$work/wrapper.stderr" >/dev/null || \
       fail "wrapper credential length failure did not report the policy"
   done
@@ -1039,7 +1077,7 @@ test_primary_credential_control_characters_are_rejected_by_wrapper() {
     '."login-password" = "short\u0000xxxxxxxxx"'; do
     reset_wrapper_fixture
     rewrite_bootstrap "$filter"
-    assert_wrapper_fails --phases install
+    assert_wrapper_fails
     rg -F '制御文字は使えない' "$work/wrapper.stderr" >/dev/null || \
       fail "wrapper credential control-character failure did not report the policy"
   done
@@ -1057,20 +1095,20 @@ test_malformed_runtime_values_are_rejected() {
     '.unexpected = "extra"'; do
     reset_wrapper_fixture
     rewrite_runtime "$filter"
-    assert_wrapper_fails --phases install
+    assert_wrapper_fails
   done
 }
 
 test_untracked_ciphertext_is_rejected() {
   reset_wrapper_fixture
   git -C "$repo" rm --cached -q secrets/runtime.yaml
-  assert_wrapper_fails --phases install
+  assert_wrapper_fails
   rg -F 'Git で追跡されていない' "$work/wrapper.stderr" >/dev/null || fail "untracked ciphertext was not explained"
 }
 
 test_child_status_and_cleanup_are_preserved() {
   reset_wrapper_fixture
-  if FAKE_NIXOS_ANYWHERE_STATUS=37 run_wrapper --phases install >"$work/wrapper.stdout" 2>"$work/wrapper.stderr"; then
+  if FAKE_NIXOS_ANYWHERE_STATUS=37 run_wrapper >"$work/wrapper.stdout" 2>"$work/wrapper.stderr"; then
     fail "wrapper unexpectedly hid child failure"
   else
     test "$?" -eq 37 || fail "wrapper did not preserve child exit status"
@@ -1158,11 +1196,10 @@ if [ "$suite" = gpg-import ]; then
 fi
 
 if [ "$suite" = wrapper ]; then
-  test_disko_phase_only_injects_luks_key
-  test_install_phase_delivers_checked_extra_files
+  test_run_executes_disko_keygen_install_in_order
+  test_phases_and_target_host_are_wrapper_owned
   test_default_management_key_path_is_used_when_env_is_unset
   test_missing_default_management_key_reports_a_controlled_error
-  test_full_run_requires_explicit_phases
   test_manual_secret_arguments_are_rejected
   test_installer_host_keys_are_not_recorded
   test_wrong_management_key_is_rejected

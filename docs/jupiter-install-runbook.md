@@ -64,7 +64,8 @@ SOPS を使う現行ラッパーはフィクスチャで自動テストしてい
 
 ### 採る方法と、採らなかった方法
 
-**`nixos-anywhere` を `--phases` で 2 回に分け、その間に鍵を `/mnt` へ作る。**
+**ラッパーが `nixos-anywhere` を phase で 2 回に分け、その間に対象機上で鍵を
+`/mnt` へ作る。**
 
 - 初期インストール用の秘密は SOPS で暗号化して Git 管理する。
 - リポジトリのラッパーは `secrets/bootstrap.yaml` 全体を tmpfs へ復号・検証し、フェーズごとに
@@ -72,7 +73,8 @@ SOPS を使う現行ラッパーはフィクスチャで自動テストしてい
 - sbctl の鍵と initrd ホスト鍵は対象機上で生成する。Secure Boot の秘密鍵を
   ワークステーションへ経由させず、ディスク上の配置も手作業しない。
 - **任意コマンドを実行するフックは無い**(nixos-anywhere 1.13.0)。対象機上で
-  処理を挟むにはフェーズを分割するしかない。
+  処理を挟むには phase を分割するしかないため、ラッパーが disko と install の
+  間に SSH で鍵生成を差し込む。
 - **`boot.lanzaboote.enable` や `hostKeys` を初回だけ外す案は採らない。**
   宣言を成立させられないのは設計が間違っているサインなので、宣言の方を
   そのまま通す。
@@ -139,7 +141,7 @@ ssh -p <port> -o BatchMode=yes -o StrictHostKeyChecking=no -o UserKnownHostsFile
 ```
 
 **`StrictHostKeyChecking=no` と `UserKnownHostsFile=/dev/null` は、この手順書で
-インストーラーへ繋ぐ `ssh` すべてに付ける**(§2.2〜§2.5 の各コマンドにも書いてある)。
+インストーラーへ繋ぐ `ssh` すべてに付ける**(§2.2〜§2.4 の各コマンドにも書いてある)。
 ISO の `/etc/ssh` は tmpfs で **インストーラーのホスト鍵は起動のたびに作り直される**
 ため、`known_hosts` に記録するとインストーラーの 2 回目の起動でも、インストール後の
 jupiter へ同じアドレスで繋ぐときにも `REMOTE HOST IDENTIFICATION HAS CHANGED`
@@ -158,104 +160,50 @@ jupiter へ同じアドレスで繋ぐときにも `REMOTE HOST IDENTIFICATION H
 `ssh-agent` に入っていない場合(`BatchMode=yes` はパスフレーズ入力も封じる)。
 後者なら `ssh-add -l` に鍵が出ない。
 
-§2.4 は対象機上で `nix run` を使うので、**`nix-command` と `flakes` を
-コマンドラインで明示する**(§2.4 のコマンドに入れてある)。素の
-`nixos-minimal` ISO ではどちらも有効になっていない(実測: `nix config show` が
-`nix-command` 不足で失敗する)。
+ラッパーは対象機上の鍵生成に `nix run` を使うため、`nix-command` と `flakes` を
+コマンドで明示している。素の `nixos-minimal` ISO ではどちらも有効になっていない
+(実測: `nix config show` が `nix-command` 不足で失敗する)。
 
-### 2.3 ディスクを作る(`disko` フェーズ)
+### 2.3 インストールを実行する(disko → 鍵生成 → install)
 
-ワークステーション側の nix-config チェックアウトで実行する。ラッパーは管理用 age 鍵で
-`secrets/bootstrap.yaml` を tmpfs 上へ復号・検証し、disko へ渡すのは LUKS パスフレーズだけである。
-値を引数、ログ、Nix ストア、永続ファイルへ出さない。検査に失敗した場合は disko を
-開始しない。
+ワークステーション側の nix-config チェックアウトで実行する。ラッパーは次の固定順で
+進める。順序と秘密の配送はラッパーが所有し、`--phases` や秘密配送の引数は受け付けない。
 
-```bash
-nix run .#jupiter-install -- --target-host root@<target> --ssh-port <port> --phases disko
-```
-
-ラッパーは `hosts/jupiter/disko.nix` の `passwordFile = "/tmp/secret.key"` に対応する
-引数を内部で追加する。呼び出し側から秘密配送用の引数を追加してはならない。
-
-`### Done! ###` で終わり、`/mnt` に ESP と Btrfs サブボリュームがマウントされた
-状態で止まる。確認:
+1. `secrets/bootstrap.yaml` を管理用 age 鍵で tmpfs 上へ復号・検証し、`disko` フェーズへ
+   LUKS パスフレーズだけを渡してディスクを消去・暗号化・マウントする
+   (`hosts/jupiter/disko.nix` の `passwordFile = "/tmp/secret.key"` に対応する引数は
+   内部で追加する)。値を引数、ログ、Nix ストア、永続ファイルへ出さない
+2. 対象機上で sbctl の鍵(`GUID` と `keys/{PK,KEK,db}/*.{key,pem}`)と initrd SSH
+   ホスト鍵を生成し、`/mnt/var/lib` へ置く。Secure Boot の秘密鍵はワークステーションを
+   経由しない
+3. `install` フェーズで SSH 鍵、GPG エクスポート、ログイン用 yescrypt ハッシュ、
+   Jupiter 用 age 鍵を配送し、NixOS 本体をインストールする。`secrets/runtime.yaml` も
+   Jupiter 用鍵で復号検証してから進む。一時平文は成功時と失敗時の両方で削除する
 
 ```bash
-ssh -p <port> -o StrictHostKeyChecking=no -o UserKnownHostsFile=/dev/null root@<target> 'findmnt -R /mnt -o TARGET,SOURCE,FSTYPE'
+nix run .#jupiter-install -- --target-host root@<target> --ssh-port <port>
 ```
 
-期待: `/mnt`(`@root`)・`/mnt/boot`(vfat)・`/mnt/home`・`/mnt/nix`・`/mnt/.swap`。
+`Successfully installed Lanzaboote.` と `installation finished!` が出れば、
+初回インストールで鍵が存在しない問題は通過している。
 
-### 2.4 鍵を `/mnt` に作る
-
-`ssh -p <port> -o StrictHostKeyChecking=no -o UserKnownHostsFile=/dev/null root@<target>` で入り、
-対象機上で実行する。
-
-```bash
-rm -rf /var/lib/sbctl
-nix --extra-experimental-features "nix-command flakes" run nixpkgs#sbctl -- create-keys
-mkdir -p /mnt/var/lib
-cp -a /var/lib/sbctl /mnt/var/lib/
-mkdir -p /mnt/var/lib/initrd-ssh
-ssh-keygen -t ed25519 -N "" -f /mnt/var/lib/initrd-ssh/ssh_host_ed25519_key
-chmod 600 /mnt/var/lib/initrd-ssh/ssh_host_ed25519_key
-ssh-keygen -lf /mnt/var/lib/initrd-ssh/ssh_host_ed25519_key.pub
-```
-
-最初の `rm` は §2.4 をやり直す場合だけ実行する。初回は不要である。
-
-`sbctl create-keys` はインストーラー自身の `/var/lib/sbctl` に書く(出力先は
-変えない)。生成されるのは `GUID` と `keys/{PK,KEK,db}/*.{key,pem}`。
-`cp -a` で所有者とパーミッションがそのまま `/mnt` 側へ移る。
-
-最後の `ssh-keygen -lf` が出すフィンガープリントは
+ラッパーが出力する initrd SSH ホスト鍵のフィンガープリントは
 [Secure Boot／TPM2 手順書 §5.2](jupiter-secure-boot-runbook.md) の照合に使う。
 パスワードマネージャーなど、復旧時に Jupiter 以外から読める場所へ保存する。
 公開鍵の指紋は秘密ではないが、機体を特定する情報なので公開リポジトリには
 入れない。`/var/lib` は暗号化された `/` の上にあり、initrd で止まった状態では
 参照できない。
 
-確認:
+**途中で失敗・中断した場合は、対象機のコンソールで `ip -brief addr show` を見て
+`<target>` がそのインストーラーの現在のアドレスであることを確かめてから、同じ
+コマンドを再実行する。** `disko` からやり直され、鍵も作り直される
+(フィンガープリントは新しい出力で保存し直す)。DHCP でアドレスが移り、
+旧アドレスを別のホストが取っていることがある。**disko は再フォーマットなので、
+別のホストに対して実行してはならない。** 対象機が再起動していた場合は、
+インストーラーの tmpfs(root のパスワードと `authorized_keys`)も消えているため
+§2.2 からやり直す。
 
-```bash
-find /mnt/var/lib/sbctl /mnt/var/lib/initrd-ssh -printf '%M %u:%g %p\n'
-```
-
-期待: sbctl の鍵 6 本が `-r-------- root:root`、
-`ssh_host_ed25519_key` が `-rw------- root:root`。
-
-### 2.5 インストール(`install` フェーズ)
-
-**先に §2.3 の `findmnt -R /mnt` をもう一度実行し、`/mnt` と `cryptroot` が
-生きていることを確かめる。** §2.3〜§2.5 の間に対象機が再起動・電源断していると
-マウントも `cryptroot` も失われる。インストーラーの tmpfs に置いた
-`/root/.ssh/authorized_keys` も消える。**そのときは §2.2 のパスワード設定と
-root への公開鍵配置からやり直し、§2.3 の `disko` フェーズと §2.4 の鍵生成を
-再実行する。**
-
-**`findmnt` が期待どおりのマウントを返さなかったとき(接続エラーを含む)は、
-§2.3 を再実行する前に相手を確かめる。** 対象機のコンソールで
-`ip -brief addr show` を見て、`<target>` がそのインストーラーの現在のアドレスで
-あることを確認する。DHCP でアドレスが移り、旧アドレスを別のホストが取って
-いることがある。そのとき `findmnt` は接続エラーではなく「ssh は通るが
-マウントが出ない」形になる。**§2.3 は disko = 再フォーマットなので、別の
-ホストに対して実行してはならない。**
-
-ワークステーション側で実行する。
-
-```bash
-nix run .#jupiter-install -- --target-host root@<target> --ssh-port <port> --phases install
-```
-
-`Successfully installed Lanzaboote.` と `installation finished!` が出れば、
-初回インストールで鍵が存在しない問題は通過している。
-
-ラッパーは tmpfs 上で `secrets/bootstrap.yaml` を復号し、SSH 鍵、GPG エクスポート、ログイン用
-yescrypt ハッシュ、Jupiter 用 age 鍵を構成する。`secrets/runtime.yaml` も Jupiter 用鍵で
-復号検証してから、必要な配送引数と `home/shishi` の所有者修正を内部で追加する。
-一時平文は成功時と失敗時の両方で削除する。
-
-確認(§2.6 の停止前に):
+確認(§2.4 の停止前に):
 
 ```bash
 ssh -p <port> -o StrictHostKeyChecking=no -o UserKnownHostsFile=/dev/null root@<target> 'find /mnt/home/shishi/.ssh -maxdepth 1 -printf "%M %U:%G %p\n" | sort; find /mnt/var/lib/secrets /mnt/var/lib/sops-nix -maxdepth 1 -printf "%M %U:%G %p\n" | sort'
@@ -272,10 +220,7 @@ ssh -p <port> -o StrictHostKeyChecking=no -o UserKnownHostsFile=/dev/null root@<
 ssh -p <port> -o StrictHostKeyChecking=no -o UserKnownHostsFile=/dev/null root@<target> 'test -s /mnt/var/lib/secrets/shishi-password-hash && test -s /mnt/var/lib/sops-nix/key.txt && test -s /mnt/home/shishi/.ssh/id_ed25519 && test -s /mnt/home/shishi/gpg-secret.asc && echo secrets-ok || echo secrets-INCOMPLETE'
 ```
 
-**この手順が失敗して §2.3 をやり直した場合は、必ず §2.4 も実行し直す。**
-`disko` フェーズは再フォーマットするため、`/mnt` 上に作った鍵も消える。
-
-### 2.6 停止してインストーラーメディアを外す
+### 2.4 停止してインストーラーメディアを外す
 
 ```bash
 ssh -p <port> -o StrictHostKeyChecking=no -o UserKnownHostsFile=/dev/null root@<target> 'swapoff -a; umount -R /mnt && cryptsetup close cryptroot'
