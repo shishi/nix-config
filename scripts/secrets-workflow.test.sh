@@ -944,6 +944,8 @@ test_full_run_requires_explicit_phases() {
   assert_wrapper_fails
   rg -F -- '--phases で明示すること' "$work/wrapper.stderr" >/dev/null || \
     fail "missing --phases rejection did not explain which phase does what"
+  rg -F -- 'jupiter-install-runbook.md' "$work/wrapper.stderr" >/dev/null || \
+    fail "missing --phases rejection did not point to the runbook"
   run_wrapper --phases disko,install >"$work/wrapper.stdout" 2>"$work/wrapper.stderr" || \
     fail "explicit full wrapper run failed"
   assert_args_contain --disk-encryption-keys /tmp/secret.key --extra-files --chown home/shishi 1000:100

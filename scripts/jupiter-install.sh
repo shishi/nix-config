@@ -129,7 +129,7 @@ parse_phases() {
   done
 
   [ "$phase_specified" -eq 1 ] || \
-    die '実行する phase を --phases で明示すること(disko: ディスク全消去と LUKS 鍵の注入 / install: 鍵と秘密の配送 + NixOS 本体。連続実行は --phases disko,install)'
+    die '実行する phase を --phases で明示すること。手順は docs/jupiter-install-runbook.md — --phases disko(ディスク全消去と LUKS 鍵の注入)→ Secure Boot 鍵の準備 → --phases install(鍵と秘密の配送 + NixOS 本体)の順に進める'
 }
 
 require_tracked_ciphertext() {
