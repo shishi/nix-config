@@ -23,10 +23,7 @@
   users.users.shishi = {
     isNormalUser = true;
     home = "/home/shishi";
-    extraGroups = [
-      "wheel"
-      "networkmanager"
-    ];
+    extraGroups = [ "wheel" ];
     shell = pkgs.fish;
 
     # 初回ログイン手段(無いと新規インストール機へ遠隔ログイン不能。

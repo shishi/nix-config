@@ -182,8 +182,7 @@ in
   #
   # 資格情報は NetworkManager が /etc/NetworkManager/system-connections/ に持つ。
   # public repo にも --extra-files にも出さない。コンソールで一度接続するだけ。
-  # nixos/users.nix が shishi を networkmanager グループへ入れているのは
-  # この宣言と対になっている。
+  # 下の extraGroups の networkmanager はこの宣言と対になっている。
   networking.networkmanager.enable = true;
 
   # 自宅サーバー運用: SSH 常時 + Docker(unix socket のみ)
@@ -210,7 +209,11 @@ in
   # 依存する。追加のライブラリが要る事態になったら、その時点の実物を測ってから
   # programs.nix-ld.libraries を足す。
   programs.nix-ld.enable = true;
-  users.users.shishi.extraGroups = [ "docker" ]; # non-root で docker run
+  # docker: non-root で docker run。networkmanager: 上の NetworkManager 宣言と対
+  users.users.shishi.extraGroups = [
+    "docker"
+    "networkmanager"
+  ];
 
   # Steam。unfree なので flake/default.nix の allowUnfree = true が前提。
   #
