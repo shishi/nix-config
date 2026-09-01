@@ -111,15 +111,17 @@ ip -brief addr show
 `--ssh-port` / `-p` は省いてよい(リハーサルでは VM の NAT ポート転送を挟んだ
 ため明示した)。
 
-**`root` に公開鍵を置く。実機のコンソールでは打たない。**
+**`root` に自分の公開鍵を置く。実機のコンソールでは打たない。**
 `nixos-anywhere` は disko と install の両フェーズで `root@` へ接続するが、素の
 `nixos-minimal` ISO には root の `authorized_keys` が無い。インストーラーの `root` と
 `nixos` は空パスワードで、空パスワードでの SSH ログインは sshd が拒否するため、
-コンソールで `nixos` に `passwd` を 1 回実行してから、**ワークステーション側で**
-次を実行する。
+コンソールで `nixos` として `sudo passwd root` を 1 回実行してから、
+**ワークステーション側で** `ssh-copy-id` を実行する(いま設定した root の
+パスワードを 1 回だけ尋ねられる。以降の `ssh` と `jupiter-install` はすべて
+鍵で認証する)。
 
 ```bash
-ssh -o StrictHostKeyChecking=no -o UserKnownHostsFile=/dev/null nixos@<target> 'set -o pipefail; sudo install -d -m700 /root/.ssh; curl --fail --silent --show-error --location https://github.com/shishi.keys | sudo tee /root/.ssh/authorized_keys >/dev/null; sudo chmod 600 /root/.ssh/authorized_keys'
+ssh-copy-id -p <port> -o StrictHostKeyChecking=no -o UserKnownHostsFile=/dev/null root@<target>
 ```
 
 **この 1 行にもホスト鍵のオプションを付ける。** 付けずに実行するとインストーラーの
@@ -128,7 +130,7 @@ ssh -o StrictHostKeyChecking=no -o UserKnownHostsFile=/dev/null nixos@<target> '
 実際にこうなった)。インストール後の機体はインストーラーとは別のホスト鍵を出す。
 
 インストーラーの `nixos` は wheel に属し `security.sudo.wheelNeedsPassword` が false
-なので、`sudo` はパスワードを聞かない。実機で打つのは `passwd` だけになる。
+なので、`sudo` はパスワードを聞かない。実機で打つのは `sudo passwd root` だけになる。
 
 疎通を確認してから先へ進む。
 
