@@ -10,3 +10,4 @@ secrets/**
 !secrets/*/runtime.yaml
 *.swp
 .DS_Store
+.claude/settings.local.json
