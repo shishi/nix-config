@@ -15,6 +15,9 @@ in
     inputs.lanzaboote.nixosModules.lanzaboote
     ../../nixos
     (../../nixos/desktop + "/${desktop}.nix")
+    ../../nixos/bootstrap-reminder.nix
+    ../../nixos/fonts.nix
+    ../../nixos/home-manager.nix
     ../../nixos/input-method.nix
     ./disko.nix
     ./hardware-configuration.nix

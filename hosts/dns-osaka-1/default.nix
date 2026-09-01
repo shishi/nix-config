@@ -5,11 +5,7 @@
 {
   imports = [
     inputs.disko.nixosModules.disko
-    ../../nixos/locale.nix
-    ../../nixos/nix-settings.nix
-    ../../nixos/ssh.nix
-    ../../nixos/sudo.nix
-    ../../nixos/users.nix
+    ../../nixos
     ./disko.nix
     ./hardware-configuration.nix
     ./oci-agent.nix

@@ -3,6 +3,9 @@
   imports = [
     inputs.home-manager.nixosModules.home-manager
     ../../nixos
+    ../../nixos/bootstrap-reminder.nix
+    ../../nixos/fonts.nix
+    ../../nixos/home-manager.nix
     ../../nixos/wsl.nix
   ];
   networking.hostName = "nixos-wsl";

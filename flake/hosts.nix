@@ -41,6 +41,9 @@
         desktop:
         mkNixos [
           ../nixos
+          ../nixos/bootstrap-reminder.nix
+          ../nixos/fonts.nix
+          ../nixos/home-manager.nix
           (../nixos/desktop + "/${desktop}.nix")
           inputs.home-manager.nixosModules.home-manager
           {
