@@ -6,8 +6,15 @@
 Public IP `129.225.177.221`）である。`nixos-anywhere` は `/dev/sda` を全消去する。
 
 1. OCI Console で Boot Volume Backup を作成し、`AVAILABLE` になるまで待つ。
-2. 現在の Ubuntu の SSH host key fingerprint を OCI Console 経由で確認し、作業端末の
-   `known_hosts` に登録する。
+2. 現在の Ubuntu の SSH host key を作業端末の `known_hosts` に登録する(登録済みなら何もしない)。
+   instance 作成時に登録した自分の公開鍵がサーバーの `authorized_keys` にあることを
+   機械照合してから記録する。照合が通らなければ何も記録せず失敗する。
+   以降の全接続(インストール本体を含む)は wrapper がこの記録と照合し、不一致なら拒否する。
+
+```console
+ssh-keygen -F 129.225.177.221 >/dev/null || { ssh -o UserKnownHostsFile=/dev/null -o StrictHostKeyChecking=no ubuntu@129.225.177.221 'cat ~/.ssh/authorized_keys' | ssh-keygen -lf /dev/stdin | grep -qF "$(ssh-keygen -lf ~/.ssh/id_ed25519.pub | awk '{print $2}')" && ssh-keyscan -t ed25519 129.225.177.221 >> ~/.ssh/known_hosts; }
+```
+
 3. `tailscale-config` の `tag:dns` 追加を適用し、Tailscale で `auth_keys` scope と
    `tag:dns` を持つ、このホスト専用 OAuth client を作る。
 4. FreshRSS の Google Reader API を有効にし、API password を発行する。
