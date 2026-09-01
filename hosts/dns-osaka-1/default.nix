@@ -39,7 +39,11 @@
     settings.PermitRootLogin = "no";
   };
 
+  # Docker(jupiter と同じ unix socket のみ。TCP 公開はしない)
+  virtualisation.docker.enable = true;
+
   users.users.shishi.uid = 1000;
+  users.users.shishi.extraGroups = [ "docker" ]; # non-root で docker run
 
   system.stateVersion = "26.05";
 }
