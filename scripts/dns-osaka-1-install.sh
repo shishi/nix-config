@@ -63,7 +63,7 @@ ensure_host_key() {
   ssh -o UserKnownHostsFile=/dev/null -o StrictHostKeyChecking=no "ubuntu@$target_ip" \
     'cat ~/.ssh/authorized_keys' | ssh-keygen -lf /dev/stdin | \
     grep -qF "$(ssh-keygen -lf "$HOME/.ssh/id_ed25519.pub" | awk '{print $2}')" || \
-    die '対象ホストの authorized_keys に自分の公開鍵を確認できない'
+    die '対象ホストの authorized_keys に自分の公開鍵を確認できない。~/.ssh/id_ed25519 が instance 作成時に登録した鍵と同じマシンで実行しているか確認すること。鍵が正しいのに失敗する場合は経路が本物のサーバーに繋がっていない可能性があるため続行しないこと'
   ssh-keyscan -t ed25519 "$target_ip" >>"$known_hosts" || die 'host key を取得できない'
 }
 
