@@ -103,6 +103,14 @@ fprintd-list shishi
 
 導入と運用は [dns-osaka-1 手順書](dns-osaka-1-runbook.md)を使う。
 
+### 設定の適用
+
+ビルドは対象機上で行う(手元は x86_64、対象は aarch64 のため)。
+
+```bash
+nixos-rebuild switch --flake .#dns-osaka-1 --target-host shishi@129.225.177.221 --build-host shishi@129.225.177.221 --use-remote-sudo
+```
+
 ## リポジトリ管理
 
 | app | コマンド | 使う場面 |
