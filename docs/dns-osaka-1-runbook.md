@@ -5,7 +5,17 @@
 対象は OCI の `VM.Standard.A1.Flex`（2 OCPU、メモリ 12 GB、Boot Volume 200 GB、
 Public IP `129.225.177.221`）である。`nixos-anywhere` は `/dev/sda` を全消去する。
 
-1. OCI Console で Boot Volume Backup を作成し、`AVAILABLE` になるまで待つ。
+1. OCI Console で Boot Volume Backup を作成し、`Available` になるまで待つ。
+   - **Storage → Block Storage → Boot Volumes** の一覧から `dns-osaka-1 (Boot Volume)` を開く
+     (インスタンス詳細の Storage タブにあるボリューム名リンクは反応しないことがあるため、
+     一覧ページ経由で入る)
+   - 上部タブ **Backups** → **Create boot volume backup**
+   - Name: `dns-osaka-1-boot-manual-<日付>`、Backup type: **Full backup**(既定)、
+     Data retention: **No retention period (keep until deleted)**(既定)、Tags: なし
+   - 実行後、State が `Request received` → `Available` になるのを待つ
+   - Always Free のボリュームバックアップ枠は 5 個。Bronze/Silver/Gold の
+     バックアップポリシーは世代数が 5 個を超えるため割り当てない。
+     手動 1 個だけ作り、[バックアップ削除条件](#バックアップ削除条件)を満たしたら削除する
 2. SSH host key の登録は `dns-osaka-1-install` が自動で行う(登録済みなら何もしない)。
    instance 作成時に登録した自分の公開鍵がサーバーの `authorized_keys` にあることを
    機械照合してから記録し、照合が通らなければ何も記録せず停止する。
