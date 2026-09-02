@@ -2,12 +2,7 @@
 {
   imports = [
     ./options.nix
-    ./core/packages.nix
-    ./core/shell.nix
-    ./core/direnv.nix
-    ./core/nix-tools.nix
-    ./core/rust.nix
-    ./core/herdr.nix
+    ./core
     ./skk
     ./gui
   ];
