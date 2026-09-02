@@ -28,6 +28,10 @@ in
     extraUpFlags = [ "--advertise-tags=tag:dns" ];
   };
 
+  # tailscaled-autoconnect は起動時に Tailscale API を名前解決する。この host の
+  # 名前解決先は localhost の AdGuard Home なので、それより先に走ると失敗する(実測)。
+  systemd.services.tailscaled-autoconnect.after = [ "adguardhome.service" ];
+
   networking.firewall = {
     enable = true;
     interfaces.tailscale0 = {
