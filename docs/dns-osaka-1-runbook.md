@@ -130,6 +130,38 @@ AdGuard Home `v0.107.78` に固定している。DSM 7版Tailscaleのハイブ�
 設定の継続同期は行わない。両ホストのquery logも別々に保持し、設定済みの保持期間は
 最大30日である。
 
+## IPv6
+
+OS 側は `networking.useDHCP` の dhcpcd が DHCPv6 で自動取得するため、必要なのは
+Oracle 側の設定だけである。順序は依存関係で決まっており、上位が空だと次の画面の
+選択肢が出ない。
+
+1. **対象 VCN(仮想クラウドネットワーク)の特定**: 同名の VCN があるため名前で選ばない。
+   インスタンスの Internal FQDN に含まれる VCN 名と、VCN Details の
+   **DNS Domain Name** を照合する。
+2. **VCN に /56 を追加**: VCN 詳細 → IP administration → Add CIDR Block/Prefix →
+   「Assign an Oracle allocated IPv6 /56 prefix」を ON(BYOIP・ULA は使わない)。
+   既存の IPv4 通信は切れない。
+3. **サブネットに /64 を切る**: サブネット → IP administration → Add IPv6 Prefix →
+   下位 8 ビットを 16 進 2 桁で指定(サブネットが 1 個なら `00`)。
+4. **ルート表に IPv6 デフォルトルート**: Add Route Rule → Destination `::/0` →
+   Target は v4 の `0.0.0.0/0` と同じ Internet Gateway(IPv6 に NAT は無い)。
+5. **セキュリティリスト**: Egress に `::/0`・All Protocols を追加(ステートフルなので
+   外向き用途に ingress は不要)。Ingress は次の 2 つだけ:
+   `::/0` IPv6-ICMP All(経路 MTU 探索・近隣探索に実質必須)、
+   `::/0` と `0.0.0.0/0` の UDP 41641(Tailscale の WireGuard 直結。
+   無くても中継サーバー経由で動くが遅くなる)。
+   **53/853 の ingress は開けない** — Tailscale の DNS はトンネル内を通って
+   `tailscale0` に出るため VNIC のポートには届かず、開けても
+   オープンリゾルバを公開するだけになる。
+6. **VNIC(インスタンスの仮想 NIC)にアドレス割当**: インスタンス → Attached VNICs →
+   primary → IP administration → IPv6 Addresses → Assign(subnet prefix から自動割当)。
+7. **OS 側の操作は不要**。確認は `ip -6 addr show scope global` と
+   `ping -6 -c2 2606:4700:4700::1111`。
+
+割り当てられるアドレスは Ephemeral で、VNIC を作り直すと変わる。
+DNS レコードへ直接書く場合は Reserved 化するか、変更前提の運用にする。
+
 ## バックアップ削除条件
 
 Public SSH、二台のDNS応答、AdGuard管理画面、Ollama常駐、FreshRSS digest、OCIの

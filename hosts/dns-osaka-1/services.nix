@@ -59,8 +59,7 @@ in
         bind_hosts = [ "0.0.0.0" ];
         port = 53;
         # どちらもフィルタリング無しの上流(遮断は AdGuard 側の責務)。
-        # VPS に IPv6 の外向き経路が無い(OCI VCN 未有効)ため実効は IPv4。
-        # bootstrap の v6 は経路が付けば自動で使われる。
+        # bootstrap は v4/v6 両方(IPv6 の開通は runbook の IPv6 節)。
         upstream_dns = [
           "https://cloudflare-dns.com/dns-query"
           "https://dns10.quad9.net/dns-query"
