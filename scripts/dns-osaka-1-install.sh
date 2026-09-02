@@ -51,12 +51,25 @@ cleanup() {
 
 repo_root=$(find_repo_root)
 cd "$repo_root"
+target_ip=129.225.177.221
 known_hosts=${SSH_KNOWN_HOSTS_FILE:-$HOME/.ssh/known_hosts}
-[ -f "$known_hosts" ] || die "SSH known_hosts が無い: $known_hosts"
+
+# host key の登録(未登録時のみ)。instance 作成時に登録した自分の公開鍵が
+# サーバーの authorized_keys にあることを機械照合してから記録する。
+# 照合が通らなければ何も記録せず停止する。以降の全接続はこの記録と照合される。
+ensure_host_key() {
+  ssh-keygen -F "$target_ip" -f "$known_hosts" >/dev/null 2>&1 && return 0
+  [ -f "$HOME/.ssh/id_ed25519.pub" ] || die "公開鍵が無い: $HOME/.ssh/id_ed25519.pub"
+  ssh -o UserKnownHostsFile=/dev/null -o StrictHostKeyChecking=no "ubuntu@$target_ip" \
+    'cat ~/.ssh/authorized_keys' | ssh-keygen -lf /dev/stdin | \
+    grep -qF "$(ssh-keygen -lf "$HOME/.ssh/id_ed25519.pub" | awk '{print $2}')" || \
+    die '対象ホストの authorized_keys に自分の公開鍵を確認できない'
+  ssh-keyscan -t ed25519 "$target_ip" >>"$known_hosts" || die 'host key を取得できない'
+}
 
 nixos_anywhere_arguments=(
   --flake .#dns-osaka-1
-  --target-host ubuntu@129.225.177.221
+  --target-host "ubuntu@$target_ip"
   --ssh-option "UserKnownHostsFile=$known_hosts"
   --ssh-option StrictHostKeyChecking=yes
 )
@@ -95,6 +108,8 @@ HOME="$tmpdir" XDG_CONFIG_HOME="$tmpdir/config" SOPS_AGE_KEY_FILE="$host_age_key
 extra_files="$tmpdir/extra-files"
 install -d -m 700 "$extra_files/var/lib/sops-nix"
 install -m 600 "$host_age_key" "$extra_files/var/lib/sops-nix/dns-osaka-1-age-key.txt"
+
+ensure_host_key
 
 "$NIXOS_ANYWHERE_BIN" \
   "${nixos_anywhere_arguments[@]}" \

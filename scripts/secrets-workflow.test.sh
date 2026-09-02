@@ -586,7 +586,7 @@ prepare_dns_fixture() {
       dns-bootstrap.json
   ) >"$repo/secrets/dns-osaka-1/bootstrap.yaml"
   write_dns_runtime '.'
-  printf 'fake-target ssh-ed25519 AAAA-fake-host-key\n' >"$test_home/.ssh/known_hosts"
+  printf '129.225.177.221 %s\n' "$(cut -d' ' -f1,2 "$test_home/.ssh/id_ed25519.pub")" >"$test_home/.ssh/known_hosts"
   (
     cd "$repo"
     git add scripts/dns-osaka-1-install.sh
@@ -1305,11 +1305,13 @@ test_dns_install_rejects_bad_preconditions() {
     fail "dns wrapper argument rejection did not explain the contract"
   rm -f "$test_home/.ssh/known_hosts"
   if run_dns_wrapper >"$work/wrapper.stdout" 2>"$work/wrapper.stderr"; then
-    fail "dns wrapper ran without a registered host key"
+    fail "dns wrapper ran without a verified host key registration"
   fi
-  rg -F 'known_hosts' "$work/wrapper.stderr" >/dev/null || \
-    fail "missing known_hosts was not reported"
-  printf 'fake-target ssh-ed25519 AAAA-fake-host-key\n' >"$test_home/.ssh/known_hosts"
+  rg -F 'authorized_keys に自分の公開鍵を確認できない' "$work/wrapper.stderr" >/dev/null || \
+    fail "failed key verification was not reported"
+  test ! -e "$test_home/.ssh/known_hosts" || \
+    fail "wrapper recorded a host key despite failed verification"
+  printf '129.225.177.221 %s\n' "$(cut -d' ' -f1,2 "$test_home/.ssh/id_ed25519.pub")" >"$test_home/.ssh/known_hosts"
   write_dns_runtime 'del(."freshrss-api-password")'
   if run_dns_wrapper >"$work/wrapper.stdout" 2>"$work/wrapper.stderr"; then
     fail "dns wrapper accepted an incomplete runtime secret"

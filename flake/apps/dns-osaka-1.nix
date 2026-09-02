@@ -16,8 +16,11 @@
   install.runtimeInputs = with pkgs; [
     age
     coreutils
+    gawk
     git
+    gnugrep
     jq
+    openssh
     sops
     util-linux
   ];
