@@ -49,38 +49,67 @@ in
     enable = true;
     host = "0.0.0.0";
     port = 3000;
-    mutableSettings = true;
+    # 宣言が正。UI での変更は再起動で失われる(閲覧・実験用)
+    mutableSettings = false;
     openFirewall = false;
     settings = {
       users = [ ];
       dns = {
         bind_hosts = [ "0.0.0.0" ];
         port = 53;
-        upstream_dns = [ "https://cloudflare-dns.com/dns-query" ];
-        fallback_dns = [ "https://dns.google/dns-query" ];
+        # どちらもフィルタリング無しの上流(遮断は AdGuard 側の責務)。
+        # VPS に IPv6 の外向き経路が無い(OCI VCN 未有効)ため実効は IPv4。
+        # bootstrap の v6 は経路が付けば自動で使われる。
+        upstream_dns = [
+          "https://cloudflare-dns.com/dns-query"
+          "https://dns10.quad9.net/dns-query"
+        ];
         bootstrap_dns = [
           "1.1.1.1"
-          "8.8.8.8"
+          "9.9.9.10"
+          "2606:4700:4700::1111"
+          "2620:fe::10"
         ];
       };
       querylog = {
         enabled = true;
         file_enabled = true;
         # AdGuard Home keeps the current and previous file, so retention is
-        # twice this rotation interval: 15 days * 2 = 30 days maximum.
-        interval = "360h";
+        # twice this rotation interval: 3.5 days * 2 = 7 days maximum.
+        interval = "84h";
         size_memory = 1000;
       };
       statistics = {
         enabled = true;
         interval = "720h";
       };
+      # 280blocker(日本のモバイル広告)は公式配布元が OCI の IP からの取得を
+      # 403 で拒否するため購読できない。第三者ミラーは改ざんリスクがあり使わない。
+      # 日本ドメインの取りこぼしは user_rules か別リストで個別に足す。
       filters = [
         {
           enabled = true;
           id = 1;
           name = "AdGuard DNS filter";
           url = "https://adguardteam.github.io/HostlistsRegistry/assets/filter_1.txt";
+        }
+        {
+          enabled = true;
+          id = 2;
+          name = "Peter Lowe's Blocklist";
+          url = "https://adguardteam.github.io/HostlistsRegistry/assets/filter_3.txt";
+        }
+        {
+          enabled = true;
+          id = 3;
+          name = "HaGeZi's Pro Blocklist";
+          url = "https://adguardteam.github.io/HostlistsRegistry/assets/filter_48.txt";
+        }
+        {
+          enabled = true;
+          id = 4;
+          name = "HaGeZi's Threat Intelligence Feeds";
+          url = "https://adguardteam.github.io/HostlistsRegistry/assets/filter_44.txt";
         }
       ];
       filtering = {
