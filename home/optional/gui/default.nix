@@ -7,8 +7,8 @@
 }:
 {
   imports = [
-    ./gnome
-    ./kde
+    ./gnome.nix
+    ./kde.nix
     inputs.codex-desktop-linux.homeManagerModules.default
   ];
 
@@ -16,7 +16,7 @@
   config = lib.mkIf config.my.gui.enable {
     # 既定ブラウザ(XDG 経路)。宣言が無いと mimeinfo.cache の走査順で決まり、
     # 何が既定になるかがパッケージの増減で変わる。実機では Edge が開く事故が
-    # 起きた(KDE 経路の話は home/gui/kde/default.nix の BrowserApplication 参照)。
+    # 起きた(KDE 経路の話は home/optional/gui/kde.nix の BrowserApplication 参照)。
     # Edge も Chrome も入れてあるが、既定は Brave で固定する。
     xdg.mimeApps = {
       enable = true;

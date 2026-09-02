@@ -1,10 +1,9 @@
 { lib, ... }:
 {
+  # skk / gui は opt-in(home/optional/)。使うホストが名前で import する
   imports = [
     ./options.nix
     ./core
-    ./skk
-    ./gui
   ];
 
   home.username = "shishi";

@@ -59,7 +59,10 @@
               useUserPackages = true;
               extraSpecialArgs = { inherit inputs; };
               users.shishi = {
-                imports = [ ../home ];
+                imports = [
+                  ../home
+                  ../home/optional/gui
+                ];
                 my.desktopSession = desktop;
               };
             };

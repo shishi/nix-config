@@ -4,6 +4,7 @@
 {
   imports = [
     ../../home
+    ../../home/optional/gui
     ../../home/profiles/wsl-gui.nix
   ];
 

@@ -405,7 +405,11 @@ in
     # 共有 home/ は inputs に依存(nix-index-database 等)— 渡し忘れは即ビルド失敗
     extraSpecialArgs = { inherit inputs; };
     users.shishi = {
-      imports = [ ../../home ];
+      imports = [
+        ../../home
+        ../../home/optional/skk
+        ../../home/optional/gui
+      ];
       my.desktopSession = desktop;
       my.skk.enable = true;
       my.shell = "fish";

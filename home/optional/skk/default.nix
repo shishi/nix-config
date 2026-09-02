@@ -16,7 +16,7 @@ in
   config = lib.mkIf config.my.skk.enable {
     home.packages = [ pkgs.yaskkserv2 ];
 
-    # libskk StickyShift ルール(定義は home/skk/rules.nix)
+    # libskk StickyShift ルール(定義は home/optional/skk/rules.nix)
     xdg.configFile."libskk/rules/StickyShift/metadata.json".text = builtins.toJSON skkRules.metadata;
     xdg.configFile."libskk/rules/StickyShift/keymap/hiragana.json".text =
       builtins.toJSON skkRules.keymapHiragana;
@@ -24,7 +24,7 @@ in
       builtins.toJSON skkRules.keymapKatakana;
 
     # 数字の直後の記号を半角のまま出す(日付 2026-08-12・時刻 12:30・小数 3.14 など)。
-    # 生成規則と背景は home/skk/rules.nix を参照。
+    # 生成規則と背景は home/optional/skk/rules.nix を参照。
     # 挙動は flake/checks.nix の skk-rom-kana が libskk 同梱の CLI で検証する。
     xdg.configFile."libskk/rules/StickyShift/rom-kana/default.json".text = builtins.toJSON {
       include = [ "default/default" ];

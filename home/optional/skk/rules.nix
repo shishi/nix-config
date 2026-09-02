@@ -1,5 +1,5 @@
 # libskk の StickyShift ルール定義。
-# home/skk/default.nix(実配置)と flake/checks.nix(挙動検査)の両方が
+# home/optional/skk/default.nix(実配置)と flake/checks.nix(挙動検査)の両方が
 # ここを参照する。定義が 2 箇所にあると検査が実物とずれるため 1 箇所へまとめる。
 { lib }:
 let

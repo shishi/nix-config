@@ -165,7 +165,7 @@ in
       # 持ち、InitialPreference はどれにも無いので、順位が何で決まるかは
       # 上流依存になる。**明示すれば依存しなくなる**ので明示する。
       #
-      # mimeapps.list 側(XDG 経路)は home/gui/default.nix の xdg.mimeApps で
+      # mimeapps.list 側(XDG 経路)は home/optional/gui/default.nix の xdg.mimeApps で
       # 宣言している。両方書くのは、どちらの経路で開かれるかがアプリ次第だから。
       configFile."kdeglobals".General.BrowserApplication = "brave-browser.desktop";
 

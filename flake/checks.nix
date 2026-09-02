@@ -12,9 +12,9 @@
           builtins.unsafeDiscardStringContext cfg.config.system.build.toplevel.drvPath
         );
       caches = import ../shared/nix-caches.nix;
-      skkRules = import ../home/skk/rules.nix { inherit (pkgs) lib; };
+      skkRules = import ../home/optional/skk/rules.nix { inherit (pkgs) lib; };
       # libskk はルールを ~/.config/libskk/rules から読む。
-      # home/skk/rules.nix と同じ定義でルールディレクトリを組み立てる。
+      # home/optional/skk/rules.nix と同じ定義でルールディレクトリを組み立てる。
       skkRuleDir = pkgs.runCommand "skk-test-rules" { } ''
         mkdir -p $out/StickyShift/rom-kana $out/StickyShift/keymap
         cp ${pkgs.writeText "metadata.json" (builtins.toJSON skkRules.metadata)} \
