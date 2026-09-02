@@ -1,5 +1,17 @@
 # dns-osaka-1 導入・運用手順
 
+## OCI Console での手作業(全一覧)
+
+コードや SSH で代替できない Oracle 画面の操作はこれだけで、これ以外に無い。
+それぞれの詳細は参照先の節にある。
+
+| いつ | 操作 | 詳細 |
+|---|---|---|
+| インストール前 | Boot Volume Backup を手動で 1 個作成 | [導入前](#導入前) 手順 1 |
+| 一度だけ(未実施なら) | IPv6 の開通(VCN → サブネット → ルート → セキュリティリスト → VNIC) | [IPv6](#ipv6) |
+| 初回起動後 | Metrics Explorer で `MemoryUtilization` の到着確認(届かないときだけ Agent 設定を確認) | [NixOS 起動後](#nixos-起動後) |
+| 全チェック green 後 | 導入前バックアップの削除 | [バックアップ削除条件](#バックアップ削除条件) |
+
 ## 導入前
 
 対象は OCI の `VM.Standard.A1.Flex`（2 OCPU、メモリ 12 GB、Boot Volume 200 GB、
@@ -93,8 +105,10 @@ dig @<oracle-tailscale-ip> example.com
 curl http://<oracle-tailscale-ip>:11434/api/tags
 ```
 
-OCI Console では Oracle Cloud Agent の `Compute Instance Monitoring` を有効にし、
-`oci_computeagent` namespace の `MemoryUtilization` が1分単位で届くことを確認する。
+OCI Console の Observability → Metrics Explorer で、`oci_computeagent` namespace の
+`MemoryUtilization` が届くことを確認する(エージェントは構成が自前で動かしており、
+届かないときだけインスタンスの Oracle Cloud Agent タブで
+`Compute Instance Monitoring` が Enabled かを確認する)。
 12 GBの20%は2.4 GBである。`qwen3:4b-instruct-2507-q4_K_M` は2.5 GBのモデルで、
 `ollama-warm` が常駐させるが、判定に使われる実測値が20%を超えることはグラフで確認する。
 
