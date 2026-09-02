@@ -325,6 +325,7 @@
             }" "true"
             check tailscale.extraUpFlags '${builtins.toJSON tailscale.extraUpFlags}' \
               '["--advertise-tags=tag:dns"]'
+            check tailscale.extraSetFlags '${builtins.toJSON tailscale.extraSetFlags}' '["--ssh"]'
             check sops.age.keyFile "${cfg.sops.age.keyFile}" "/var/lib/sops-nix/dns-osaka-1-age-key.txt"
             check sops.age.generateKey "${if cfg.sops.age.generateKey then "true" else "false"}" "false"
             check secret.path "${secret.path or ""}" "/run/secrets/tailscale-oauth-secret"

@@ -95,6 +95,10 @@ in
     "d /snap/oracle-cloud-agent 0755 root root -"
     "L+ /snap/oracle-cloud-agent/current - - - - ${oracleCloudAgent}"
     "d /var/lib/oracle-cloud-agent 2775 snap_daemon snap_daemon -"
+    # gomon は起動時にここへ plugin ソケット用の一時ファイルを作る。
+    # 無いと "plugin init error: open /var/lib/oracle-cloud-agent/tmp/…" で
+    # 初期化に失敗し、メトリクスが一切送信されない。
+    "d /var/lib/oracle-cloud-agent/tmp 2775 snap_daemon snap_daemon -"
     "d /var/log/oracle-cloud-agent 0755 snap_daemon snap_daemon -"
     "d /var/log/oracle-cloud-agent/plugins 0755 snap_daemon snap_daemon -"
     "d /var/log/oracle-cloud-agent/plugins/gomon 0755 snap_daemon snap_daemon -"

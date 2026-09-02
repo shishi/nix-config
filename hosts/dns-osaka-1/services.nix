@@ -26,6 +26,7 @@ in
       preauthorized = true;
     };
     extraUpFlags = [ "--advertise-tags=tag:dns" ];
+    extraSetFlags = [ "--ssh" ];
   };
 
   # tailscaled-autoconnect は起動時に Tailscale API を名前解決する。この host の
