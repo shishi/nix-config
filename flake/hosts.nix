@@ -41,10 +41,10 @@
         desktop:
         mkNixos [
           ../nixos
-          ../nixos/bootstrap-reminder.nix
-          ../nixos/fonts.nix
-          ../nixos/home-manager.nix
-          (../nixos/desktop + "/${desktop}.nix")
+          ../nixos/optional/bootstrap-reminder.nix
+          ../nixos/optional/fonts.nix
+          ../nixos/optional/home-manager.nix
+          (../nixos/optional/desktop + "/${desktop}.nix")
           inputs.home-manager.nixosModules.home-manager
           {
             networking.hostName = "synth-${desktop}";

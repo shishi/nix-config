@@ -14,11 +14,11 @@ in
     inputs.home-manager.nixosModules.home-manager
     inputs.lanzaboote.nixosModules.lanzaboote
     ../../nixos
-    (../../nixos/desktop + "/${desktop}.nix")
-    ../../nixos/bootstrap-reminder.nix
-    ../../nixos/fonts.nix
-    ../../nixos/home-manager.nix
-    ../../nixos/input-method.nix
+    (../../nixos/optional/desktop + "/${desktop}.nix")
+    ../../nixos/optional/bootstrap-reminder.nix
+    ../../nixos/optional/fonts.nix
+    ../../nixos/optional/home-manager.nix
+    ../../nixos/optional/input-method.nix
     ./disko.nix
     ./hardware-configuration.nix
     ./secrets.nix

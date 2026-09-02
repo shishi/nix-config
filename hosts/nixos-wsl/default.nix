@@ -3,10 +3,10 @@
   imports = [
     inputs.home-manager.nixosModules.home-manager
     ../../nixos
-    ../../nixos/bootstrap-reminder.nix
-    ../../nixos/fonts.nix
-    ../../nixos/home-manager.nix
-    ../../nixos/wsl.nix
+    ../../nixos/optional/bootstrap-reminder.nix
+    ../../nixos/optional/fonts.nix
+    ../../nixos/optional/home-manager.nix
+    ../../nixos/optional/wsl.nix
   ];
   networking.hostName = "nixos-wsl";
   system.stateVersion = "25.05";

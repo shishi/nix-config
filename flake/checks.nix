@@ -460,7 +460,7 @@
             '';
 
         # ロケール契約: 表示は英語、書式は日本の慣習。
-        # SDDM の greeter も同じ値で固定する。nixos/desktop/kde.nix が
+        # SDDM の greeter も同じ値で固定する。nixos/optional/desktop/kde.nix が
         # display-manager.service の environment へ i18n を写しているが、
         # その写しが消えても system 側の宣言だけは通ってしまうので、
         # 宣言が実際に unit へ届いているかをここで突き合わせる。
