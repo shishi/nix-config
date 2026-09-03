@@ -38,11 +38,42 @@ in
     interfaces.tailscale0 = {
       allowedTCPPorts = [
         53
+        443
         3000
         8080
         11434
       ];
       allowedUDPPorts = [ 53 ];
+    };
+  };
+
+  # Tailscale Serve が公開証明書を自動管理し、tailnet 内の 443/TCP から
+  # AdGuard Home の HTTP DoH エンドポイントへ中継する。
+  systemd.services.adguardhome-doh = {
+    description = "Expose AdGuard Home DNS-over-HTTPS through Tailscale Serve";
+    wantedBy = [ "multi-user.target" ];
+    requires = [
+      "adguardhome.service"
+      "tailscaled.service"
+    ];
+    wants = [ "tailscaled-autoconnect.service" ];
+    after = [
+      "adguardhome.service"
+      "tailscaled.service"
+      "tailscaled-autoconnect.service"
+    ];
+    path = [ config.services.tailscale.package ];
+    script = ''
+      tailscale serve --bg --yes --https=443 http://127.0.0.1:3000
+    '';
+    preStop = ''
+      tailscale serve --yes --https=443 off
+    '';
+    serviceConfig = {
+      Type = "oneshot";
+      RemainAfterExit = true;
+      Restart = "on-failure";
+      RestartSec = "5s";
     };
   };
 
@@ -54,6 +85,7 @@ in
     mutableSettings = false;
     openFirewall = false;
     settings = {
+      http.doh.insecure_enabled = true;
       users = [ ];
       dns = {
         bind_hosts = [ "0.0.0.0" ];

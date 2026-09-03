@@ -338,7 +338,7 @@
             check secret.owner "${secret.owner or ""}" "root"
             check secret.group "${secret.group or ""}" "root"
             check secret.mode "${secret.mode or ""}" "0400"
-            check firewall.tailscale0.tcp '${builtins.toJSON tailnetTCP}' '[53,3000,8080,11434]'
+            check firewall.tailscale0.tcp '${builtins.toJSON tailnetTCP}' '[53,443,3000,8080,11434]'
             check firewall.tailscale0.udp '${builtins.toJSON tailnetUDP}' '[53]'
             check firewall.leaked.tcp '${builtins.toJSON leakedTCP}' '[]'
             check firewall.leaked.udp '${builtins.toJSON leakedUDP}' '[]'
