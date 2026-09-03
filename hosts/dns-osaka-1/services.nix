@@ -132,7 +132,6 @@ in
         "||ssp.bance.jp.wcdnga.com^"
         "||pumpkin.uverse.iponweb.net^"
         "||gateway.rtbfabric.ap-northeast-1.amazonaws.com^"
-        "||redirect.ctolabperfstats.com^"
       ];
       filtering = {
         filtering_enabled = true;
