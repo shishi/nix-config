@@ -124,8 +124,16 @@ in
           url = "https://adguardteam.github.io/HostlistsRegistry/assets/filter_71.txt";
         }
       ];
-      # Peter Lowe's Blocklist は t.co 全体を遮断するが、短縮リンクは日常利用する。
-      user_rules = [ "@@||t.co^" ];
+      user_rules = [
+        # Peter Lowe's Blocklist は t.co 全体を遮断するが、短縮リンクは日常利用する。
+        "@@||t.co^"
+        # フィルタを通過した広告配信専用ホスト。共有 CDN 全体は遮断しない。
+        "||adstirservice.com^"
+        "||ssp.bance.jp.wcdnga.com^"
+        "||pumpkin.uverse.iponweb.net^"
+        "||gateway.rtbfabric.ap-northeast-1.amazonaws.com^"
+        "||redirect.ctolabperfstats.com^"
+      ];
       filtering = {
         filtering_enabled = true;
         filters_update_interval = 24;
