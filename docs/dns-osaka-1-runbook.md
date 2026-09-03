@@ -93,8 +93,11 @@ sudo systemctl status adguardhome ollama ollama-model-loader ollama-warm nginx o
 tailscale ip -4
 ```
 
-Oracle の Tailscale IP が確定したら `tailscale-config` の `dns.json` を更新し、Oracle と
-Synology (`100.71.227.37`) を Global nameserver にして Override local DNS を有効化する。
+Oracle の Tailscale IP が確定したら `tailscale-config` の `dns.json` を更新し、Oracle だけを
+Global nameserver にして Override local DNS を有効化する。Synology (`100.71.227.37`) は
+`standby.invalid` 宛の Split DNS として登録するだけで、通常時は使わない
+(query log を Oracle 側に集約するため)。Oracle 障害時は Global nameserver を
+Synology へ手動で切り替える。
 DNS、AdGuard管理画面、Ollama API、Atom feed の公開先は `tailscale0` だけである。
 
 ```console
