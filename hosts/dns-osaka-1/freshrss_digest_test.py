@@ -28,12 +28,18 @@ def head_sample(population, count):
 
 
 class FakeClient:
-    def __init__(self, unread_ids, items):
-        self.unread_ids = unread_ids
+    def __init__(self, label_ids, items, *, unread=None):
+        self.label_ids = label_ids
         self.items = {item["id"]: item for item in items}
+        self.unread = unread
 
-    def fetch_unread_ids(self, label, *, now=None):
-        return self.unread_ids.get(label, [])
+    def fetch_unread_ids(self, *, now=None):
+        if self.unread is not None:
+            return self.unread
+        return [identifier for identifiers in self.label_ids.values() for identifier in identifiers]
+
+    def fetch_label_ids(self, label, *, now=None):
+        return self.label_ids.get(label, [])
 
     def fetch_contents(self, identifiers):
         return [self.items[identifier] for identifier in identifiers if identifier in self.items]
@@ -63,18 +69,23 @@ class FreshRSSDigestTest(unittest.TestCase):
             sleep=lambda _seconds: None,
         )
 
-        identifiers = client.fetch_unread_ids("news", now=1_800_000_000)
+        identifiers = client.fetch_unread_ids(now=1_800_000_000)
         self.assertEqual(identifiers, ["tag:google.com,2005:reader/item/0000000000000016"])
+        client.fetch_label_ids("news", now=1_800_000_000)
         client.fetch_contents(identifiers)
 
         logins = [entry for entry in requests if entry[1].endswith("/accounts/ClientLogin")]
         self.assertEqual(len(logins), 1)
-        ids_request = requests[1]
-        self.assertIn("/reader/api/0/stream/items/ids?", ids_request[1])
-        self.assertIn("user%2F-%2Flabel%2Fnews", ids_request[1])
-        self.assertIn("xt=user%2F-%2Fstate%2Fcom.google%2Fread", ids_request[1])
-        self.assertIn(f"ot={1_800_000_000 - 7 * 24 * 60 * 60}", ids_request[1])
-        contents_request = requests[2]
+        unread_request = requests[1]
+        self.assertIn("/reader/api/0/stream/items/ids?", unread_request[1])
+        self.assertIn("s=user%2F-%2Fstate%2Fcom.google%2Freading-list", unread_request[1])
+        self.assertIn("xt=user%2F-%2Fstate%2Fcom.google%2Fread", unread_request[1])
+        self.assertIn(f"ot={1_800_000_000 - 7 * 24 * 60 * 60}", unread_request[1])
+        label_request = requests[2]
+        self.assertIn("s=user%2F-%2Flabel%2Fnews", label_request[1])
+        # FreshRSS は label stream + xt で常に空を返すため、xt を付けてはいけない
+        self.assertNotIn("xt=", label_request[1])
+        contents_request = requests[3]
         self.assertIn("/reader/api/0/stream/items/contents", contents_request[1])
         self.assertIn(b"reader%2Fitem%2F0000000000000016", contents_request[2])
 
