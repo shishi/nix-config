@@ -115,6 +115,62 @@ in
         enabled = true;
         interval = "720h";
       };
+      clients.persistent = [
+        {
+          name = "dns-osaka-1";
+          ids = [ "100.124.231.118" ];
+          use_global_settings = true;
+          use_global_blocked_services = true;
+        }
+        {
+          name = "jupiter";
+          ids = [ "100.87.49.13" ];
+          use_global_settings = true;
+          use_global_blocked_services = true;
+        }
+        {
+          name = "st-m-jv94h722h3";
+          ids = [ "100.111.34.20" ];
+          use_global_settings = true;
+          use_global_blocked_services = true;
+        }
+        {
+          name = "mars";
+          ids = [ "100.71.227.37" ];
+          use_global_settings = true;
+          use_global_blocked_services = true;
+        }
+        {
+          name = "iphone-studist";
+          ids = [ "100.122.122.106" ];
+          use_global_settings = true;
+          use_global_blocked_services = true;
+        }
+        {
+          name = "bpad-mini-ultra";
+          ids = [ "100.94.243.61" ];
+          use_global_settings = true;
+          use_global_blocked_services = true;
+        }
+        {
+          name = "iphone16pro";
+          ids = [ "100.107.166.102" ];
+          use_global_settings = true;
+          use_global_blocked_services = true;
+        }
+        {
+          name = "earth-ubuntu";
+          ids = [ "100.107.214.2" ];
+          use_global_settings = true;
+          use_global_blocked_services = true;
+        }
+        {
+          name = "earth";
+          ids = [ "100.114.45.65" ];
+          use_global_settings = true;
+          use_global_blocked_services = true;
+        }
+      ];
       # 280blocker(日本のモバイル広告)は公式配布元が OCI の IP からの取得を
       # 403 で拒否するため購読できない。第三者ミラーは改ざんリスクがあり使わない。
       # 日本ドメインの取りこぼしは user_rules か別リストで個別に足す。
