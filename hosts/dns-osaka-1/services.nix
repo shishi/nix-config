@@ -129,6 +129,7 @@ in
         "@@||t.co^"
         # フィルタを通過した広告配信専用ホスト。共有 CDN 全体は遮断しない。
         "||adstirservice.com^"
+        "||global.moloco.map.fastly.net^"
         "||ssp.bance.jp.wcdnga.com^"
         "||pumpkin.uverse.iponweb.net^"
         "||gateway.rtbfabric.ap-northeast-1.amazonaws.com^"
