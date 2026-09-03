@@ -55,6 +55,23 @@
     ];
   };
 
+  fileSystems."/mnt/mars/docker" = {
+    device = "//mars/docker";
+    fsType = "cifs";
+    options = [
+      "credentials=${config.sops.secrets."smb-mars-shishi".path}"
+      "uid=1000"
+      "gid=100"
+      "file_mode=0600"
+      "dir_mode=0700"
+      "_netdev"
+      "noauto"
+      "x-systemd.automount"
+      "x-systemd.idle-timeout=5min"
+      "x-systemd.mount-timeout=10s"
+    ];
+  };
+
   systemd.services.import-shishi-gpg-secret = {
     description = "Import shishi's GPG signing key";
     wantedBy = [ "multi-user.target" ];

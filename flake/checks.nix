@@ -146,6 +146,7 @@
             cfg = self.nixosConfigurations.jupiter.config;
             secret = cfg.sops.secrets."smb-mars-shishi";
             mount = cfg.fileSystems."/mnt/mars/shishi";
+            dockerMount = cfg.fileSystems."/mnt/mars/docker";
             gpgImport = cfg.systemd.services."import-shishi-gpg-secret" or { };
             gpgImportPath = pkgs.lib.makeBinPath (gpgImport.path or [ ]);
             requiredOptions = [
@@ -176,6 +177,8 @@
             check secret.mode "${secret.mode}" "0400"
             check mount.device "${mount.device}" "//mars/shishi"
             check mount.fsType "${mount.fsType}" "cifs"
+            check dockerMount.device "${dockerMount.device}" "//mars/docker"
+            check dockerMount.fsType "${dockerMount.fsType}" "cifs"
             check gpgImport.wantedBy "${
               if builtins.elem "multi-user.target" (gpgImport.wantedBy or [ ]) then "present" else "missing"
             }" "present"
@@ -212,6 +215,9 @@
             ${pkgs.lib.concatMapStringsSep "\n" (option: ''
               check "mount.options.${option}" "${
                 if builtins.elem option mount.options then "present" else "missing"
+              }" "present"
+              check "dockerMount.options.${option}" "${
+                if builtins.elem option dockerMount.options then "present" else "missing"
               }" "present"
             '') requiredOptions}
             if ! ${pkgs.coreutils}/bin/env -i PATH="${gpgImportPath}" bash -c 'command -v awk >/dev/null'; then
