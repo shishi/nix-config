@@ -25,7 +25,7 @@ MAX_ITEMS = 20
 MAX_ARTICLE_CHARS = 3_000
 TIME_BUDGET_SECONDS = 90 * 60
 FETCH_LIMIT = 10_000
-RETENTION_DAYS = 7
+WINDOW_HOURS = 24
 
 
 class TextExtractor(HTMLParser):
@@ -97,13 +97,14 @@ class FreshRSSClient:
             self._token = self.login()
         return self._token
 
-    def _fetch_ids(self, parameters, *, now):
+    def fetch_label_ids(self, label, *, now=None):
+        now = time.time() if now is None else now
         query = urllib.parse.urlencode(
             {
                 "output": "json",
+                "s": f"user/-/label/{label}",
                 "n": FETCH_LIMIT,
-                "ot": int(now - RETENTION_DAYS * 24 * 60 * 60),
-                **parameters,
+                "ot": int(now - WINDOW_HOURS * 60 * 60),
             }
         )
         request = urllib.request.Request(
@@ -112,22 +113,6 @@ class FreshRSSClient:
         )
         payload = json.loads(self.request(request))
         return [item_tag_id(reference["id"]) for reference in payload.get("itemRefs", [])]
-
-    def fetch_unread_ids(self, *, now=None):
-        now = time.time() if now is None else now
-        return self._fetch_ids(
-            {
-                "s": "user/-/state/com.google/reading-list",
-                "xt": "user/-/state/com.google/read",
-            },
-            now=now,
-        )
-
-    def fetch_label_ids(self, label, *, now=None):
-        # FreshRSS の greader 実装は label stream に xt(既読除外)を併用すると
-        # 常に空を返すため、未読判定は reading-list 側の未読一覧との突き合わせで行う。
-        now = time.time() if now is None else now
-        return self._fetch_ids({"s": f"user/-/label/{label}"}, now=now)
 
     def fetch_contents(self, identifiers):
         body = urllib.parse.urlencode([("i", identifier) for identifier in identifiers]).encode()
@@ -229,10 +214,10 @@ def initialize_database(database):
 
 def digest_content(sections):
     parts = []
-    for label, total_unread, summaries in sections:
+    for label, total_in_window, summaries in sections:
         if not summaries:
             continue
-        heading = html.escape(f"{label} — 直近7日の未読{total_unread}件から{len(summaries)}件を抽出")
+        heading = html.escape(f"{label} — 直近24時間の{total_in_window}件から{len(summaries)}件を抽出")
         parts.append(f"<h2>{heading}</h2>")
         for article, summary in summaries:
             title = html.escape(article["title"])
@@ -278,12 +263,11 @@ def run_job(client, labels, summarize, database, output, *, now=None, deadline=N
     with sqlite3.connect(database) as connection:
         processed = {row[0] for row in connection.execute("SELECT id FROM processed_items")}
 
-    unread = set(client.fetch_unread_ids(now=now))
     label_of = {}
-    unread_totals = {}
+    window_totals = {}
     for label in labels:
-        identifiers = [i for i in client.fetch_label_ids(label, now=now) if i in unread]
-        unread_totals[label] = len(identifiers)
+        identifiers = client.fetch_label_ids(label, now=now)
+        window_totals[label] = len(identifiers)
         for identifier in identifiers:
             label_of.setdefault(identifier, label)
 
@@ -307,7 +291,7 @@ def run_job(client, labels, summarize, database, output, *, now=None, deadline=N
         summaries[label_of.get(article["id"], labels[0])].append((article, summarize(article)))
         done.append(article["id"])
 
-    sections = [(label, unread_totals[label], summaries[label]) for label in labels]
+    sections = [(label, window_totals[label], summaries[label]) for label in labels]
     published = any(section_summaries for _label, _total, section_summaries in sections)
     local_date = datetime.datetime.fromtimestamp(now, ZoneInfo("Asia/Tokyo")).date().isoformat()
     updated_at = datetime.datetime.fromtimestamp(now, datetime.UTC).replace(microsecond=0).isoformat().replace("+00:00", "Z")

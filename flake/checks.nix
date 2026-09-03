@@ -278,7 +278,7 @@
             touch $out
           '';
 
-        # freshrss digest の挙動契約。runbook が約束する取得窓(過去 7 日の未読)、
+        # freshrss digest の挙動契約。runbook が約束する取得窓(過去 24 時間)、
         # ID 先行取得と選抜分だけの本文取得、1 バッチ最大 20 件、時間予算での
         # 打ち切り(要約済み分だけ公開・処理済み化)、digest 自身の再要約除外、
         # HTTP 3 回制限を unittest で検証する。
