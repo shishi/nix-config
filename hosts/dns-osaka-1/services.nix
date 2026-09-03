@@ -111,7 +111,21 @@ in
           name = "HaGeZi's Threat Intelligence Feeds";
           url = "https://adguardteam.github.io/HostlistsRegistry/assets/filter_44.txt";
         }
+        {
+          enabled = true;
+          id = 5;
+          name = "Dandelion Sprout's Anti-Malware List";
+          url = "https://adguardteam.github.io/HostlistsRegistry/assets/filter_12.txt";
+        }
+        {
+          enabled = true;
+          id = 6;
+          name = "HaGeZi's DNS Rebind Protection";
+          url = "https://adguardteam.github.io/HostlistsRegistry/assets/filter_71.txt";
+        }
       ];
+      # Peter Lowe's Blocklist は t.co 全体を遮断するが、短縮リンクは日常利用する。
+      user_rules = [ "@@||t.co^" ];
       filtering = {
         filtering_enabled = true;
         filters_update_interval = 24;
