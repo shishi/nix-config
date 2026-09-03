@@ -8,5 +8,5 @@ services:
       - "127.0.0.1:53:53/udp"
       - "127.0.0.1:3000:3000/tcp"
     volumes:
-      - /volume1/docker/adguardhome/work:/opt/adguardhome/work
-      - /volume1/docker/adguardhome/conf:/opt/adguardhome/conf
+      - ./data:/opt/adguardhome/work
+      - ./config:/opt/adguardhome/conf

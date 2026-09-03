@@ -129,18 +129,22 @@ http://<oracle-tailscale-ip>:8080/digest.atom
 ## Synology の二台目 AdGuard Home
 
 Container Manager のProjectとして
-`deploy/synology-adguardhome/compose.yaml` を使う。イメージはOracle側と同じ
+`/volume1/docker/adguard/compose.yaml` を使う。リポジトリ内の正本は
+`deploy/synology-adguardhome/compose.yaml` である。イメージはOracle側と同じ
 AdGuard Home `v0.107.78` に固定している。DSM 7版Tailscaleのハイブリッド方式は
 `100.71.227.37` 宛のTCP/UDPをloopbackへ転送するため、Container側は
 `127.0.0.1` にだけbindし、LANには公開しない。
 
-1. `/volume1/docker/adguardhome/work` と `/volume1/docker/adguardhome/conf` を作る。
+1. `/volume1/docker/adguard/data` と `/volume1/docker/adguard/config` を作り、
+   同じディレクトリへComposeファイルを置く。
 2. Oracle側のAdGuard Homeを停止する。
 3. `/var/lib/AdGuardHome/AdGuardHome.yaml` を
-   `/volume1/docker/adguardhome/conf/AdGuardHome.yaml` へ一度だけコピーする。
+   `/volume1/docker/adguard/config/AdGuardHome.yaml` へ一度だけコピーする。
 4. Oracle側を再開する。
 5. Container ManagerでProjectを起動する。
 
+`AdGuardHome.yaml` だけでDNS・フィルタ・ユーザールールを再現できる。
+`data` はquery log、統計、取得済みフィルタの保存先なので、Synology側では新規に開始する。
 設定の継続同期は行わない。両ホストのquery logも別々に保持し、設定済みの保持期間は
 最大30日である。
 
