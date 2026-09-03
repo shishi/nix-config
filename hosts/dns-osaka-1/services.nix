@@ -102,8 +102,8 @@ in
         {
           enabled = true;
           id = 3;
-          name = "HaGeZi's Pro Blocklist";
-          url = "https://adguardteam.github.io/HostlistsRegistry/assets/filter_48.txt";
+          name = "HaGeZi's Pro++ Blocklist";
+          url = "https://adguardteam.github.io/HostlistsRegistry/assets/filter_51.txt";
         }
         {
           enabled = true;
