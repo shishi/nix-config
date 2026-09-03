@@ -117,9 +117,14 @@ OCI Console の Observability → Metrics Explorer で、`oci_computeagent` name
 
 ## FreshRSS digest
 
-タイマーは毎日06:00 JSTに最大100件、過去7日以内の未処理記事を取得する。記事ごとに
-Ollamaで要約し、すべて成功したときだけSQLiteへ処理済みIDを記録してAtomを更新する。
-HTTP/API失敗は最大3回まで試し、失敗したバッチは公開・処理済み化しない。
+タイマーは毎日06:00 JSTに、FreshRSSの `news` と `computer` カテゴリの過去7日以内の
+未読から、未処理の記事を無作為に最大20件選ぶ(全量ではなく傾向をつかむ標本。
+この箱のOllamaは読み込み毎秒約9トークンで、全件要約は物理的に不可能)。
+ID一覧を先に取得し、選ばれた記事の本文だけを取得する。記事ごとに本文の先頭3,000字を
+Ollamaで要約し、90分の時間予算を使い切ったら残りを打ち切って、要約が完了した分だけを
+カテゴリ別にAtomへ公開し、処理済みIDを記録する。HTTP/API失敗は最大3回まで試し、
+途中で失敗した実行は公開も処理済み化もしない。対象カテゴリは `services.nix` の
+`DIGEST_LABELS` で変える。
 
 最初の成功後、FreshRSS に次のfeedを登録する。
 

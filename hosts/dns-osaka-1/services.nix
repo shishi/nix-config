@@ -303,6 +303,7 @@ in
       "tailscaled-autoconnect.service"
     ];
     environment = {
+      DIGEST_LABELS = "news,computer";
       OLLAMA_MODEL = ollamaModel;
       OLLAMA_URL = "http://127.0.0.1:11434";
     };

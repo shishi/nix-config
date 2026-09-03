@@ -4,6 +4,7 @@ import datetime
 import html
 import json
 import os
+import random
 import sqlite3
 import tempfile
 import time
@@ -18,9 +19,12 @@ from zoneinfo import ZoneInfo
 ATOM_NAMESPACE = "http://www.w3.org/2005/Atom"
 DIGEST_TITLE_PREFIX = "AI digest — "
 MAX_ATTEMPTS = 3
-MAX_ITEMS = 100
+# この箱の Ollama は読み込み毎秒約 9 トークン(実測)。本文 3,000 字 × 20 件が
+# 90 分の時間予算に収まるラインで、超過分は打ち切って要約済み分だけ公開する。
+MAX_ITEMS = 20
+MAX_ARTICLE_CHARS = 3_000
+TIME_BUDGET_SECONDS = 90 * 60
 FETCH_LIMIT = 10_000
-MAX_ARTICLE_CHARS = 12_000
 RETENTION_DAYS = 7
 
 
@@ -51,6 +55,10 @@ def open_with_retries(request, *, opener=urllib.request.urlopen, sleep=time.slee
             sleep(2 ** attempt)
 
 
+def item_tag_id(reference_id):
+    return f"tag:google.com,2005:reader/item/{int(reference_id):016x}"
+
+
 class FreshRSSClient:
     def __init__(self, base_url, username, password, *, opener=urllib.request.urlopen, sleep=time.sleep):
         self.base_url = base_url.rstrip("/")
@@ -58,6 +66,7 @@ class FreshRSSClient:
         self.password = password
         self.opener = opener
         self.sleep = sleep
+        self._token = None
 
     def request(self, request):
         return open_with_retries(request, opener=self.opener, sleep=self.sleep)
@@ -83,20 +92,38 @@ class FreshRSSClient:
             raise RuntimeError("FreshRSS ClientLogin did not return Auth")
         return fields["Auth"]
 
-    def fetch_items(self, *, now=None):
+    def token(self):
+        if self._token is None:
+            self._token = self.login()
+        return self._token
+
+    def fetch_unread_ids(self, label, *, now=None):
         now = time.time() if now is None else now
-        token = self.login()
         query = urllib.parse.urlencode(
             {
                 "output": "json",
+                "s": f"user/-/label/{label}",
+                "xt": "user/-/state/com.google/read",
                 "n": FETCH_LIMIT,
-                "r": "o",
                 "ot": int(now - RETENTION_DAYS * 24 * 60 * 60),
             }
         )
         request = urllib.request.Request(
-            f"{self.base_url}/api/greader.php/reader/api/0/stream/contents/reading-list?{query}",
-            headers={"Authorization": f"GoogleLogin auth={token}"},
+            f"{self.base_url}/api/greader.php/reader/api/0/stream/items/ids?{query}",
+            headers={"Authorization": f"GoogleLogin auth={self.token()}"},
+        )
+        payload = json.loads(self.request(request))
+        return [item_tag_id(reference["id"]) for reference in payload.get("itemRefs", [])]
+
+    def fetch_contents(self, identifiers):
+        body = urllib.parse.urlencode([("i", identifier) for identifier in identifiers]).encode()
+        request = urllib.request.Request(
+            f"{self.base_url}/api/greader.php/reader/api/0/stream/items/contents?output=json",
+            data=body,
+            headers={
+                "Authorization": f"GoogleLogin auth={self.token()}",
+                "Content-Type": "application/x-www-form-urlencoded",
+            },
         )
         payload = json.loads(self.request(request))
         return payload.get("items", [])
@@ -186,13 +213,18 @@ def initialize_database(database):
         )
 
 
-def digest_content(summaries):
+def digest_content(sections):
     parts = []
-    for article, summary in summaries:
-        title = html.escape(article["title"])
-        url = html.escape(article["url"], quote=True)
-        heading = f'<h3><a href="{url}">{title}</a></h3>' if url else f"<h3>{title}</h3>"
-        parts.append(f"<article>{heading}<p>{html.escape(summary)}</p></article>")
+    for label, total_unread, summaries in sections:
+        if not summaries:
+            continue
+        heading = html.escape(f"{label} — 直近7日の未読{total_unread}件から{len(summaries)}件を抽出")
+        parts.append(f"<h2>{heading}</h2>")
+        for article, summary in summaries:
+            title = html.escape(article["title"])
+            url = html.escape(article["url"], quote=True)
+            article_heading = f'<h3><a href="{url}">{title}</a></h3>' if url else f"<h3>{title}</h3>"
+            parts.append(f"<article>{article_heading}<p>{html.escape(summary)}</p></article>")
     return "\n".join(parts)
 
 
@@ -223,7 +255,7 @@ def write_feed(connection, output):
         Path(temporary.name).unlink(missing_ok=True)
 
 
-def run_job(items, summarize, database, output, *, now=None):
+def run_job(client, labels, summarize, database, output, *, now=None, deadline=None, clock=time.time, sample=random.sample):
     now = time.time() if now is None else now
     database = Path(database)
     output = Path(output)
@@ -232,31 +264,59 @@ def run_job(items, summarize, database, output, *, now=None):
     with sqlite3.connect(database) as connection:
         processed = {row[0] for row in connection.execute("SELECT id FROM processed_items")}
 
-    articles = [article for item in items if (article := normalize_item(item)) is not None]
-    articles = [article for article in articles if article["id"] not in processed][:MAX_ITEMS]
-    if not articles:
-        return False
+    label_of = {}
+    unread_totals = {}
+    for label in labels:
+        identifiers = client.fetch_unread_ids(label, now=now)
+        unread_totals[label] = len(identifiers)
+        for identifier in identifiers:
+            label_of.setdefault(identifier, label)
 
-    summaries = [(article, summarize(article)) for article in articles]
+    candidates = [identifier for identifier in label_of if identifier not in processed]
+    if not candidates:
+        return False
+    selected = sample(candidates, min(MAX_ITEMS, len(candidates)))
+
+    summaries = {label: [] for label in labels}
+    done = []
+    for item in client.fetch_contents(selected):
+        article = normalize_item(item)
+        if article is None:
+            # digest 自身の entry は要約せず、再抽出されないよう処理済みにする
+            if item.get("id"):
+                done.append(item["id"])
+            continue
+        if deadline is not None and clock() >= deadline:
+            print(f"time budget exhausted after {len(done)} items")
+            break
+        summaries[label_of.get(article["id"], labels[0])].append((article, summarize(article)))
+        done.append(article["id"])
+
+    sections = [(label, unread_totals[label], summaries[label]) for label in labels]
+    published = any(section_summaries for _label, _total, section_summaries in sections)
     local_date = datetime.datetime.fromtimestamp(now, ZoneInfo("Asia/Tokyo")).date().isoformat()
     updated_at = datetime.datetime.fromtimestamp(now, datetime.UTC).replace(microsecond=0).isoformat().replace("+00:00", "Z")
-    digest_id = f"urn:shishi:freshrss-digest:{local_date}"
-    title = f"{DIGEST_TITLE_PREFIX}{local_date}"
 
     with sqlite3.connect(database) as connection:
-        connection.execute(
-            "INSERT OR REPLACE INTO digests (id, updated_at, title, content_html) VALUES (?, ?, ?, ?)",
-            (digest_id, updated_at, title, digest_content(summaries)),
-        )
-        connection.execute(
-            "DELETE FROM digests WHERE id NOT IN (SELECT id FROM digests ORDER BY updated_at DESC LIMIT 7)"
-        )
-        write_feed(connection, output)
+        if published:
+            connection.execute(
+                "INSERT OR REPLACE INTO digests (id, updated_at, title, content_html) VALUES (?, ?, ?, ?)",
+                (
+                    f"urn:shishi:freshrss-digest:{local_date}",
+                    updated_at,
+                    f"{DIGEST_TITLE_PREFIX}{local_date}",
+                    digest_content(sections),
+                ),
+            )
+            connection.execute(
+                "DELETE FROM digests WHERE id NOT IN (SELECT id FROM digests ORDER BY updated_at DESC LIMIT 7)"
+            )
+            write_feed(connection, output)
         connection.executemany(
             "INSERT OR IGNORE INTO processed_items (id, processed_at) VALUES (?, ?)",
-            [(article["id"], updated_at) for article in articles],
+            [(identifier, updated_at) for identifier in done],
         )
-    return True
+    return published
 
 
 def read_credential(name):
@@ -266,6 +326,7 @@ def read_credential(name):
 
 def main():
     state_directory = Path(os.environ.get("STATE_DIRECTORY", "/var/lib/freshrss-digest"))
+    labels = os.environ["DIGEST_LABELS"].split(",")
     now = time.time()
     freshrss = FreshRSSClient(
         read_credential("freshrss-api-url"),
@@ -277,11 +338,13 @@ def main():
         os.environ["OLLAMA_MODEL"],
     )
     created = run_job(
-        freshrss.fetch_items(now=now),
+        freshrss,
+        labels,
         ollama.summarize,
         state_directory / "state.sqlite3",
         state_directory / "public" / "digest.atom",
         now=now,
+        deadline=time.time() + TIME_BUDGET_SECONDS,
     )
     print("published" if created else "no new items")
 

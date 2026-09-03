@@ -23,16 +23,37 @@ class FakeResponse:
         return self.body
 
 
+def head_sample(population, count):
+    return list(population)[:count]
+
+
+class FakeClient:
+    def __init__(self, unread_ids, items):
+        self.unread_ids = unread_ids
+        self.items = {item["id"]: item for item in items}
+
+    def fetch_unread_ids(self, label, *, now=None):
+        return self.unread_ids.get(label, [])
+
+    def fetch_contents(self, identifiers):
+        return [self.items[identifier] for identifier in identifiers if identifier in self.items]
+
+
+def article(identifier, title):
+    return {"id": identifier, "title": title, "summary": {"content": f"Body of {title}"}}
+
+
 class FreshRSSDigestTest(unittest.TestCase):
-    def test_freshrss_client_only_logs_in_and_reads_the_stream(self):
+    def test_client_fetches_unread_ids_then_only_selected_contents(self):
         requests = []
 
         def opener(request, timeout):
-            requests.append((request.get_method(), request.full_url, timeout))
+            requests.append((request.get_method(), request.full_url, request.data))
             if request.full_url.endswith("/accounts/ClientLogin"):
                 return FakeResponse(b"SID=x\nLSID=y\nAuth=token\n")
-
-            return FakeResponse(json.dumps({"items": [{"id": f"item-{index}"} for index in range(101)]}).encode())
+            if "/stream/items/ids?" in request.full_url:
+                return FakeResponse(json.dumps({"itemRefs": [{"id": "22"}]}).encode())
+            return FakeResponse(json.dumps({"items": []}).encode())
 
         client = freshrss_digest.FreshRSSClient(
             "https://rss.example.test",
@@ -42,30 +63,26 @@ class FreshRSSDigestTest(unittest.TestCase):
             sleep=lambda _seconds: None,
         )
 
-        self.assertEqual(len(client.fetch_items(now=1_800_000_000)), 101)
-        self.assertEqual(requests[0][0], "POST")
-        self.assertTrue(requests[0][1].endswith("/api/greader.php/accounts/ClientLogin"))
-        self.assertEqual(requests[1][0], "GET")
-        self.assertIn("/api/greader.php/reader/api/0/stream/contents/reading-list?", requests[1][1])
-        self.assertIn("n=10000", requests[1][1])
-        self.assertIn(f"ot={1_800_000_000 - 7 * 24 * 60 * 60}", requests[1][1])
-        self.assertNotIn("edit-tag", requests[1][1])
+        identifiers = client.fetch_unread_ids("news", now=1_800_000_000)
+        self.assertEqual(identifiers, ["tag:google.com,2005:reader/item/0000000000000016"])
+        client.fetch_contents(identifiers)
 
-    def test_job_publishes_one_daily_entry_and_deduplicates_items(self):
-        items = [
-            {
-                "id": "item-1",
-                "title": "First",
-                "canonical": [{"href": "https://example.test/first"}],
-                "summary": {"content": "<p>First body</p>"},
-            },
-            {
-                "id": "item-2",
-                "title": "Second",
-                "alternate": [{"href": "https://example.test/second"}],
-                "content": {"content": "Second body"},
-            },
-        ]
+        logins = [entry for entry in requests if entry[1].endswith("/accounts/ClientLogin")]
+        self.assertEqual(len(logins), 1)
+        ids_request = requests[1]
+        self.assertIn("/reader/api/0/stream/items/ids?", ids_request[1])
+        self.assertIn("user%2F-%2Flabel%2Fnews", ids_request[1])
+        self.assertIn("xt=user%2F-%2Fstate%2Fcom.google%2Fread", ids_request[1])
+        self.assertIn(f"ot={1_800_000_000 - 7 * 24 * 60 * 60}", ids_request[1])
+        contents_request = requests[2]
+        self.assertIn("/reader/api/0/stream/items/contents", contents_request[1])
+        self.assertIn(b"reader%2Fitem%2F0000000000000016", contents_request[2])
+
+    def test_job_groups_by_label_and_deduplicates_across_runs(self):
+        client = FakeClient(
+            {"news": ["item-1"], "computer": ["item-2"]},
+            [article("item-1", "First"), article("item-2", "Second")],
+        )
 
         with tempfile.TemporaryDirectory() as directory:
             directory = Path(directory)
@@ -73,23 +90,16 @@ class FreshRSSDigestTest(unittest.TestCase):
             output = directory / "public" / "digest.atom"
             summarized = []
 
-            def summarize(article):
-                summarized.append(article["id"])
-                return f"Summary for {article['title']}"
+            def summarize(entry):
+                summarized.append(entry["id"])
+                return f"Summary for {entry['title']}"
 
+            arguments = dict(now=1_800_000_000, sample=head_sample)
             first = freshrss_digest.run_job(
-                items,
-                summarize,
-                database,
-                output,
-                now=1_800_000_000,
+                client, ["news", "computer"], summarize, database, output, **arguments
             )
             second = freshrss_digest.run_job(
-                items,
-                summarize,
-                database,
-                output,
-                now=1_800_000_000,
+                client, ["news", "computer"], summarize, database, output, **arguments
             )
 
             self.assertTrue(first)
@@ -101,66 +111,102 @@ class FreshRSSDigestTest(unittest.TestCase):
             entries = root.findall("atom:entry", namespace)
             self.assertEqual(len(entries), 1)
             content = entries[0].find("atom:content", namespace).text
-            self.assertIn("First", content)
+            self.assertIn("news — 直近7日の未読1件から1件を抽出", content)
+            self.assertIn("computer — 直近7日の未読1件から1件を抽出", content)
             self.assertIn("Summary for Second", content)
 
-            with sqlite3.connect(database) as connection:
-                count = connection.execute("SELECT count(*) FROM processed_items").fetchone()[0]
-            self.assertEqual(count, 2)
-
     def test_summary_failure_stalls_the_batch(self):
-        items = [{"id": "item-1", "title": "First", "summary": {"content": "Body"}}]
+        client = FakeClient({"news": ["item-1"]}, [article("item-1", "First")])
 
         with tempfile.TemporaryDirectory() as directory:
             directory = Path(directory)
             database = directory / "state.sqlite3"
             output = directory / "public" / "digest.atom"
 
-            def fail(_article):
+            def fail(_entry):
                 raise RuntimeError("ollama unavailable")
 
             with self.assertRaisesRegex(RuntimeError, "ollama unavailable"):
-                freshrss_digest.run_job(items, fail, database, output, now=1_800_000_000)
+                freshrss_digest.run_job(
+                    client, ["news"], fail, database, output, now=1_800_000_000, sample=head_sample
+                )
 
             self.assertFalse(output.exists())
             with sqlite3.connect(database) as connection:
                 count = connection.execute("SELECT count(*) FROM processed_items").fetchone()[0]
             self.assertEqual(count, 0)
 
-    def test_selection_skips_digest_entries_and_caps_the_batch(self):
+    def test_selection_caps_the_batch_and_retires_digest_entries(self):
+        identifiers = ["digest-1"] + [f"item-{index}" for index in range(freshrss_digest.MAX_ITEMS + 5)]
         items = [
             {
                 "id": "digest-1",
                 "title": f"{freshrss_digest.DIGEST_TITLE_PREFIX}2026-09-01",
                 "summary": {"content": "old digest"},
             }
-        ] + [
-            {
-                "id": f"item-{index}",
-                "title": f"Title {index}",
-                "summary": {"content": "Body"},
-            }
-            for index in range(101)
-        ]
+        ] + [article(identifier, identifier) for identifier in identifiers[1:]]
+        client = FakeClient({"news": identifiers}, items)
 
         with tempfile.TemporaryDirectory() as directory:
             directory = Path(directory)
+            database = directory / "state.sqlite3"
             summarized = []
 
-            def summarize(article):
-                summarized.append(article["id"])
+            def summarize(entry):
+                summarized.append(entry["id"])
                 return "Summary"
 
             freshrss_digest.run_job(
-                items,
+                client,
+                ["news"],
                 summarize,
-                directory / "state.sqlite3",
+                database,
                 directory / "public" / "digest.atom",
                 now=1_800_000_000,
+                sample=head_sample,
             )
 
-            self.assertEqual(len(summarized), 100)
+            self.assertEqual(len(summarized), freshrss_digest.MAX_ITEMS - 1)
             self.assertNotIn("digest-1", summarized)
+            with sqlite3.connect(database) as connection:
+                retired = {
+                    row[0] for row in connection.execute("SELECT id FROM processed_items")
+                }
+            self.assertIn("digest-1", retired)
+
+    def test_deadline_publishes_finished_summaries_only(self):
+        client = FakeClient(
+            {"news": ["item-1", "item-2"]},
+            [article("item-1", "First"), article("item-2", "Second")],
+        )
+
+        with tempfile.TemporaryDirectory() as directory:
+            directory = Path(directory)
+            database = directory / "state.sqlite3"
+            output = directory / "public" / "digest.atom"
+            ticks = iter([0, 100])
+
+            published = freshrss_digest.run_job(
+                client,
+                ["news"],
+                lambda entry: f"Summary for {entry['title']}",
+                database,
+                output,
+                now=1_800_000_000,
+                deadline=50,
+                clock=lambda: next(ticks),
+                sample=head_sample,
+            )
+
+            self.assertTrue(published)
+            content = ET.parse(output).getroot().find(
+                "{http://www.w3.org/2005/Atom}entry/{http://www.w3.org/2005/Atom}content"
+            ).text
+            self.assertIn("Summary for First", content)
+            self.assertNotIn("Summary for Second", content)
+            with sqlite3.connect(database) as connection:
+                retired = {row[0] for row in connection.execute("SELECT id FROM processed_items")}
+            self.assertEqual(retired, {"item-1"})
 
     def test_http_attempts_are_limited_to_three(self):
         attempts = 0
