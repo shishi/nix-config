@@ -127,12 +127,16 @@ Ollamaで要約し、90分の時間予算を使い切ったら残りを打ち切
 途中で失敗した実行は公開も処理済み化もしない。対象カテゴリは `services.nix` の
 `DIGEST_LABELS` で変える。
 
-最初の成功後、FreshRSS に次のfeedを登録する。
+FreshRSS(Synology Docker)は tailnet へ出る経路を持たないため、feed は
+Tailscale Funnel の公開URLで登録する。Basic 認証のユーザー名は `digest`、
+パスワードは `runtime.yaml` の `digest-feed-password`
+(`nix run .#dns-osaka-1-secrets` で閲覧)。
 
 ```text
-http://<oracle-tailscale-ip>:8080/digest.atom
+https://dns-osaka-1.cougar-hydra.ts.net:8443/digest.atom
 ```
 
+tailnet 内からは認証なしの `http://<oracle-tailscale-ip>:8080/digest.atom` も使える。
 生成entryのtitle prefixを入力時に除外するため、digest feed自身は再要約されない。
 
 ## Synology の二台目 AdGuard Home

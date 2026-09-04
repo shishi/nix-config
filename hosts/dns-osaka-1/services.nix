@@ -337,8 +337,59 @@ in
     };
   };
 
+  # digest feed を Tailscale Funnel でインターネットへ公開する。FreshRSS
+  # (Synology Docker)は tailnet へ出る経路を持たないため、tailnet 外から
+  # 取れる唯一の配信面。中身は Basic 認証で守る(ts.net のホスト名は
+  # 証明書の公開記録から第三者に知られうる)。
+  systemd.services.freshrss-digest-funnel = {
+    description = "Publish the digest feed through Tailscale Funnel";
+    wantedBy = [ "multi-user.target" ];
+    requires = [
+      "nginx.service"
+      "tailscaled.service"
+    ];
+    wants = [ "tailscaled-autoconnect.service" ];
+    after = [
+      "nginx.service"
+      "tailscaled.service"
+      "tailscaled-autoconnect.service"
+    ];
+    path = [ config.services.tailscale.package ];
+    script = ''
+      tailscale funnel --bg --yes --https=8443 http://127.0.0.1:8081
+    '';
+    preStop = ''
+      tailscale funnel --yes --https=8443 off
+    '';
+    serviceConfig = {
+      Type = "oneshot";
+      RemainAfterExit = true;
+      Restart = "on-failure";
+      RestartSec = "5s";
+    };
+  };
+
   services.nginx = {
     enable = true;
+    # Funnel 用の入口。tailscale0 側(8080)は認証なしのまま分離する。
+    virtualHosts."freshrss-digest-funnel" = {
+      listen = [
+        {
+          addr = "127.0.0.1";
+          port = 8081;
+        }
+      ];
+      basicAuthFile = config.sops.secrets."digest-htpasswd".path;
+      locations."= /digest.atom" = {
+        alias = "/var/lib/freshrss-digest/public/digest.atom";
+        extraConfig = ''
+          default_type application/atom+xml;
+          charset utf-8;
+          charset_types application/atom+xml;
+        '';
+      };
+      locations."/".return = "404";
+    };
     virtualHosts."freshrss-digest" = {
       default = true;
       listen = [

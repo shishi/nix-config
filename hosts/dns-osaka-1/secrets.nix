@@ -22,6 +22,12 @@
       "freshrss-api-url" = { };
       "freshrss-api-username" = { };
       "freshrss-api-password" = { };
+      # Funnel 公開する digest feed の Basic 認証(nginx が読む htpasswd 行)。
+      # 平文は digest-feed-password キーにあり、FreshRSS の購読設定に使う。
+      "digest-htpasswd" = {
+        owner = "nginx";
+        mode = "0400";
+      };
     };
   };
 }

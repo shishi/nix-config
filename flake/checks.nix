@@ -431,7 +431,7 @@
           check_secret_file dns-bootstrap "$dns_bootstrap_file" \
             '["dns-osaka-1-age-key"]' "$dns_bootstrap_recipient"
           check_secret_file dns-runtime "$dns_runtime_file" \
-            '["freshrss-api-password","freshrss-api-url","freshrss-api-username","tailscale-oauth-secret"]' \
+            '["digest-feed-password","digest-htpasswd","freshrss-api-password","freshrss-api-url","freshrss-api-username","tailscale-oauth-secret"]' \
             "$dns_runtime_recipient"
           touch $out
         '';
