@@ -11,5 +11,13 @@
     ./ssh.nix
   ];
 
-  environment.systemPackages = [ pkgs.bind.dnsutils ];
+  environment.systemPackages = [
+    pkgs.bind.dnsutils
+    pkgs.neovim
+  ];
+
+  environment.variables = {
+    EDITOR = "nvim";
+    VISUAL = "nvim";
+  };
 }
