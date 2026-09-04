@@ -349,7 +349,13 @@ in
       ];
       locations."= /digest.atom" = {
         alias = "/var/lib/freshrss-digest/public/digest.atom";
-        extraConfig = "default_type application/atom+xml;";
+        # charset_types: nginx が charset を付ける MIME type の既定に
+        # application/atom+xml は含まれないため明示する
+        extraConfig = ''
+          default_type application/atom+xml;
+          charset utf-8;
+          charset_types application/atom+xml;
+        '';
       };
       locations."/".return = "404";
     };
