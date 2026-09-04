@@ -11,3 +11,7 @@ secrets/**
 *.swp
 .DS_Store
 .claude/settings.local.json
+.tf-scratch/
+infra/oci/**/.terraform/
+infra/oci/**/terraform.tfstate*
+infra/oci/**/*.tfplan
