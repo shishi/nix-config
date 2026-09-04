@@ -227,11 +227,14 @@ def digest_content(sections):
     return "\n".join(parts)
 
 
-def write_feed(connection, output):
+def write_feed(connection, output, feed_url):
     ET.register_namespace("", ATOM_NAMESPACE)
     feed = ET.Element(f"{{{ATOM_NAMESPACE}}}feed")
     ET.SubElement(feed, f"{{{ATOM_NAMESPACE}}}id").text = "urn:shishi:freshrss-digest"
     ET.SubElement(feed, f"{{{ATOM_NAMESPACE}}}title").text = "FreshRSS AI digest"
+    author = ET.SubElement(feed, f"{{{ATOM_NAMESPACE}}}author")
+    ET.SubElement(author, f"{{{ATOM_NAMESPACE}}}name").text = "freshrss-digest"
+    ET.SubElement(feed, f"{{{ATOM_NAMESPACE}}}link", {"rel": "self", "href": feed_url})
     rows = connection.execute(
         "SELECT id, updated_at, title, content_html FROM digests ORDER BY updated_at DESC LIMIT 7"
     ).fetchall()
@@ -241,6 +244,11 @@ def write_feed(connection, output):
         ET.SubElement(entry, f"{{{ATOM_NAMESPACE}}}id").text = identifier
         ET.SubElement(entry, f"{{{ATOM_NAMESPACE}}}updated").text = updated_at
         ET.SubElement(entry, f"{{{ATOM_NAMESPACE}}}title").text = title
+        ET.SubElement(
+            entry,
+            f"{{{ATOM_NAMESPACE}}}link",
+            {"rel": "alternate", "href": f"{feed_url}#{identifier.rsplit(':', 1)[-1]}"},
+        )
         ET.SubElement(entry, f"{{{ATOM_NAMESPACE}}}content", {"type": "html"}).text = content_html
 
     output.parent.mkdir(parents=True, exist_ok=True)
@@ -254,7 +262,7 @@ def write_feed(connection, output):
         Path(temporary.name).unlink(missing_ok=True)
 
 
-def run_job(client, labels, summarize, database, output, *, now=None, deadline=None, clock=time.time, sample=random.sample):
+def run_job(client, labels, summarize, database, output, feed_url, *, now=None, deadline=None, clock=time.time, sample=random.sample):
     now = time.time() if now is None else now
     database = Path(database)
     output = Path(output)
@@ -310,7 +318,7 @@ def run_job(client, labels, summarize, database, output, *, now=None, deadline=N
             connection.execute(
                 "DELETE FROM digests WHERE id NOT IN (SELECT id FROM digests ORDER BY updated_at DESC LIMIT 7)"
             )
-            write_feed(connection, output)
+            write_feed(connection, output, feed_url)
         connection.executemany(
             "INSERT OR IGNORE INTO processed_items (id, processed_at) VALUES (?, ?)",
             [(identifier, updated_at) for identifier in done],
@@ -342,6 +350,7 @@ def main():
         ollama.summarize,
         state_directory / "state.sqlite3",
         state_directory / "public" / "digest.atom",
+        os.environ["DIGEST_FEED_URL"],
         now=now,
         deadline=time.time() + TIME_BUDGET_SECONDS,
     )

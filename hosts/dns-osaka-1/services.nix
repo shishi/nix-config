@@ -303,6 +303,7 @@ in
       "tailscaled-autoconnect.service"
     ];
     environment = {
+      DIGEST_FEED_URL = "https://dns-osaka-1.cougar-hydra.ts.net:8443/digest.atom";
       DIGEST_LABELS = "news,computer";
       OLLAMA_MODEL = ollamaModel;
       OLLAMA_URL = "http://127.0.0.1:11434";

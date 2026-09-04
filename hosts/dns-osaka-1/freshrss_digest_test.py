@@ -97,10 +97,10 @@ class FreshRSSDigestTest(unittest.TestCase):
 
             arguments = dict(now=1_800_000_000, sample=head_sample)
             first = freshrss_digest.run_job(
-                client, ["news", "computer"], summarize, database, output, **arguments
+                client, ["news", "computer"], summarize, database, output, "https://feed.test/digest.atom", **arguments
             )
             second = freshrss_digest.run_job(
-                client, ["news", "computer"], summarize, database, output, **arguments
+                client, ["news", "computer"], summarize, database, output, "https://feed.test/digest.atom", **arguments
             )
 
             self.assertTrue(first)
@@ -129,7 +129,7 @@ class FreshRSSDigestTest(unittest.TestCase):
 
             with self.assertRaisesRegex(RuntimeError, "ollama unavailable"):
                 freshrss_digest.run_job(
-                    client, ["news"], fail, database, output, now=1_800_000_000, sample=head_sample
+                    client, ["news"], fail, database, output, "https://feed.test/digest.atom", now=1_800_000_000, sample=head_sample
                 )
 
             self.assertFalse(output.exists())
@@ -163,6 +163,7 @@ class FreshRSSDigestTest(unittest.TestCase):
                 summarize,
                 database,
                 directory / "public" / "digest.atom",
+                "https://feed.test/digest.atom",
                 now=1_800_000_000,
                 sample=head_sample,
             )
@@ -193,6 +194,7 @@ class FreshRSSDigestTest(unittest.TestCase):
                 lambda entry: f"Summary for {entry['title']}",
                 database,
                 output,
+                "https://feed.test/digest.atom",
                 now=1_800_000_000,
                 deadline=50,
                 clock=lambda: next(ticks),
