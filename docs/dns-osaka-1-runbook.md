@@ -9,6 +9,7 @@
 |---|---|---|
 | インストール前 | Boot Volume Backup を手動で 1 個作成 | [導入前](#導入前) 手順 1 |
 | 一度だけ(未実施なら) | IPv6 の開通(VCN → サブネット → ルート → セキュリティリスト → VNIC) | [IPv6](#ipv6) |
+| 一度だけ(CLI/Terraform を使う前) | API 署名鍵の発行 | [API 署名鍵](#api-署名鍵) |
 | 初回起動後 | Metrics Explorer で `MemoryUtilization` の到着確認(届かないときだけ Agent 設定を確認) | [NixOS 起動後](#nixos-起動後) |
 | 全チェック green 後 | 導入前バックアップの削除 | [バックアップ削除条件](#バックアップ削除条件) |
 
@@ -192,6 +193,22 @@ Oracle 側の設定だけである。順序は依存関係で決まっており�
 
 割り当てられるアドレスは Ephemeral で、VNIC を作り直すと変わる。
 DNS レコードへ直接書く場合は Reserved 化するか、変更前提の運用にする。
+
+## API 署名鍵
+
+OCI CLI と Terraform の認証に使う鍵で、発行は Console 画面でしかできない。
+SSH 鍵と同じ公開鍵暗号のペアだが用途は別物で、API リクエストへの署名に使う。
+インスタンスの SSH 鍵とは無関係である。
+
+1. Console 右上の人型アイコン → **My profile** を開く
+2. **Tokens and keys** タブ(または左メニューの **API keys**)→ **Add API key**
+3. **Generate API key pair** を選び、**Download private key** を必ず実行する
+   (この画面を閉じると秘密鍵は二度と取得できない)→ **Add**
+4. 追加後に表示される **Configuration file preview** を控える
+   (user/tenancy の OCID、fingerprint、region。秘密情報は含まれない)
+
+秘密鍵(`*.pem`)は作業マシンの `~/.oci/` に権限 600 で置き、preview の内容から
+`~/.oci/config` を作る。どちらも Git に入れない。
 
 ## バックアップ削除条件
 
