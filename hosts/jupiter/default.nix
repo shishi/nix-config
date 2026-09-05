@@ -257,7 +257,33 @@ in
   # (nixos/sudo.nix)。PAM を破られると追加認証なしで root まで届く。
   # 到達範囲を絞っているのはそのため。
   services.tailscale.enable = true;
-  networking.firewall.interfaces.tailscale0.allowedTCPPorts = [ 3389 ];
+  networking.firewall.interfaces.tailscale0 = {
+    allowedTCPPorts = [
+      3389
+      # Sunshine: web UI / GameStream control / RTSP
+      47984
+      47989
+      47990
+      48010
+    ];
+    # Sunshine: video / control / audio streams
+    allowedUDPPorts = [
+      47998
+      47999
+      48000
+      48002
+      48010
+    ];
+  };
+
+  # Sunshine。既存の Plasma Wayland セッションを Moonlight へ配信する。
+  # autoStart の既定により graphical-session.target と一緒に起動する。
+  # KMS capture は CAP_SYS_ADMIN が無いと Wayland 上で画面を取得できない。
+  # openFirewall は有効にせず、上の tailscale0 だけへ標準ポートを公開する。
+  services.sunshine = {
+    enable = true;
+    capSysAdmin = true;
+  };
 
   # Bluetooth。AX210 に内蔵されていて、カーネルは起動時に hci0 として認識し
   # Intel のファームウェア(intel/ibt-0041-0041.sfi)も読み込み済み。有効化して
