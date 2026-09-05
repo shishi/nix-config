@@ -9,6 +9,9 @@ let
   krdpDir = "${config.xdg.dataHome}/krdp";
   krdpCert = "${krdpDir}/server.crt";
   krdpCertKey = "${krdpDir}/server.key";
+  krdp = pkgs.kdePackages.krdp.overrideAttrs (old: {
+    patches = (old.patches or [ ]) ++ [ ./krdp-ios-interop.patch ];
+  });
 
   # krdpserver は TLS 証明書を生成せず、無ければ起動を拒む
   # (src/Server.cpp が exists() を見て「required for the server to run!」)。
@@ -540,7 +543,7 @@ in
         # (実測 2026-08-23)。解像度が固定されるのは既定動作(物理モニタを
         # そのままキャプチャする)の仕様であって、この nix-config では
         # 直せない上流の制約として受け入れる。
-        ExecStart = "${pkgs.kdePackages.krdp}/bin/krdpserver";
+        ExecStart = "${krdp}/bin/krdpserver";
         Restart = "on-failure";
         RestartSec = 3;
       };
