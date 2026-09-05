@@ -2,11 +2,22 @@
   inputs,
   lib,
   config,
+  pkgs,
   ...
 }:
 let
   # DE の単一真実: この 1 変数から system 側 import と HM 側フラグを導出する
   desktop = "kde";
+  androidSdk = (
+    pkgs.androidenv.composeAndroidPackages {
+      platformVersions = [ "36" ];
+      includeEmulator = true;
+      includeSystemImages = true;
+      systemImageTypes = [ "google_apis_playstore" ];
+      abiVersions = [ "x86_64" ];
+      includeCmake = false;
+    }
+  ).androidsdk;
 in
 {
   imports = [
@@ -188,6 +199,11 @@ in
   # 自宅サーバー運用: SSH 常時 + Docker(unix socket のみ)
   services.openssh.enable = true;
   virtualisation.docker.enable = true;
+
+  # ebookjapan をオフライン利用するための Google Play 付き Android Emulator。
+  # IDE は不要なので、SDK・AVD 管理ツール・x86_64 system image だけを入れる。
+  environment.systemPackages = [ androidSdk ];
+  environment.variables.ANDROID_HOME = "${androidSdk}/libexec/android-sdk";
 
   # FHS 非互換の prebuilt バイナリへの備え。x86_64 glibc の prebuilt ELF は
   # /lib64/ld-linux-x86-64.so.2 を interpreter に持ち、NixOS にはそれが無いため

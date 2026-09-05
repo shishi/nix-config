@@ -290,6 +290,7 @@ in
           "Switch to Desktop 3" = "Ctrl+3";
           "Switch to Desktop 4" = "Ctrl+4";
           "Window Maximize" = "Ctrl+Alt+Return";
+          "Window Fullscreen" = "Meta+F11";
 
           # Meta+矢印 は KZones に持たせる。KWin 側の Quick Tile(画面半分への
           # スナップ)と衝突するので、空リストを渡して none にする。

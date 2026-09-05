@@ -18,7 +18,10 @@
       # NixOS ホストへは nixpkgs.pkgs で注入する)
       _module.args.pkgs = import inputs.nixpkgs {
         inherit system;
-        config.allowUnfree = true;
+        config = {
+          allowUnfree = true;
+          android_sdk.accept_license = true;
+        };
         overlays = [
           self.overlays.default
           inputs.neovim-nightly-overlay.overlays.default
