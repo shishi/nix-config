@@ -292,6 +292,43 @@ in
     ];
   };
 
+  # RustDesk。root service が active な Plasma ユーザーへ --server を起動し、
+  # Wayland の入力を /dev/uinput 経由で注入する。画面取得はユーザー session の
+  # PipeWire/XDG Desktop Portal を使う。SDDM の Wayland greeter は対象外だが、
+  # この host は autoLogin 後に KScreenLocker でロックするため Plasma session は在る。
+  boot.kernelModules = [ "uinput" ];
+  systemd.services.rustdesk = {
+    description = "RustDesk remote desktop host";
+    wantedBy = [ "multi-user.target" ];
+    requires = [ "network.target" ];
+    after = [
+      "network.target"
+      "systemd-user-sessions.service"
+    ];
+    path = with pkgs; [
+      bash
+      coreutils
+      gawk
+      gnugrep
+      procps
+      sudo
+      systemd
+      which
+    ];
+    environment = {
+      PIPEWIRE_LATENCY = "1024/48000";
+      PULSE_LATENCY_MSEC = "60";
+      RUSTDESK_FORCED_DISPLAY_SERVER = "wayland";
+    };
+    serviceConfig = {
+      Type = "simple";
+      ExecStart = "${pkgs.rustdesk}/bin/rustdesk --service";
+      Restart = "on-failure";
+      RestartSec = "5s";
+      LimitNOFILE = 100000;
+    };
+  };
+
   # Sunshine。既存の Plasma Wayland セッションを Moonlight へ配信する。
   # autoStart の既定により graphical-session.target と一緒に起動する。
   # KMS capture は CAP_SYS_ADMIN が無いと Wayland 上で画面を取得できない。

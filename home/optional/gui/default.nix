@@ -70,10 +70,12 @@
       discord
       firefox
       flameshot
+      ghostty
       google-chrome
       llm-agents.claude-desktop
       localsend
       microsoft-edge
+      rustdesk
       slack
       tailscale-systray
       teamviewer
