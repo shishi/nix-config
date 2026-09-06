@@ -9,9 +9,6 @@ let
   krdpDir = "${config.xdg.dataHome}/krdp";
   krdpCert = "${krdpDir}/server.crt";
   krdpCertKey = "${krdpDir}/server.key";
-  krdp = pkgs.kdePackages.krdp.overrideAttrs (old: {
-    patches = (old.patches or [ ]) ++ [ ./krdp-ios-interop.patch ];
-  });
 
   # krdpserver は TLS 証明書を生成せず、無ければ起動を拒む
   # (src/Server.cpp が exists() を見て「required for the server to run!」)。
@@ -388,27 +385,30 @@ in
       fi
     '';
 
-    # 実機パネル(eDP-1)をネイティブ解像度(2560x1600, scale 1.25)へ戻す。
-    # KWin は出力設定を ~/.config/kwinoutputconfig.json に自動保存して次回
-    # セッションにも引き継ぐため、以前の RDP 向け設定(2560x1440)をここで
-    # 上書きする。
+    # RDP 越しの視認性・操作性のため、実機パネル(eDP-1)を既定のネイティブ
+    # 解像度(2560x1600, scale 1.25)とは別の解像度に固定する(実測して決めた
+    # 値。2026-08-23)。KWin は出力設定を ~/.config/kwinoutputconfig.json に
+    # 自動保存して次回セッションにも引き継ぐが、そのファイルは home-manager
+    # 管理外の実ファイルなので、再インストールすると消えて既定値に戻る。
+    # ここで宣言してセッション開始のたびに強制することで、再インストール後も
+    # 再現させる。
     #
     # mode は kscreen-doctor の内部モード ID ではなく WIDTHxHEIGHT@REFRESH の
     # 名前文字列で指定する。ID はモニタの接続構成(krdpserver の仮想出力が
     # 同時に存在するかどうか等)によって番号が振り直されるため不安定。
     # REFRESH は kscreen-doctor -j の "name" フィールドが整数に丸めた表記
-    # ("2560x1600@165")を使う必要があり、丸めていない値(@164.90 や @164)は
-    # 一致せず無視される(実測)。
+    # ("2560x1440@165"、実際のリフレッシュレートは 164.898Hz)を使う必要が
+    # あり、丸めていない値(@164.90 や @164)は一致せず無視される(実測)。
     systemd.user.services.krdp-display-preset = {
       Unit = {
-        Description = "Restore eDP-1 native resolution and scale";
+        Description = "Pin eDP-1 resolution/scale for RDP readability";
         After = [ "plasma-core.target" ];
         PartOf = [ "plasma-workspace.target" ];
       };
       Service = {
         Type = "oneshot";
         RemainAfterExit = true;
-        ExecStart = "${pkgs.kdePackages.libkscreen}/bin/kscreen-doctor output.eDP-1.mode.2560x1600@165 output.eDP-1.scale.1.25";
+        ExecStart = "${pkgs.kdePackages.libkscreen}/bin/kscreen-doctor output.eDP-1.mode.2560x1440@165 output.eDP-1.scale.1.25";
       };
       Install.WantedBy = [ "plasma-workspace.target" ];
     };
@@ -540,7 +540,7 @@ in
         # (実測 2026-08-23)。解像度が固定されるのは既定動作(物理モニタを
         # そのままキャプチャする)の仕様であって、この nix-config では
         # 直せない上流の制約として受け入れる。
-        ExecStart = "${krdp}/bin/krdpserver";
+        ExecStart = "${pkgs.kdePackages.krdp}/bin/krdpserver";
         Restart = "on-failure";
         RestartSec = 3;
       };
