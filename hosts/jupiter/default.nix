@@ -50,12 +50,32 @@ in
     ./secrets.nix
   ];
 
-  # nixpkgs の rustdesk はハードウェア動画圧縮なしでビルドされている。
-  # 同じ公式ソースの Flutter 版は hwcodec を有効にしているため、system service と
-  # Home Manager のクライアントをこちらへ統一する。
+  # nixpkgs の rustdesk 1.4.9 はハードウェア動画圧縮なしでビルドされている。
+  # rustdesk-flutter 1.4.5 への downgrade は 1.4.9 の password hash を読めないため、
+  # 1.4.9 のまま hwcodec を有効にして system service とクライアントへ使う。
   nixpkgs.overlays = [
     (_final: prev: {
-      rustdesk = prev.rustdesk-flutter;
+      rustdesk = prev.rustdesk.overrideAttrs (old: {
+        cargoBuildFeatures = (old.cargoBuildFeatures or [ ]) ++ [ "hwcodec" ];
+        buildInputs = (old.buildInputs or [ ]) ++ [
+          prev.ffmpeg_7
+          prev.libdrm
+          prev.libva
+          prev.libx11
+        ];
+        env = (old.env or { }) // {
+          FFMPEG_INCLUDE_DIR = "${prev.lib.getDev prev.ffmpeg_7}/include";
+        };
+        postPatch = (old.postPatch or "") + ''
+          substituteInPlace "$cargoDepsCopy/source-git-11/hwcodec-0.7.1/build.rs" \
+            --replace-fail \
+              '        link_vcpkg(builder, std::env::var("VCPKG_ROOT").unwrap().into());' \
+              '        builder.include(std::env::var("FFMPEG_INCLUDE_DIR").unwrap());
+                      ["avcodec", "avutil", "avformat"]
+                          .iter()
+                          .for_each(|lib| println!("cargo:rustc-link-lib={}", lib));'
+        '';
+      });
     })
   ];
 
