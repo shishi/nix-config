@@ -18,17 +18,19 @@ let
       includeCmake = false;
     }
   ).androidsdk;
-  rustdeskEnableDirectAccess = pkgs.writeShellScript "rustdesk-enable-direct-access" ''
+  rustdeskEnableAcceleration = pkgs.writeShellScript "rustdesk-enable-acceleration" ''
     for _ in {1..4}; do
+      ${pkgs.rustdesk}/bin/rustdesk --option enable-hwcodec Y
       ${pkgs.rustdesk}/bin/rustdesk --option direct-server Y
-      if [[ "$(${pkgs.rustdesk}/bin/rustdesk --option direct-server)" == Y ]] &&
+      if [[ "$(${pkgs.rustdesk}/bin/rustdesk --option enable-hwcodec)" == Y ]] &&
+        [[ "$(${pkgs.rustdesk}/bin/rustdesk --option direct-server)" == Y ]] &&
         ${pkgs.iproute2}/bin/ss -H -ltn 'sport = :21118' | ${pkgs.gnugrep}/bin/grep -q .; then
         exit 0
       fi
       ${pkgs.coreutils}/bin/sleep 1
     done
 
-    echo "RustDesk did not enable direct IP access" >&2
+    echo "RustDesk did not enable hardware video encoding and direct IP access" >&2
     exit 1
   '';
 in
@@ -46,6 +48,15 @@ in
     ./disko.nix
     ./hardware-configuration.nix
     ./secrets.nix
+  ];
+
+  # nixpkgs の rustdesk はハードウェア動画圧縮なしでビルドされている。
+  # 同じ公式ソースの Flutter 版は hwcodec を有効にしているため、system service と
+  # Home Manager のクライアントをこちらへ統一する。
+  nixpkgs.overlays = [
+    (_final: prev: {
+      rustdesk = prev.rustdesk-flutter;
+    })
   ];
 
   networking.hostName = "jupiter";
@@ -311,7 +322,8 @@ in
   # Wayland の入力を /dev/uinput 経由で注入する。画面取得はユーザー session の
   # PipeWire/XDG Desktop Portal を使う。SDDM の Wayland greeter は対象外だが、
   # この host は autoLogin 後に KScreenLocker でロックするため Plasma session は在る。
-  # direct IP access は起動ごとに保証し、公開 relay を経由せず Tailscale 上で直結する。
+  # hardware video encoding と direct IP access は起動ごとに保証する。後者により
+  # 公開 relay を経由せず Tailscale 上で直結する。
   # TCP 21118 は上のとおり tailscale0 だけに公開する。
   boot.kernelModules = [ "uinput" ];
   systemd.services.rustdesk = {
@@ -341,7 +353,7 @@ in
     serviceConfig = {
       Type = "simple";
       ExecStart = "${pkgs.rustdesk}/bin/rustdesk --service";
-      ExecStartPost = rustdeskEnableDirectAccess;
+      ExecStartPost = rustdeskEnableAcceleration;
       Restart = "on-failure";
       RestartSec = "5s";
       LimitNOFILE = 100000;
