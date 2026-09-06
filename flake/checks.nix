@@ -278,6 +278,67 @@
             touch $out
           '';
 
+        # Sunshine は Jupiter の Plasma セッションと一緒に起動し、Wayland の
+        # KMS capture に必要な capability を持つ。管理 UI と配信ポートは
+        # KRdp と同様に tailscale0 だけへ公開する。
+        jupiter-sunshine-contract =
+          let
+            cfg = self.nixosConfigurations.jupiter.config;
+            sunshine = cfg.services.sunshine;
+            sunshineTCP = [
+              47984
+              47989
+              47990
+              48010
+            ];
+            sunshineUDP = [
+              47998
+              47999
+              48000
+              48002
+              48010
+            ];
+            interfaceNames = builtins.attrNames cfg.networking.firewall.interfaces;
+            sunshineInterfaces = builtins.filter (
+              name:
+              let
+                firewall = cfg.networking.firewall.interfaces.${name};
+              in
+              pkgs.lib.any (port: builtins.elem port (firewall.allowedTCPPorts or [ ])) sunshineTCP
+              || pkgs.lib.any (port: builtins.elem port (firewall.allowedUDPPorts or [ ])) sunshineUDP
+            ) interfaceNames;
+            tailnet = cfg.networking.firewall.interfaces.tailscale0;
+            tailnetTCP = builtins.filter (port: builtins.elem port tailnet.allowedTCPPorts) sunshineTCP;
+            tailnetUDP = builtins.filter (port: builtins.elem port tailnet.allowedUDPPorts) sunshineUDP;
+            globalTCP = builtins.filter (
+              port: builtins.elem port cfg.networking.firewall.allowedTCPPorts
+            ) sunshineTCP;
+            globalUDP = builtins.filter (
+              port: builtins.elem port cfg.networking.firewall.allowedUDPPorts
+            ) sunshineUDP;
+          in
+          pkgs.runCommand "jupiter-sunshine-contract" { } ''
+            ok=1
+            check() {
+              if [ "$2" != "$3" ]; then
+                echo "$1: expected '$3' but got '$2'"
+                ok=0
+              fi
+            }
+            check sunshine.enable "${if sunshine.enable then "true" else "false"}" "true"
+            check sunshine.autoStart "${if sunshine.autoStart then "true" else "false"}" "true"
+            check sunshine.capSysAdmin "${if sunshine.capSysAdmin then "true" else "false"}" "true"
+            check sunshine.openFirewall "${if sunshine.openFirewall then "true" else "false"}" "false"
+            check firewall.sunshineInterfaces \
+              "${builtins.concatStringsSep "|" sunshineInterfaces}" "tailscale0"
+            check firewall.tailscaleTCP '${builtins.toJSON tailnetTCP}' '${builtins.toJSON sunshineTCP}'
+            check firewall.tailscaleUDP '${builtins.toJSON tailnetUDP}' '${builtins.toJSON sunshineUDP}'
+            check firewall.globalTCP '${builtins.toJSON globalTCP}' '[]'
+            check firewall.globalUDP '${builtins.toJSON globalUDP}' '[]'
+            [ "$ok" = 1 ] || exit 1
+            touch $out
+          '';
+
         # freshrss digest の挙動契約。runbook が約束する取得窓(過去 24 時間)、
         # ID 先行取得と選抜分だけの本文取得、1 バッチ最大 20 件、時間予算での
         # 打ち切り(要約済み分だけ公開・処理済み化)、digest 自身の再要約除外、
