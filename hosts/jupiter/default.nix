@@ -8,21 +8,35 @@
 let
   # DE の単一真実: この 1 変数から system 側 import と HM 側フラグを導出する
   desktop = "kde";
-  androidSdk = (
-    pkgs.androidenv.composeAndroidPackages {
+  androidSdk =
+    (pkgs.androidenv.composeAndroidPackages {
       platformVersions = [ "36" ];
       includeEmulator = true;
       includeSystemImages = true;
       systemImageTypes = [ "google_apis_playstore" ];
       abiVersions = [ "x86_64" ];
       includeCmake = false;
-    }
-  ).androidsdk;
+    }).androidsdk;
+  androidEmulator = pkgs.writeShellScriptBin "android-emulator-default" ''
+    set -euo pipefail
+
+    export ANDROID_SDK_ROOT=${androidSdk}/libexec/android-sdk
+
+    if ! "$ANDROID_SDK_ROOT/emulator/emulator" -list-avds | ${pkgs.gnugrep}/bin/grep -Fxq default; then
+      ${pkgs.coreutils}/bin/printf 'no\n' |
+        "$ANDROID_SDK_ROOT"/cmdline-tools/*/bin/avdmanager create avd \
+          --name default \
+          --package 'system-images;android-36;google_apis_playstore;x86_64' \
+          --device pixel_8
+    fi
+
+    exec "$ANDROID_SDK_ROOT/emulator/emulator" @default
+  '';
   androidEmulatorDesktop = pkgs.makeDesktopItem {
     name = "android-emulator-default";
     desktopName = "Android Emulator";
     comment = "Start the default Android virtual device";
-    exec = "${pkgs.coreutils}/bin/env ANDROID_SDK_ROOT=${androidSdk}/libexec/android-sdk ${androidSdk}/libexec/android-sdk/emulator/emulator @default";
+    exec = "${androidEmulator}/bin/android-emulator-default";
     icon = "smartphone";
     categories = [ "Utility" ];
   };
@@ -256,6 +270,7 @@ in
   # IDE は不要なので、SDK・AVD 管理ツール・x86_64 system image だけを入れる。
   environment.systemPackages = [
     androidSdk
+    androidEmulator
     androidEmulatorDesktop
   ];
   environment.variables.ANDROID_HOME = "${androidSdk}/libexec/android-sdk";
