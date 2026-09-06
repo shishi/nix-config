@@ -84,5 +84,21 @@
       vscode
       wezterm
     ];
+
+    # ログイン中に D-Bus activation 対応アプリを追加・削除しても、起動済みの
+    # ユーザー D-Bus は service 定義を自動では再走査しない。package の切替後に
+    # ReloadConfig を呼び、再ログインまで古い activation 情報が残るのを防ぐ。
+    home.activation.reloadUserDbus = lib.hm.dag.entryAfter [ "installPackages" ] ''
+      runtime_dir="''${XDG_RUNTIME_DIR:-/run/user/$(${pkgs.coreutils}/bin/id -u)}"
+      if [ -S "$runtime_dir/bus" ]; then
+        export XDG_RUNTIME_DIR="$runtime_dir"
+        export DBUS_SESSION_BUS_ADDRESS="''${DBUS_SESSION_BUS_ADDRESS:-unix:path=$runtime_dir/bus}"
+        run ${pkgs.systemd}/bin/busctl --user --timeout=5 call \
+          org.freedesktop.DBus \
+          /org/freedesktop/DBus \
+          org.freedesktop.DBus \
+          ReloadConfig
+      fi
+    '';
   };
 }
