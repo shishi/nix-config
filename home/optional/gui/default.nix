@@ -78,6 +78,7 @@ in
       google-chrome
       llm-agents.claude-desktop
       localsend
+      mcomix
       microsoft-edge
       protonAuthenticator
       rustdesk
@@ -89,6 +90,7 @@ in
       vlc
       vscode
       wezterm
+      yacreader
     ];
 
     # ログイン中に D-Bus activation 対応アプリを追加・削除しても、起動済みの
