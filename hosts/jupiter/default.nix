@@ -19,10 +19,10 @@ let
     }
   ).androidsdk;
   androidEmulatorDesktop = pkgs.makeDesktopItem {
-    name = "android-emulator-ebookjapan";
-    desktopName = "Android Emulator (ebookjapan)";
-    comment = "Start the ebookjapan Android virtual device";
-    exec = "${androidSdk}/libexec/android-sdk/emulator/emulator @ebookjapan";
+    name = "android-emulator-default";
+    desktopName = "Android Emulator";
+    comment = "Start the default Android virtual device";
+    exec = "${androidSdk}/libexec/android-sdk/emulator/emulator @default";
     icon = "smartphone";
     categories = [ "Utility" ];
   };
@@ -252,7 +252,7 @@ in
   services.openssh.enable = true;
   virtualisation.docker.enable = true;
 
-  # ebookjapan をオフライン利用するための Google Play 付き Android Emulator。
+  # Google Play 付き Android Emulator。
   # IDE は不要なので、SDK・AVD 管理ツール・x86_64 system image だけを入れる。
   environment.systemPackages = [
     androidSdk
