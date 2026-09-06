@@ -316,6 +316,7 @@ in
       which
     ];
     environment = {
+      GST_PLUGIN_SYSTEM_PATH_1_0 = "${pkgs.pipewire}/lib/gstreamer-1.0";
       PIPEWIRE_LATENCY = "1024/48000";
       PULSE_LATENCY_MSEC = "60";
       RUSTDESK_FORCED_DISPLAY_SERVER = "wayland";
