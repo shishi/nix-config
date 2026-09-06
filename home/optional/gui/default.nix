@@ -65,7 +65,6 @@
     systemd.user.sessionVariables.CODEX_LINUX_DISABLE_USAGE_REPORTING = "1";
 
     home.packages = with pkgs; [
-      _1password-gui
       brave
       discord
       firefox

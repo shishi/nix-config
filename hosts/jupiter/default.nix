@@ -410,6 +410,14 @@ in
   services.linux-enable-ir-emitter.enable = true; # device 既定 "video2" が実機と一致
   services.fprintd.enable = true;
 
+  # system authentication の polkit policy と、browser extension が接続元を
+  # 検証する setgid wrapper を system-wide に配置する。home.packages だけでは
+  # どちらも生成されず、指紋 unlock と browser integration が失敗する。
+  programs._1password-gui = {
+    enable = true;
+    polkitPolicyOwners = [ "shishi" ];
+  };
+
   # krdp(RDP)は PAM サービス "login" を使う(journal の
   # pam_unix(login:account): setuid failed が krdp 由来であることを実測)。
   # login に howdy と fprintd が乗ると、RDP 接続のたびに顔スキャン(上記の
