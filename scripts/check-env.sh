@@ -9,20 +9,19 @@ FAIL=0
 ng() { echo "check-env NG: $*" >&2; FAIL=1; }
 ok() { echo "check-env ok: $*"; }
 
+login_shell="$(getent passwd "$(id -un)" | cut -d: -f7)" || true
+
 resolve() {
-  if command -v fish >/dev/null 2>&1; then
-    fish -lc "command -v $1" 2>/dev/null || true
-  else
-    bash -lc "command -v $1" 2>/dev/null || true
-  fi
+  if [ ! -x "$login_shell" ]; then return 0; fi
+  "$login_shell" -l -c "command -v $1" 2>/dev/null || true
 }
 
 # --- critical: シェル / PATH 契約 ---
-login_shell="$(getent passwd "$USER" | cut -d: -f7)"
-case "$login_shell" in
-  */fish) ok "login shell is fish" ;;
-  *) ng "login shell is $login_shell (expected fish)" ;;
-esac
+if [ -n "$login_shell" ] && [ -x "$login_shell" ]; then
+  ok "login shell is $login_shell"
+else
+  ng "login shell unavailable: ${login_shell:-not found}"
+fi
 
 # rustc/cargo は rustup 実体へ解決されること。
 # nixpkgs の rustup は nix profile に proxy symlink を置くため(High-1)、

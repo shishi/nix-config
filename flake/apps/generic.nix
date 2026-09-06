@@ -8,7 +8,6 @@
       check-env = pkgs.writeShellApplication {
         name = "check-env";
         runtimeInputs = with pkgs; [
-          # fish 不在時の resolve() fallback が bash -lc を実行する
           bash
           coreutils
           gnugrep

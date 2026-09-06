@@ -510,7 +510,6 @@ in
       ];
       my.desktopSession = desktop;
       my.skk.enable = true;
-      my.shell = "fish";
     };
   };
 

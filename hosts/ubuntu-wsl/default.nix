@@ -12,7 +12,6 @@
   # port 1178 を保持しており(mirrored networking でポート空間共有)、
   # 日本語入力は Windows 側で完結している実測に基づく。jupiter では有効
   my.skk.enable = false;
-  my.shell = "fish";
 
   # standalone 専用: HM CLI(統合 NixOS ホストでは第 2 適用経路になるため禁止)
   programs.home-manager.enable = true;

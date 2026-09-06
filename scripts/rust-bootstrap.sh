@@ -8,7 +8,6 @@ MODE="${1:---auto}"
 STATE_DIR="$HOME/.local/state/rust-bootstrap"
 MANIFEST="$STATE_DIR/managed.txt"
 CARGO_BIN="$HOME/.cargo/bin"
-SHELL_NAME="${RUST_BOOTSTRAP_SHELL:-fish}"
 TOOLS_JSON="${RUST_BOOTSTRAP_TOOLS:?RUST_BOOTSTRAP_TOOLS (json) required}"
 FAIL=0
 
@@ -134,16 +133,18 @@ remove_stale() {
 }
 
 resolve_in_login_shell() {
-  local b="$1"
-  if [ "$SHELL_NAME" = fish ] && command -v fish >/dev/null 2>&1; then
-    fish -lc "command -v $b" 2>/dev/null || true
-  else
-    bash -lc "command -v $b" 2>/dev/null || true
-  fi
+  local login_shell="$1" b="$2"
+  if [ ! -x "$login_shell" ]; then return 0; fi
+  "$login_shell" -l -c "command -v $b" 2>/dev/null || true
 }
 
 health_check() {
-  local ok=1 b r target
+  local ok=1 b r target login_shell
+  login_shell="$(getent passwd "$(id -un)" | cut -d: -f7)" || true
+  if [ -z "$login_shell" ] || [ ! -x "$login_shell" ]; then
+    note "health: login shell unavailable: ${login_shell:-not found}"
+    ok=0
+  fi
   if ! rustup which rustc >/dev/null 2>&1; then
     note "health: rustup which rustc failed"; ok=0
   fi
@@ -155,7 +156,7 @@ health_check() {
   # High-1 対応: nixpkgs の rustup は nix profile に rustc/cargo の proxy symlink を
   # 常設する。「nix profile に無いこと」ではなく「解決先が rustup 実体であること」を検証する
   for b in rustc cargo; do
-    r="$(resolve_in_login_shell "$b")"
+    r="$(resolve_in_login_shell "$login_shell" "$b")"
     if [ -z "$r" ]; then
       note "health: $b not resolvable in login shell"; ok=0; continue
     fi

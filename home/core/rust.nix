@@ -16,11 +16,11 @@ let
       util-linux
       gnugrep
       bash
-      fish # login shell 解決検証(activation の最小 PATH でも動くように)
+      getent
+      glibc.bin
     ];
     text = ''
       export RUST_BOOTSTRAP_TOOLS='${toolsJson}'
-      export RUST_BOOTSTRAP_SHELL='${config.my.shell}'
       ${builtins.readFile ../../scripts/rust-bootstrap.sh}
     '';
   };
