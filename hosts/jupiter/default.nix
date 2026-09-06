@@ -18,6 +18,14 @@ let
       includeCmake = false;
     }
   ).androidsdk;
+  androidEmulatorDesktop = pkgs.makeDesktopItem {
+    name = "android-emulator-ebookjapan";
+    desktopName = "Android Emulator (ebookjapan)";
+    comment = "Start the ebookjapan Android virtual device";
+    exec = "${androidSdk}/libexec/android-sdk/emulator/emulator @ebookjapan";
+    icon = "smartphone";
+    categories = [ "Utility" ];
+  };
   rustdeskEnableAcceleration = pkgs.writeShellScript "rustdesk-enable-acceleration" ''
     for _ in {1..4}; do
       ${pkgs.rustdesk}/bin/rustdesk --option enable-hwcodec Y
@@ -246,7 +254,10 @@ in
 
   # ebookjapan をオフライン利用するための Google Play 付き Android Emulator。
   # IDE は不要なので、SDK・AVD 管理ツール・x86_64 system image だけを入れる。
-  environment.systemPackages = [ androidSdk ];
+  environment.systemPackages = [
+    androidSdk
+    androidEmulatorDesktop
+  ];
   environment.variables.ANDROID_HOME = "${androidSdk}/libexec/android-sdk";
 
   # FHS 非互換の prebuilt バイナリへの備え。x86_64 glibc の prebuilt ELF は
