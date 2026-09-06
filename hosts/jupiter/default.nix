@@ -18,6 +18,19 @@ let
       includeCmake = false;
     }
   ).androidsdk;
+  rustdeskEnableDirectAccess = pkgs.writeShellScript "rustdesk-enable-direct-access" ''
+    for _ in {1..4}; do
+      ${pkgs.rustdesk}/bin/rustdesk --option direct-server Y
+      if [[ "$(${pkgs.rustdesk}/bin/rustdesk --option direct-server)" == Y ]] &&
+        ${pkgs.iproute2}/bin/ss -H -ltn 'sport = :21118' | ${pkgs.gnugrep}/bin/grep -q .; then
+        exit 0
+      fi
+      ${pkgs.coreutils}/bin/sleep 1
+    done
+
+    echo "RustDesk did not enable direct IP access" >&2
+    exit 1
+  '';
 in
 {
   imports = [
@@ -276,6 +289,8 @@ in
   networking.firewall.interfaces.tailscale0 = {
     allowedTCPPorts = [
       3389
+      # RustDesk direct IP access. Public relay を迂回して tailnet 内で直結する。
+      21118
       # Sunshine: web UI / GameStream control / RTSP
       47984
       47989
@@ -296,6 +311,8 @@ in
   # Wayland の入力を /dev/uinput 経由で注入する。画面取得はユーザー session の
   # PipeWire/XDG Desktop Portal を使う。SDDM の Wayland greeter は対象外だが、
   # この host は autoLogin 後に KScreenLocker でロックするため Plasma session は在る。
+  # direct IP access は起動ごとに保証し、公開 relay を経由せず Tailscale 上で直結する。
+  # TCP 21118 は上のとおり tailscale0 だけに公開する。
   boot.kernelModules = [ "uinput" ];
   systemd.services.rustdesk = {
     description = "RustDesk remote desktop host";
@@ -324,6 +341,7 @@ in
     serviceConfig = {
       Type = "simple";
       ExecStart = "${pkgs.rustdesk}/bin/rustdesk --service";
+      ExecStartPost = rustdeskEnableDirectAccess;
       Restart = "on-failure";
       RestartSec = "5s";
       LimitNOFILE = 100000;
