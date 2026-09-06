@@ -74,6 +74,7 @@
       llm-agents.claude-desktop
       localsend
       microsoft-edge
+      proton-authenticator
       rustdesk
       slack
       tailscale-systray
