@@ -22,7 +22,7 @@ let
     name = "android-emulator-default";
     desktopName = "Android Emulator";
     comment = "Start the default Android virtual device";
-    exec = "${androidSdk}/libexec/android-sdk/emulator/emulator @default";
+    exec = "${pkgs.coreutils}/bin/env ANDROID_SDK_ROOT=${androidSdk}/libexec/android-sdk ${androidSdk}/libexec/android-sdk/emulator/emulator @default";
     icon = "smartphone";
     categories = [ "Utility" ];
   };
