@@ -79,6 +79,7 @@
       tailscale-systray
       teamviewer
       vesktop
+      viber
       vlc
       vscode
       wezterm
