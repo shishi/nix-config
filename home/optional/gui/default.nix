@@ -5,6 +5,11 @@
   lib,
   ...
 }:
+let
+  protonAuthenticator = pkgs.proton-authenticator.overrideAttrs (oldAttrs: {
+    patches = (oldAttrs.patches or [ ]) ++ [ ./proton-authenticator-keyring.patch ];
+  });
+in
 {
   imports = [
     ./gnome.nix
@@ -74,7 +79,7 @@
       llm-agents.claude-desktop
       localsend
       microsoft-edge
-      proton-authenticator
+      protonAuthenticator
       rustdesk
       slack
       tailscale-systray
