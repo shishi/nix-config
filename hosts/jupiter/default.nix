@@ -141,6 +141,11 @@ in
   networking.hostName = "jupiter";
   system.stateVersion = "25.05"; # インストール時のリリース。以後は変更しない
 
+  # Minisforum V3 の内蔵マイクを正しいピン構成で初期化する。
+  boot.extraModprobeConfig = ''
+    options snd-hda-intel model=alc256-asus-aio
+  '';
+
   # lanzaboote が UKI を署名して systemd-boot を置き換える。
   # 鍵の生成と Setup Mode での enroll は宣言できないので runbook 側で行う
   # (docs/jupiter-secure-boot-runbook.md)。
