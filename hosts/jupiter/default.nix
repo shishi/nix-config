@@ -67,7 +67,7 @@ let
     # Emulator 付属の Qt が Plasma のセッション復元ソケットへ接続すると、
     # Android を起動する前の応答待ちで固まる。復元対象にせず直接起動する。
     unset SESSION_MANAGER
-    exec "$ANDROID_SDK_ROOT/emulator/emulator" "@$avd_name" -port 5554 -gpu host
+    exec "$ANDROID_SDK_ROOT/emulator/emulator" "@$avd_name" -port 5554 -gpu host -allow-host-audio
   '';
   androidEmulatorDesktop = pkgs.makeDesktopItem {
     name = "android-emulator-default";
