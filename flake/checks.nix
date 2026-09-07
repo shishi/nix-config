@@ -563,7 +563,7 @@
             }
             # 方針の固定: 期待値はここにしか無いリテラル。
             check defaultLocale "${i18n.defaultLocale}" "en_US.UTF-8"
-            check LC_TIME "${i18n.extraLocaleSettings.LC_TIME or ""}" "en_DK.UTF-8"
+            check LC_TIME "${i18n.extraLocaleSettings.LC_TIME or ""}" "ja_JP.UTF-8"
             check LC_MONETARY "${i18n.extraLocaleSettings.LC_MONETARY or ""}" "ja_JP.UTF-8"
             check LC_PAPER "${i18n.extraLocaleSettings.LC_PAPER or ""}" "ja_JP.UTF-8"
             check LC_MEASUREMENT "${i18n.extraLocaleSettings.LC_MEASUREMENT or ""}" "ja_JP.UTF-8"
