@@ -21,19 +21,48 @@ let
     set -euo pipefail
 
     export ANDROID_SDK_ROOT=${androidSdk}/libexec/android-sdk
+    avd_name=default
 
-    if ! "$ANDROID_SDK_ROOT/emulator/emulator" -list-avds | ${pkgs.gnugrep}/bin/grep -Fxq default; then
+    if ! "$ANDROID_SDK_ROOT/emulator/emulator" -list-avds | ${pkgs.gnugrep}/bin/grep -Fxq "$avd_name"; then
       ${pkgs.coreutils}/bin/printf 'no\n' |
         "$ANDROID_SDK_ROOT"/cmdline-tools/*/bin/avdmanager create avd \
-          --name default \
+          --name "$avd_name" \
           --package 'system-images;android-36;google_apis_playstore;x86_64' \
           --device pixel_8
+
+      avd_config="''${ANDROID_AVD_HOME:-$HOME/.android/avd}/$avd_name.avd/config.ini"
+      ${pkgs.gnused}/bin/sed -i \
+        -e 's/^disk\.dataPartition\.size=.*/disk.dataPartition.size=128G/' \
+        -e 's/^hw\.lcd\.width=.*/hw.lcd.width=1440/' \
+        -e 's/^hw\.lcd\.height=.*/hw.lcd.height=2560/' \
+        -e 's/^hw\.lcd\.density=.*/hw.lcd.density=320/' \
+        -e 's/^hw\.ramSize=.*/hw.ramSize=4G/' \
+        -e 's/^hw\.keyboard=.*/hw.keyboard=yes/' \
+        -e 's/^showDeviceFrame=.*/showDeviceFrame=no/' \
+        "$avd_config"
     fi
+
+    # 起動完了後、画面の自動消灯と、それに伴う自動ロックを無効化する。
+    # 180 秒を上限に待ち、エミュレーター本体の起動は設定失敗で巻き添えにしない。
+    (
+      adb="$ANDROID_SDK_ROOT/platform-tools/adb"
+      for _ in {1..180}; do
+        if [[ "$("$adb" -s emulator-5554 shell getprop sys.boot_completed 2>/dev/null | ${pkgs.coreutils}/bin/tr -d '\r')" == 1 ]]; then
+          "$adb" -s emulator-5554 shell settings put system screen_off_timeout 2147483647
+          "$adb" -s emulator-5554 shell settings put global stay_on_while_plugged_in 7
+          "$adb" -s emulator-5554 shell settings put secure lock_screen_lock_after_timeout 2147483647
+          exit 0
+        fi
+        ${pkgs.coreutils}/bin/sleep 1
+      done
+      echo "Android did not finish booting within 180 seconds; display settings were not applied" >&2
+      exit 1
+    ) &
 
     # Emulator 付属の Qt が Plasma のセッション復元ソケットへ接続すると、
     # Android を起動する前の応答待ちで固まる。復元対象にせず直接起動する。
     unset SESSION_MANAGER
-    exec "$ANDROID_SDK_ROOT/emulator/emulator" @default -gpu software
+    exec "$ANDROID_SDK_ROOT/emulator/emulator" "@$avd_name" -port 5554 -gpu software
   '';
   androidEmulatorDesktop = pkgs.makeDesktopItem {
     name = "android-emulator-default";
