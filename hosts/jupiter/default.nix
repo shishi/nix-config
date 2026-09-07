@@ -17,6 +17,116 @@ let
       abiVersions = [ "x86_64" ];
       includeCmake = false;
     }).androidsdk;
+  rnnoiseMicrophoneConfig = pkgs.writeTextDir "pipewire/filter-chain.conf.d/99-rnnoise-microphone.conf" ''
+    context.modules = [
+      { name = libpipewire-module-filter-chain
+        args = {
+          node.description = "Noise Suppressed Microphone"
+          media.name = "Noise Suppressed Microphone"
+          filter.graph = {
+            nodes = [
+              { type = builtin name = input_copy label = copy }
+              {
+                type = ladspa
+                name = rnnoise
+                plugin = "${pkgs.rnnoise-plugin.ladspa}/lib/ladspa/librnnoise_ladspa.so"
+                label = noise_suppressor_mono
+                control = { "VAD Threshold (%)" = 0.0 }
+              }
+              {
+                type = builtin
+                name = raw_delay
+                label = delay
+                config = { "max-delay" = 1 }
+                control = { "Delay (s)" = 0.14 }
+              }
+              {
+                type = builtin
+                name = output_mix
+                label = mixer
+                control = {
+                  "Gain 1" = 1.0
+                  # 加工後の 150% を含め、最終的に生音が約 10% になる値。
+                  "Gain 2" = 0.03
+                }
+              }
+            ]
+            links = [
+              { output = "input_copy:Out" input = "rnnoise:Input" }
+              { output = "input_copy:Out" input = "raw_delay:In" }
+              { output = "rnnoise:Output" input = "output_mix:In 1" }
+              { output = "raw_delay:Out" input = "output_mix:In 2" }
+            ]
+            inputs = [ "input_copy:In" ]
+            outputs = [ "output_mix:Out" ]
+          }
+          capture.props = {
+            node.name = "effect_input.rnnoise_microphone"
+            node.passive = true
+            target.object = "alsa_input.pci-0000_c4_00.6.analog-stereo"
+            audio.position = [ FL ]
+            stream.dont-remix = true
+          }
+          playback.props = {
+            node.name = "rnnoise_microphone"
+            media.class = Audio/Source
+            audio.position = [ MONO ]
+          }
+        }
+      }
+      { name = libpipewire-module-filter-chain
+        args = {
+          node.description = "Android Noise Suppressed Microphone"
+          media.name = "Android Noise Suppressed Microphone"
+          filter.graph = {
+            nodes = [
+              {
+                type = ladspa
+                name = rnnoise
+                plugin = "${pkgs.rnnoise-plugin.ladspa}/lib/ladspa/librnnoise_ladspa.so"
+                label = noise_suppressor_mono
+                control = { "VAD Threshold (%)" = 0.0 }
+              }
+            ]
+          }
+          capture.props = {
+            node.name = "effect_input.rnnoise_android_microphone"
+            node.passive = true
+            target.object = "alsa_input.pci-0000_c4_00.6.analog-stereo"
+            audio.position = [ FL ]
+            stream.dont-remix = true
+          }
+          playback.props = {
+            node.name = "rnnoise_android_microphone"
+            media.class = Audio/Source
+            audio.position = [ MONO ]
+          }
+        }
+      }
+    ]
+  '';
+  configureRnnoiseMicrophone = pkgs.writeShellScript "configure-rnnoise-microphone" ''
+    set -euo pipefail
+
+    pactl=${pkgs.pulseaudio}/bin/pactl
+    physical_source=alsa_input.pci-0000_c4_00.6.analog-stereo
+    processed_source=rnnoise_microphone
+    android_source=rnnoise_android_microphone
+    for _ in {1..50}; do
+      if "$pactl" list sources short | ${pkgs.gnugrep}/bin/grep -Fq "$processed_source" &&
+        "$pactl" list sources short | ${pkgs.gnugrep}/bin/grep -Fq "$android_source"; then
+        ${pkgs.alsa-utils}/bin/amixer -c 1 set 'Internal Mic Boost' 0 >/dev/null
+        "$pactl" set-source-volume "$physical_source" 30% 0%
+        "$pactl" set-source-volume "$processed_source" 150%
+        "$pactl" set-source-volume "$android_source" 220%
+        "$pactl" set-default-source "$processed_source"
+        exit 0
+      fi
+      ${pkgs.coreutils}/bin/sleep 0.1
+    done
+    echo "Noise-suppressed microphones did not appear within 5 seconds" >&2
+    exit 1
+  '';
   androidEmulator = pkgs.writeShellScriptBin "android-emulator-default" ''
     set -euo pipefail
 
@@ -46,6 +156,14 @@ let
       -e 's/^hw\.gpu\.enabled=.*/hw.gpu.enabled=yes/' \
       -e 's/^hw\.gpu\.mode=.*/hw.gpu.mode=host/' \
       "$avd_config"
+
+    # KDE 用の生音バックアップは LINE 側で再増幅されるため、Android には
+    # 生音を混ぜず、声量だけ補ったノイズ抑制済み入力を渡す。
+    clean_mic_source=rnnoise_android_microphone
+    # 右入力は左入力の約 2 倍のノイズがあるため、静かな左入力だけを使う。
+    ${pkgs.systemd}/bin/systemctl --user start rnnoise-microphone.service
+    ${configureRnnoiseMicrophone}
+    export PULSE_SOURCE="$clean_mic_source"
 
     # 起動完了後、画面の自動消灯と、それに伴う自動ロックを無効化する。
     # 180 秒を上限に待ち、エミュレーター本体の起動は設定失敗で巻き添えにしない。
@@ -534,6 +652,21 @@ in
   # 取れない。負荷が高いときに音が途切れる側に倒れる。増えるのは
   # rtkit-daemon 1 本で、polkit は既に有効、firewall の口も増えない。
   security.rtkit.enable = true;
+
+  systemd.user.services.rnnoise-microphone = {
+    description = "Noise suppression for the internal microphone";
+    wantedBy = [ "default.target" ];
+    after = [ "pipewire.service" ];
+    serviceConfig = {
+      ExecStart = "${pkgs.pipewire}/bin/pipewire -c filter-chain.conf";
+      ExecStartPost = configureRnnoiseMicrophone;
+      Restart = "on-failure";
+    };
+    environment = {
+      XDG_CONFIG_HOME = rnnoiseMicrophoneConfig;
+      LADSPA_PATH = "${pkgs.rnnoise-plugin.ladspa}/lib/ladspa";
+    };
+  };
 
   # 初回インストールで nixos-anywhere --extra-files に渡した鍵は、tar が
   # --no-same-owner で展開されるため所有者が root になる(mode だけが保存される)。
