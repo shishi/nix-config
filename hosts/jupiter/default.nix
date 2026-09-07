@@ -22,6 +22,7 @@ let
 
     export ANDROID_SDK_ROOT=${androidSdk}/libexec/android-sdk
     avd_name=default
+    avd_config="''${ANDROID_AVD_HOME:-$HOME/.android/avd}/$avd_name.avd/config.ini"
 
     if ! "$ANDROID_SDK_ROOT/emulator/emulator" -list-avds | ${pkgs.gnugrep}/bin/grep -Fxq "$avd_name"; then
       ${pkgs.coreutils}/bin/printf 'no\n' |
@@ -30,7 +31,6 @@ let
           --package 'system-images;android-36;google_apis_playstore;x86_64' \
           --device pixel_8
 
-      avd_config="''${ANDROID_AVD_HOME:-$HOME/.android/avd}/$avd_name.avd/config.ini"
       ${pkgs.gnused}/bin/sed -i \
         -e 's/^disk\.dataPartition\.size=.*/disk.dataPartition.size=128G/' \
         -e 's/^hw\.lcd\.width=.*/hw.lcd.width=1440/' \
@@ -41,6 +41,11 @@ let
         -e 's/^showDeviceFrame=.*/showDeviceFrame=no/' \
         "$avd_config"
     fi
+
+    ${pkgs.gnused}/bin/sed -i \
+      -e 's/^hw\.gpu\.enabled=.*/hw.gpu.enabled=yes/' \
+      -e 's/^hw\.gpu\.mode=.*/hw.gpu.mode=host/' \
+      "$avd_config"
 
     # 起動完了後、画面の自動消灯と、それに伴う自動ロックを無効化する。
     # 180 秒を上限に待ち、エミュレーター本体の起動は設定失敗で巻き添えにしない。
@@ -62,7 +67,7 @@ let
     # Emulator 付属の Qt が Plasma のセッション復元ソケットへ接続すると、
     # Android を起動する前の応答待ちで固まる。復元対象にせず直接起動する。
     unset SESSION_MANAGER
-    exec "$ANDROID_SDK_ROOT/emulator/emulator" "@$avd_name" -port 5554 -gpu software
+    exec "$ANDROID_SDK_ROOT/emulator/emulator" "@$avd_name" -port 5554 -gpu host
   '';
   androidEmulatorDesktop = pkgs.makeDesktopItem {
     name = "android-emulator-default";
