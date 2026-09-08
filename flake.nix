@@ -13,10 +13,9 @@
       url = "github:numtide/treefmt-nix";
       inputs.nixpkgs.follows = "nixpkgs";
     };
-    llm-agents = {
-      url = "github:numtide/llm-agents.nix";
-      inputs.nixpkgs.follows = "nixpkgs";
-    };
+    # 上流 CI と同じ nixpkgs pin を使い、Numtide の binary cache を利用する。
+    # follows すると derivation が変わり、Codex 等が source build に落ちる。
+    llm-agents.url = "github:numtide/llm-agents.nix";
     nix-index-database = {
       url = "github:nix-community/nix-index-database";
       inputs.nixpkgs.follows = "nixpkgs";

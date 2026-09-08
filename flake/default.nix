@@ -25,7 +25,9 @@
         overlays = [
           self.overlays.default
           inputs.neovim-nightly-overlay.overlays.default
-          inputs.llm-agents.overlays.shared-nixpkgs
+          # 上流 CI 済みの package を既存の pkgs.llm-agents 名前空間へ公開する。
+          # shared-nixpkgs はこの flake の nixpkgs で再構築するため cache が外れる。
+          (_final: _prev: { llm-agents = inputs.llm-agents.packages.${system}; })
           # nightly overlay が neovim-unwrapped を定義したあとに被せる必要がある
           (import ../overlays/neovim-desktop.nix)
         ];
