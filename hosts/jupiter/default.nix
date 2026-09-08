@@ -113,7 +113,8 @@ let
     processed_source=rnnoise_microphone
     android_source=rnnoise_android_microphone
     for _ in {1..50}; do
-      if "$pactl" list sources short | ${pkgs.gnugrep}/bin/grep -Fq "$processed_source" &&
+      if "$pactl" list sources short | ${pkgs.gnugrep}/bin/grep -Fq "$physical_source" &&
+        "$pactl" list sources short | ${pkgs.gnugrep}/bin/grep -Fq "$processed_source" &&
         "$pactl" list sources short | ${pkgs.gnugrep}/bin/grep -Fq "$android_source"; then
         ${pkgs.alsa-utils}/bin/amixer -c 1 set 'Internal Mic Boost' 0 >/dev/null
         "$pactl" set-source-volume "$physical_source" 30% 0%
