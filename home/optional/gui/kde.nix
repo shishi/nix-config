@@ -193,7 +193,6 @@ in
         {
           location = "right";
           widgets = [
-            "org.kde.plasma.showdesktop"
             "org.kde.plasma.kickoff"
             "org.kde.plasma.pager"
             {
