@@ -193,7 +193,18 @@ in
         {
           location = "right";
           widgets = [
-            "org.kde.plasma.kickoff"
+            {
+              # 初期のお気に入り。既存環境では KDE のアクティビティ DB が優先される。
+              kickoff.settings.General.favorites = [
+                "applications:systemsettings.desktop"
+                "applications:org.kde.dolphin.desktop"
+                "applications:com.mitchellh.ghostty.desktop"
+                "applications:brave-browser.desktop"
+                "applications:steam.desktop"
+                "applications:Proton Authenticator.desktop"
+                "applications:android-emulator-default.desktop"
+              ];
+            }
             "org.kde.plasma.pager"
             {
               # taskbar に固定するもの。並び順はこのリストの順。
@@ -209,10 +220,11 @@ in
               iconTasks.launchers = [
                 "applications:systemsettings.desktop"
                 "applications:org.kde.dolphin.desktop"
-                "applications:org.wezfurlong.wezterm.desktop"
+                "applications:com.mitchellh.ghostty.desktop"
                 "applications:brave-browser.desktop"
                 "applications:codex-desktop.desktop"
                 "applications:claude-desktop.desktop"
+                "applications:rustdesk.desktop"
               ];
             }
             "org.kde.plasma.marginsseparator"
