@@ -51,12 +51,16 @@
       url = "github:Mic92/sops-nix";
       inputs.nixpkgs.follows = "nixpkgs";
     };
+    # Lanzaboote v1.1.0 の pin は非推奨の stdenv 属性を参照する。
+    # 独立した input にして通常の flake update でも修正版を追跡する。
+    rust-overlay = {
+      url = "github:oxalica/rust-overlay";
+      inputs.nixpkgs.follows = "nixpkgs";
+    };
     lanzaboote = {
       url = "github:nix-community/lanzaboote/v1.1.0";
       inputs.nixpkgs.follows = "nixpkgs";
-      # v1.1.0 の pin は stdenv.isLinux/isDarwin を参照するため、
-      # 現行 nixpkgs に対応した rust-overlay を使う。
-      inputs.rust-overlay.url = "github:oxalica/rust-overlay";
+      inputs.rust-overlay.follows = "rust-overlay";
     };
     # ChatGPT Desktop。OpenAI の署名済み APT metadata から version 付き .deb を
     # 固定する第三者 distribution。旧 wrapper の /latest/ URL は上流更新のたびに
