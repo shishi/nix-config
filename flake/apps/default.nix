@@ -36,6 +36,7 @@
         {
           "${host}-secrets" = {
             type = "app";
+            meta.description = "Prepare encrypted secrets for ${host}";
             program = "${
               pkgs.writeShellApplication {
                 name = "${host}-secrets";
@@ -48,6 +49,7 @@
           # (phase ごとの絞り込みを行うのは jupiter のみ。dns-osaka-1 は全 phase 固定)。
           "${host}-install" = {
             type = "app";
+            meta.description = "Provision ${host} with NixOS and secrets";
             program = "${
               pkgs.writeShellApplication {
                 name = "${host}-install";

@@ -115,6 +115,6 @@ nixos-rebuild switch --flake .#dns-osaka-1 --target-host shishi@129.225.177.221 
 
 | app | コマンド | 使う場面 |
 |---|---|---|
-| `update`（default） | `nix run .#update` | Flake input と独自パッケージ `yaskkserv2` を更新し、`nix flake check` を実行する。`nix flake update` だけでは `yaskkserv2` は更新されないため、通常はこちらを使う |
+| `update`（default） | `nix run .#update` | `yaskkserv2` を含む Flake input を更新し、`nix flake check` を実行する |
 
 `update` は未コミットの変更がない checkout で実行する。更新結果は現在の checkout に未コミット差分として残るので、内容を確認してからcommitする。各ホストの完全なビルドと適用は、そのホストを更新するときに行う。

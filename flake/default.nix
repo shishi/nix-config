@@ -34,5 +34,7 @@
       };
     };
 
-  flake.overlays.default = import ../overlays/pkgs.nix;
+  flake.overlays.default = _final: prev: {
+    yaskkserv2 = inputs.yaskkserv2.packages.${prev.stdenv.hostPlatform.system}.yaskkserv2;
+  };
 }

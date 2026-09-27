@@ -28,6 +28,7 @@ new_fixture() {
 set -euo pipefail
 printf 'nix %s\n' "$*" >> "$UPDATE_CALLS"
 if [ "$*" = "flake update" ]; then
+  if [ "${FLAKE_UPDATE_EXIT:-0}" != 0 ]; then exit "$FLAKE_UPDATE_EXIT"; fi
   printf '{"updated":true}\n' > flake.lock
 fi
 SCRIPT
@@ -35,13 +36,8 @@ SCRIPT
 
   {
     printf '#!%s\n' "$BASH"
-    cat <<'SCRIPT'
-set -euo pipefail
-printf 'nix-update %s\n' "$*" >> "$UPDATE_CALLS"
-exit "${NIX_UPDATE_EXIT:-0}"
-SCRIPT
+    printf '%s\n' 'echo "FAIL: update must not invoke nix-update" >&2' 'exit 1'
   } > "$fixture/bin/nix-update"
-
   chmod +x "$fixture/bin/nix" "$fixture/bin/nix-update"
   : > "$fixture/calls"
   git -C "$fixture" init -q
@@ -71,11 +67,10 @@ new_fixture "$clean_fixture"
 )
 
 assert_line "nix flake update" "$clean_fixture/calls"
-assert_line "nix-update --flake yaskkserv2" "$clean_fixture/calls"
 assert_line "nix flake check" "$clean_fixture/calls"
 
-if grep -Eq -- '--commit|^nix build ' "$clean_fixture/calls"; then
-  echo "FAIL: update must not commit or perform host-specific builds" >&2
+if [ "$(cat "$clean_fixture/calls")" != "$(printf 'nix flake update\nnix flake check')" ]; then
+  echo "FAIL: update must only update flake inputs and then check" >&2
   cat "$clean_fixture/calls" >&2
   exit 1
 fi
@@ -113,16 +108,15 @@ new_fixture "$failed_fixture"
 : > "$failed_fixture/calls"
 if (
   cd "$failed_fixture"
-  UPDATE_CALLS="$failed_fixture/calls" NIX_UPDATE_EXIT=23 PATH="$failed_fixture/bin:$PATH" "$BASH" ./update.sh
+  UPDATE_CALLS="$failed_fixture/calls" FLAKE_UPDATE_EXIT=23 PATH="$failed_fixture/bin:$PATH" "$BASH" ./update.sh
 ) >"$test_root/failed-output" 2>&1; then
-  echo "FAIL: update must propagate nix-update failures" >&2
+  echo "FAIL: update must propagate flake update failures" >&2
   exit 1
 fi
 
 assert_line "nix flake update" "$failed_fixture/calls"
-assert_line "nix-update --flake yaskkserv2" "$failed_fixture/calls"
 if grep -Fxq "nix flake check" "$failed_fixture/calls"; then
-  echo "FAIL: checks ran after nix-update failed" >&2
+  echo "FAIL: checks ran after flake update failed" >&2
   exit 1
 fi
 

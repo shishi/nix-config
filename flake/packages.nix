@@ -3,6 +3,6 @@
   perSystem =
     { pkgs, ... }:
     {
-      packages = import ../pkgs { inherit pkgs; };
+      packages = { inherit (pkgs) yaskkserv2; };
     };
 }

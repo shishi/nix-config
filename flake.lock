@@ -669,7 +669,8 @@
         "nixpkgs-ruby": "nixpkgs-ruby",
         "plasma-manager": "plasma-manager",
         "sops-nix": "sops-nix",
-        "treefmt-nix": "treefmt-nix_3"
+        "treefmt-nix": "treefmt-nix_3",
+        "yaskkserv2": "yaskkserv2"
       }
     },
     "rust-overlay": {
@@ -680,11 +681,11 @@
         ]
       },
       "locked": {
-        "lastModified": 1782012058,
-        "narHash": "sha256-9mWUnReOUXfKjZuJAL/bAFH3LUyECTRtXgSNVjRw3UY=",
+        "lastModified": 1790495762,
+        "narHash": "sha256-26FbceKgybcbwkIvs2yHsF5jHcWLEkITYg5g9WPSy64=",
         "owner": "oxalica",
         "repo": "rust-overlay",
-        "rev": "8534567325bd8a8d2928e6afd81e0a87d19efd3c",
+        "rev": "edea2d6f98b1e5f64ce5ac21e19a96c603c20b8c",
         "type": "github"
       },
       "original": {
@@ -817,6 +818,27 @@
       "original": {
         "owner": "numtide",
         "repo": "treefmt-nix",
+        "type": "github"
+      }
+    },
+    "yaskkserv2": {
+      "inputs": {
+        "nixpkgs": [
+          "nixpkgs"
+        ]
+      },
+      "locked": {
+        "lastModified": 1789386562,
+        "narHash": "sha256-4RFflztnKrtlHM3zaQGwQKOdH+S+0/oUba1L6YSPw3s=",
+        "owner": "wachikun",
+        "repo": "yaskkserv2",
+        "rev": "cb31add270166fac78e1b47fc03dde840a393637",
+        "type": "github"
+      },
+      "original": {
+        "owner": "wachikun",
+        "ref": "master",
+        "repo": "yaskkserv2",
         "type": "github"
       }
     }

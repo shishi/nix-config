@@ -11,9 +11,6 @@ fi
 echo "== flake inputs =="
 nix flake update
 
-echo "== custom package: yaskkserv2 =="
-nix-update --flake yaskkserv2
-
 echo "== checks =="
 nix flake check
 

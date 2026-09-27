@@ -26,6 +26,10 @@
     # 成果物のみが nixpkgs-ruby.cachix.org にあるため、follows すると全 ruby が
     # ソースビルドに落ちる。上流は安定ブランチ追跡なのでセキュリティ backport は入る。
     nixpkgs-ruby.url = "github:bobvanderlinden/nixpkgs-ruby";
+    yaskkserv2 = {
+      url = "github:wachikun/yaskkserv2/master";
+      inputs.nixpkgs.follows = "nixpkgs";
+    };
     plasma-manager = {
       url = "github:nix-community/plasma-manager";
       inputs.nixpkgs.follows = "nixpkgs";
@@ -50,6 +54,9 @@
     lanzaboote = {
       url = "github:nix-community/lanzaboote/v1.1.0";
       inputs.nixpkgs.follows = "nixpkgs";
+      # v1.1.0 の pin は stdenv.isLinux/isDarwin を参照するため、
+      # 現行 nixpkgs に対応した rust-overlay を使う。
+      inputs.rust-overlay.url = "github:oxalica/rust-overlay";
     };
     # ChatGPT Desktop。OpenAI の署名済み APT metadata から version 付き .deb を
     # 固定する第三者 distribution。旧 wrapper の /latest/ URL は上流更新のたびに

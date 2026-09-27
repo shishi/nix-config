@@ -19,8 +19,9 @@
       };
       # sudo / apt / systemctl などホスト側 system tool を駆動する script 用。
       # 依存は意図的に固定しない(nixpkgs の sudo は setuid を持たず動かない)。
-      mkScriptApp = name: script: {
+      mkScriptApp = name: description: script: {
         type = "app";
+        meta.description = description;
         program = "${pkgs.writeShellScript name ''
           exec ${pkgs.bash}/bin/bash ${script} "$@"
         ''}";
@@ -33,6 +34,7 @@
         # 素の `nh home switch` はガードを迂回するため使わない
         switch = {
           type = "app";
+          meta.description = "Check and apply the standalone Home Manager configuration";
           program = "${pkgs.writeShellScript "switch" ''
             set -euo pipefail
             if [ "''${1:-}" != "--force" ]; then
@@ -50,12 +52,14 @@
 
         check-env = {
           type = "app";
+          meta.description = "Check host prerequisites for this configuration";
           program = "${check-env}/bin/check-env";
         };
 
         # rust-bootstrap: HM 側と同一実体(home/core/rust.nix と同じ script + tools 既定値)
         rust-bootstrap = {
           type = "app";
+          meta.description = "Set up the Rust toolchain";
           program = "${self.homeConfigurations."shishi".config.home.path}/bin/rust-bootstrap";
         };
 
@@ -64,6 +68,7 @@
         #   nix run github:shishi/nix-config#bootstrap
         bootstrap = {
           type = "app";
+          meta.description = "Set up a new machine with dotfiles and Nix configuration";
           program = "${
             pkgs.writeShellApplication {
               name = "bootstrap";
@@ -81,13 +86,13 @@
 
         update = {
           type = "app";
+          meta.description = "Update flake inputs and run checks";
           program = "${
             pkgs.writeShellApplication {
               name = "update";
               runtimeInputs = with pkgs; [
                 git
                 nix
-                nix-update
               ];
               text = builtins.readFile ../../scripts/update.sh;
             }
@@ -95,9 +100,15 @@
         };
         default = self'.apps.update;
 
-        setup-sudo-nopasswd = mkScriptApp "setup-sudo-nopasswd" ../../scripts/setup-sudo-nopasswd.sh;
-        setup-trusted-user = mkScriptApp "setup-trusted-user" ../../scripts/setup-nix-trusted-user.sh;
-        install-system-packages = mkScriptApp "install-system-packages" ../../scripts/install-system-packages.sh;
+        setup-sudo-nopasswd =
+          mkScriptApp "setup-sudo-nopasswd" "Configure passwordless sudo"
+            ../../scripts/setup-sudo-nopasswd.sh;
+        setup-trusted-user =
+          mkScriptApp "setup-trusted-user" "Configure the Nix trusted user"
+            ../../scripts/setup-nix-trusted-user.sh;
+        install-system-packages =
+          mkScriptApp "install-system-packages" "Install host system packages"
+            ../../scripts/install-system-packages.sh;
       };
     };
 }
