@@ -237,9 +237,34 @@ update_existing_secrets() {
        length > ("tskey-client-" | length)))
   ' "$tmpdir/runtime-current.json" >/dev/null || die 'runtime.yaml の形式が不正'
 
-  if [ "${1:-}" = --mcp ]; then
-    printf 'Slate の tunnel_id: ' >&2
-    IFS= read -r tunnel || die 'tunnel_id の入力を読み取れない'
+  if read_optional_confirmed_secret \
+    'LUKS パスフレーズ' "$tmpdir/bootstrap-current.json" 'luks-passphrase' "$tmpdir/luks-passphrase"; then
+    validate_primary_credential_file 'LUKS パスフレーズ' "$tmpdir/luks-passphrase"
+    bootstrap_changed=1
+  fi
+  if read_optional_confirmed_secret \
+    'ログインパスワード' "$tmpdir/bootstrap-current.json" 'login-password' "$tmpdir/login-password"; then
+    validate_primary_credential_file 'ログインパスワード' "$tmpdir/login-password"
+    bootstrap_changed=1
+  fi
+  if read_optional_confirmed_secret \
+    'SMB パスワード' "$tmpdir/runtime-current.json" 'smb-mars-shishi' "$tmpdir/smb-password"; then
+    printf 'username=shishi\npassword=' >"$tmpdir/smb-credential"
+    cat "$tmpdir/smb-password" >>"$tmpdir/smb-credential"
+    runtime_changed=1
+  fi
+  if read_optional_confirmed_secret \
+    'Tailscale OAuth client secret' \
+    "$tmpdir/runtime-current.json" \
+    'tailscale-oauth-secret' \
+    "$tmpdir/tailscale-oauth-secret"; then
+    validate_tailscale_oauth_client_secret "$tmpdir/tailscale-oauth-secret"
+    runtime_changed=1
+  fi
+
+  printf 'Slate の tunnel_id（空Enterで接続設定を維持、未登録ならスキップ）: ' >&2
+  IFS= read -r tunnel || die 'tunnel_id の入力を読み取れない'
+  if [ -n "$tunnel" ]; then
     [[ $tunnel =~ ^tunnel_[a-zA-Z0-9]+$ ]] || die 'tunnel_id の形式が不正'
     printf 'Slate Main の HTTPS Origin: ' >&2
     IFS= read -r origin || die 'Main Origin の入力を読み取れない'
@@ -254,31 +279,6 @@ update_existing_secrets() {
       admin_ui:{open_browser:false},log:{level:"info",format:"json"}
     }' >"$tmpdir/openai-mcp-slate-config"
     runtime_changed=1
-  else
-    if read_optional_confirmed_secret \
-      'LUKS パスフレーズ' "$tmpdir/bootstrap-current.json" 'luks-passphrase' "$tmpdir/luks-passphrase"; then
-      validate_primary_credential_file 'LUKS パスフレーズ' "$tmpdir/luks-passphrase"
-      bootstrap_changed=1
-    fi
-    if read_optional_confirmed_secret \
-      'ログインパスワード' "$tmpdir/bootstrap-current.json" 'login-password' "$tmpdir/login-password"; then
-      validate_primary_credential_file 'ログインパスワード' "$tmpdir/login-password"
-      bootstrap_changed=1
-    fi
-    if read_optional_confirmed_secret \
-      'SMB パスワード' "$tmpdir/runtime-current.json" 'smb-mars-shishi' "$tmpdir/smb-password"; then
-      printf 'username=shishi\npassword=' >"$tmpdir/smb-credential"
-      cat "$tmpdir/smb-password" >>"$tmpdir/smb-credential"
-      runtime_changed=1
-    fi
-    if read_optional_confirmed_secret \
-      'Tailscale OAuth client secret' \
-      "$tmpdir/runtime-current.json" \
-      'tailscale-oauth-secret' \
-      "$tmpdir/tailscale-oauth-secret"; then
-      validate_tailscale_oauth_client_secret "$tmpdir/tailscale-oauth-secret"
-      runtime_changed=1
-    fi
   fi
 
   if [ "$bootstrap_changed" -eq 0 ] && [ "$runtime_changed" -eq 0 ]; then
@@ -445,7 +445,7 @@ cleanup() {
 trap cleanup EXIT
 trap 'cleanup; exit 1' HUP INT TERM
 
-[ "$#" -eq 0 ] || { [ "$#" -eq 1 ] && [ "$1" = --mcp ]; } || die 'usage: jupiter-secrets [--mcp]'
+[ "$#" -eq 0 ] || die 'jupiter-secrets に引数は不要'
 
 repo_root=$(find_repo_root)
 cd "$repo_root"
@@ -461,12 +461,11 @@ done
 
 tmpdir=$(mktemp -d "$(select_tmpfs_root)/jupiter-secrets.XXXXXXXX")
 if [ "$existing_outputs" -eq 3 ]; then
-  update_existing_secrets "$@"
+  update_existing_secrets
   exit 0
 fi
 [ "$existing_outputs" -eq 0 ] || die '暗号化出力の一部だけが存在するため更新できない'
 
-[ "$#" -eq 0 ] || die '先に jupiter-secrets で既存の秘密一式を作成すること'
 require_source_keys
 generate_age_keys
 read_confirmed_secret 'LUKS パスフレーズ' "$tmpdir/luks-passphrase"

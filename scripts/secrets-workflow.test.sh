@@ -734,7 +734,11 @@ test_mcp_uses_existing_runtime_workflow() {
   reset_wrapper_fixture
   decrypt_runtime_fixture >"$work/runtime-before.json"
   cp "$repo/secrets/jupiter/bootstrap.yaml" "$work/bootstrap-before.yaml"
-  run_init_update --mcp >"$work/update.stdout" 2>"$work/update.stderr" <<'EOF' || { cat "$work/update.stderr" >&2; fail "existing secrets command cannot save MCP"; }
+  run_init_update >"$work/update.stdout" 2>"$work/update.stderr" <<'EOF' || { cat "$work/update.stderr" >&2; fail "existing secrets command cannot save MCP"; }
+
+
+
+
 tunnel_fixture
 https://slate.fixture.ts.net
 fixture-mcp-key
@@ -746,7 +750,11 @@ EOF
   ! rg -F 'fixture-mcp-key' "$work/update.stdout" "$work/update.stderr" || fail "MCP key leaked"
   test ! -e "$repo/secrets/jupiter/mcp.yaml" || fail "MCP created separate storage"
   cp "$repo/secrets/jupiter/runtime.yaml" "$work/runtime-before-failure.yaml"
-  if run_init_update --mcp >"$work/update.stdout" 2>"$work/update.stderr" <<'EOF'
+  if run_init_update >"$work/update.stdout" 2>"$work/update.stderr" <<'EOF'
+
+
+
+
 tunnel_fixture
 https://slate.fixture.ts.net
 mismatch
@@ -761,6 +769,7 @@ EOF
 
 smb-updated-value
 smb-updated-value
+
 
 EOF
   decrypt_runtime_fixture >"$work/runtime-updated.json"
@@ -777,6 +786,7 @@ luks-updated-value
 
 smb-updated-value
 smb-updated-value
+
 
 EOF
 
@@ -807,6 +817,7 @@ test_init_update_adds_missing_oauth_secret() {
 
 tskey-client-updated-value
 tskey-client-updated-value
+
 EOF
 
   decrypt_runtime_fixture | \
@@ -821,6 +832,7 @@ test_init_update_preserves_all_existing_secrets_on_empty_input() {
   bootstrap_before=$(sha256sum "$repo/secrets/jupiter/bootstrap.yaml")
   runtime_before=$(sha256sum "$repo/secrets/jupiter/runtime.yaml")
   run_init_update >"$work/update.stdout" 2>"$work/update.stderr" <<'EOF'
+
 
 
 
@@ -840,6 +852,7 @@ test_init_update_preserves_an_existing_short_primary_credential() {
   bootstrap_before=$(sha256sum "$repo/secrets/jupiter/bootstrap.yaml")
   runtime_before=$(sha256sum "$repo/secrets/jupiter/runtime.yaml")
   if ! run_init_update >"$work/update.stdout" 2>"$work/update.stderr" <<'EOF'
+
 
 
 
@@ -999,6 +1012,7 @@ luks-updated-value
 smb-updated-value
 smb-updated-value
 
+
 EOF
   then
     fail "init update succeeded after the second publish failed"
@@ -1031,6 +1045,7 @@ EOF
     run_init_update >"$work/update.stdout" 2>"$work/update.stderr" <<'EOF'
 luks-updated-value
 luks-updated-value
+
 
 
 

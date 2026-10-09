@@ -5,8 +5,7 @@
 Jupiter の初期インストール用と実行時用の秘密情報を、平文を Git、
 ログ、Nix ストアに残さず作成・更新する。リポジトリ内の暗号文の作成・更新には
 `nix run .#jupiter-secrets` を使い、SOPS ファイルをエディターで直接編集しない。
-Slate のトンネル接続情報だけを登録・更新する場合は `nix run .#jupiter-secrets -- --mcp` を使う。
-入力内容と適用手順は [MCP トンネル手順](jupiter-mcp-runbook.md) を参照する。
+Slate のトンネル接続情報も同じ更新手順で扱う。接続先の準備と適用は [MCP トンネル手順](jupiter-mcp-runbook.md) を参照する。
 
 秘密の分離方針は
 [SOPS と 2 種類の age 鍵で Jupiter の秘密を配送する](ADR/20260826-005117-use-sops-age-for-jupiter-secret-provisioning.md)
@@ -90,9 +89,11 @@ nix run .#jupiter-secrets
 2. ログインパスワード
 3. SMB パスワード
 4. Tailscale OAuth クライアントシークレット
+5. Slate のトンネル ID（入力した場合は Main URL、API キーと確認入力へ進む）
 
 空 Enter は既存値を維持する。値を入力した項目だけ確認入力へ進み、
 対応する暗号文だけを更新する。SSH、GPG、Jupiter 用 age 鍵は更新しない。
+トンネル ID の空 Enter は接続情報一式を維持し、未登録なら登録をスキップする。
 すべて空 Enter の場合は暗号文を変更しない。
 空 Enter は削除ではない。暗号文内の必須値を空文字にするか項目ごと削除すると、
 不正な形式として停止する。

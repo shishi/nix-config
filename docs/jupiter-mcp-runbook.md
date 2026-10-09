@@ -5,7 +5,7 @@ OpenAI のトンネル、実行用 API キーを使います。トンネル作�
 
 ## 人間の出番
 
-1. `nix run .#jupiter-secrets -- --mcp` に既存のトンネル ID、Main の HTTPS URL、実行用 API キーを入力します。キーは非表示です。
+1. `nix run .#jupiter-secrets` に既存のトンネル ID、Main の HTTPS URL、実行用 API キーを入力します。キーは非表示です。
 2. 適用後に ChatGPT Web の個人用 plugin を登録します。本人のログインが必要です。
 3. Web とモバイルの両方で読み書きを確認します。
 
@@ -17,10 +17,11 @@ CLI だけで個人用 plugin の登録や Plus の利用条件まで設定で�
 nix-config のルートで実行します。事前に秘密ファイルを作る必要はありません。
 
 ```sh
-nix run .#jupiter-secrets -- --mcp
+nix run .#jupiter-secrets
 ```
 
-入力は次の順です。
+最初の LUKS・ログイン・SMB・Tailscale の各入力は、変更しなければ空 Enter で維持します。
+続いて接続情報を入力します。
 
 | 入力 | 値 |
 | --- | --- |
@@ -30,9 +31,10 @@ nix run .#jupiter-secrets -- --mcp
 
 既存の [Jupiter の秘密情報手順](jupiter-secrets-runbook.md) と同じ管理用 age 鍵を使います。
 保存先は `secrets/jupiter/runtime.yaml` の `openai-mcp-api-key` と `openai-mcp-slate-config` です。
-`--mcp` では接続情報だけを更新し、SMB・Tailscale・bootstrap の値を維持します。
+入力した値だけを更新し、空 Enter にした既存の秘密は維持します。
 平文は tmpfs 内で扱い、既存の復号検証・更新失敗時の復元・一時ファイル削除を使います。
-キー交換も同じコマンドです。空入力や確認不一致では保存しません。
+キー交換も同じコマンドです。トンネル ID を空 Enter にすると接続情報一式を維持し、未登録なら登録をスキップします。
+ID を入力した場合は URL とキーを入力します。途中で入力を中断した場合やキーの確認が一致しない場合は、ほかの秘密も含めて保存しません。
 
 両項目が未登録の間は Nix 評価が警告を出し、サービスを作りません。
 保存後の再評価で sops-nix とサービスが有効になります。

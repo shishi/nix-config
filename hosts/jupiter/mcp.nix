@@ -16,7 +16,7 @@ in
     {
       warnings =
         lib.optional (!configured)
-          "Slate MCP tunnel is not configured. Run nix run .#jupiter-secrets -- --mcp in nix-config, then rebuild jupiter.";
+          "Slate MCP tunnel is not configured. Run nix run .#jupiter-secrets in nix-config, then rebuild jupiter.";
     }
     (lib.mkIf configured {
       services.tailscale.enable = true;
