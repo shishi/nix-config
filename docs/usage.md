@@ -28,6 +28,8 @@ nix run .#switch
 
 ## jupiter
 
+Slate の既存トンネルの入力・常駐化は [MCP トンネル手順](jupiter-mcp-runbook.md)を使う。
+
 ### Flake app
 
 | app | コマンド | 使う場面 |

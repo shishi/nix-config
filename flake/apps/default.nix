@@ -72,6 +72,24 @@
       };
     in
     {
-      apps = pkgs.lib.concatMapAttrs mkProvisioningApps provisionedHosts;
+      apps = pkgs.lib.concatMapAttrs mkProvisioningApps provisionedHosts // {
+        jupiter-mcp-setup = {
+          type = "app";
+          meta.description = "Encrypt the existing Slate tunnel credentials for jupiter";
+          program = "${
+            pkgs.writeShellApplication {
+              name = "jupiter-mcp-setup";
+              runtimeInputs = with pkgs; [
+                coreutils
+                git
+                jq
+                sops
+                util-linux
+              ];
+              text = builtins.readFile ../../scripts/jupiter-mcp-setup.sh;
+            }
+          }/bin/jupiter-mcp-setup";
+        };
+      };
     };
 }

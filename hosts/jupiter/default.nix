@@ -226,6 +226,7 @@ in
     ./disko.nix
     ./hardware-configuration.nix
     ./secrets.nix
+    ./mcp.nix
   ];
 
   # nixpkgs の rustdesk 1.4.9 はハードウェア動画圧縮なしでビルドされている。
