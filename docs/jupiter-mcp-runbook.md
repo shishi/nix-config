@@ -6,8 +6,7 @@ OpenAI のトンネル、実行用 API キーを使います。トンネル作�
 ## 人間の出番
 
 1. `nix run .#jupiter-secrets` に既存のトンネル ID、Main の HTTPS URL、実行用 API キーを入力します。キーは非表示です。
-2. 適用後に ChatGPT Web の個人用 plugin を登録します。本人のログインが必要です。
-3. Web とモバイルの両方で読み書きを確認します。
+2. ChatGPT の本人認証が必要な場合はログインします。登録と操作確認は利用可能な接続ツールから行い、本人操作が必要な部分だけを切り分けます。
 
 Nix のビルド・構成の差分確認・適用・サービス検査はエージェントが実行します。
 CLI だけで個人用 plugin の登録や Plus の利用条件まで設定できるものではありません。
@@ -67,10 +66,19 @@ UI は jupiter 上の `http://127.0.0.1:18080/ui` です。起動状態だけで
 
 ## ChatGPT への登録
 
+以下は公式資料にあるカスタム MCP 接続の新規登録手順です。
+対象アカウントで登録機能が利用可能であることが前提で、Nix はこの機能を有効化しません。
+既存 plugin の設定に Tunnel の選択欄があるという意味ではありません。
+
 サービスの稼働中に、利用するアカウントで ChatGPT Web の Plugins → ＋ →
 Add custom MCP server を開きます。名前は Slate、Connection は Tunnel、
 Authentication は No authentication とし、対象トンネルを選択します。
 説明を確認して Create as a plugin を選び、個人用 plugin をインストールします。
+
+`mcp.json` で `.ts.net/mcp` を指定した plugin は tailnet への直接接続です。
+同名の Tunnel やこのサービスを用意しても接続方式は変わりません。
+登録機能がない場合、上の手順では接続を作成できません。
+Tunnel 一覧に対象だけがない場合は、ワークスペースへの関連付けと Read／Use 権限を確認します。
 
 新規 Chat または Work で Slate を選び、確認用ノートの作成・読み取り・版付き更新・再読を行います。
 モバイルでも同じアカウントとワークスペースで別の新規会話を作り、同じ操作を確認します。
@@ -93,4 +101,4 @@ sudo systemctl stop openai-mcp-tunnel-slate.service
 sudo systemctl start openai-mcp-tunnel-slate.service
 ```
 
-トンネル停止は ChatGPT の操作を止めます。Slate 自体と Tailscale Serve はこのサービスでは停止しません。
+トンネル停止は、この Tunnel を経由する操作を止めます。tailnet への直接接続は停止しません。Slate 自体と Tailscale Serve はこのサービスでは停止しません。
