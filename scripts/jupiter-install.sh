@@ -19,8 +19,8 @@ luks_key=""
 login_password=""
 ssh_private_key=""
 ssh_public_key=""
-gpg_secret_key=""
-jupiter_age_key=""
+gpg_secret_key=
+jupiter_age_key=
 password_hash=""
 extra_files=""
 target_host=""
@@ -229,7 +229,10 @@ validate_runtime_secret() {
     sops --decrypt --output-type json "$repo_root/secrets/jupiter/runtime.yaml" | \
     jq -e '
       type == "object" and
-      (keys == ["smb-mars-shishi", "tailscale-oauth-secret"]) and
+      ((has("openai-mcp-api-key") | not) and (has("openai-mcp-slate-config") | not) or
+       (."openai-mcp-api-key" | type == "string" and length > 0) and
+       (."openai-mcp-slate-config" | type == "string" and length > 0)) and
+      ((del(."openai-mcp-api-key", ."openai-mcp-slate-config") | keys) == ["smb-mars-shishi", "tailscale-oauth-secret"]) and
       (."smb-mars-shishi" | type == "string") and
       (."smb-mars-shishi" | startswith("username=shishi\npassword=")) and
       (."smb-mars-shishi" | length > ("username=shishi\npassword=" | length)) and

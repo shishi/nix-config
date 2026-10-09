@@ -707,7 +707,7 @@ run_init_update() {
     HOME="$test_home" \
     GNUPGHOME="$test_home/.gnupg" \
     SOPS_AGE_KEY_FILE="$test_home/.config/sops/age/keys.txt" \
-      bash scripts/jupiter-secrets.sh
+      bash scripts/jupiter-secrets.sh "$@"
   )
 }
 
@@ -728,6 +728,44 @@ decrypt_runtime_fixture() {
 decrypt_bootstrap_fixture() {
   SOPS_AGE_KEY_FILE="$test_home/.config/sops/age/keys.txt" \
     sops --decrypt --output-type json "$repo/secrets/jupiter/bootstrap.yaml"
+}
+
+test_mcp_uses_existing_runtime_workflow() {
+  reset_wrapper_fixture
+  decrypt_runtime_fixture >"$work/runtime-before.json"
+  cp "$repo/secrets/jupiter/bootstrap.yaml" "$work/bootstrap-before.yaml"
+  run_init_update --mcp >"$work/update.stdout" 2>"$work/update.stderr" <<'EOF' || { cat "$work/update.stderr" >&2; fail "existing secrets command cannot save MCP"; }
+tunnel_fixture
+https://slate.fixture.ts.net
+fixture-mcp-key
+fixture-mcp-key
+EOF
+  decrypt_runtime_fixture >"$work/runtime-mcp.json"
+  cmp "$repo/secrets/jupiter/bootstrap.yaml" "$work/bootstrap-before.yaml" || fail "MCP changed bootstrap"
+  jq -e -s '.[1] as $after | .[0] == ($after | del(."openai-mcp-api-key", ."openai-mcp-slate-config")) and $after."openai-mcp-api-key" == "fixture-mcp-key" and ($after."openai-mcp-slate-config" | fromjson | .control_plane.tunnel_id == "tunnel_fixture" and .mcp.server_urls == [{channel:"main",url:"https://slate.fixture.ts.net/mcp"}])' "$work/runtime-before.json" "$work/runtime-mcp.json" >/dev/null || fail "MCP did not preserve existing runtime secrets"
+  ! rg -F 'fixture-mcp-key' "$work/update.stdout" "$work/update.stderr" || fail "MCP key leaked"
+  test ! -e "$repo/secrets/jupiter/mcp.yaml" || fail "MCP created separate storage"
+  cp "$repo/secrets/jupiter/runtime.yaml" "$work/runtime-before-failure.yaml"
+  if run_init_update --mcp >"$work/update.stdout" 2>"$work/update.stderr" <<'EOF'
+tunnel_fixture
+https://slate.fixture.ts.net
+mismatch
+other
+EOF
+  then
+    fail "MCP accepted mismatched key"
+  fi
+  cmp "$repo/secrets/jupiter/runtime.yaml" "$work/runtime-before-failure.yaml" || fail "failed MCP update changed runtime"
+  run_init_update >"$work/update.stdout" 2>"$work/update.stderr" <<'EOF'
+
+
+smb-updated-value
+smb-updated-value
+
+EOF
+  decrypt_runtime_fixture >"$work/runtime-updated.json"
+  jq -e -s '.[0]."openai-mcp-api-key" == .[1]."openai-mcp-api-key" and .[0]."openai-mcp-slate-config" == .[1]."openai-mcp-slate-config" and .[1]."smb-mars-shishi" == "username=shishi\npassword=smb-updated-value"' "$work/runtime-mcp.json" "$work/runtime-updated.json" >/dev/null || fail "normal update lost MCP configuration"
+  run_wrapper >"$work/wrapper.stdout" 2>"$work/wrapper.stderr" || fail "installer rejected runtime with MCP"
 }
 
 test_init_update_updates_entered_values_and_preserves_empty_values() {
@@ -1343,6 +1381,8 @@ if [ "$suite" = wrapper ]; then
   exit 0
 fi
 
+test_mcp_uses_existing_runtime_workflow
+reset_fixture
 test_missing_ssh_key_fails_before_input
 reset_fixture
 test_mismatched_confirmation_leaves_no_outputs

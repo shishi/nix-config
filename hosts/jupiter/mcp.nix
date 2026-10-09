@@ -5,8 +5,10 @@
   ...
 }:
 let
-  secretsFile = ../../secrets/jupiter/mcp.yaml;
-  configured = builtins.pathExists secretsFile;
+  encryptedRuntime = "\n" + builtins.readFile config.sops.defaultSopsFile;
+  configured =
+    lib.hasInfix "\nopenai-mcp-api-key:" encryptedRuntime
+    && lib.hasInfix "\nopenai-mcp-slate-config:" encryptedRuntime;
   package = pkgs.callPackage ../../pkgs/tunnel-client { };
 in
 {
@@ -14,19 +16,15 @@ in
     {
       warnings =
         lib.optional (!configured)
-          "Slate MCP tunnel is not configured. Run nix run .#jupiter-mcp-setup in nix-config, then rebuild jupiter.";
+          "Slate MCP tunnel is not configured. Run nix run .#jupiter-secrets -- --mcp in nix-config, then rebuild jupiter.";
     }
     (lib.mkIf configured {
       services.tailscale.enable = true;
       sops.secrets = {
         "openai-mcp-api-key" = {
-          sopsFile = secretsFile;
-          key = "api-key";
           restartUnits = [ "openai-mcp-tunnel-slate.service" ];
         };
         "openai-mcp-slate-config" = {
-          sopsFile = secretsFile;
-          key = "slate-config";
           restartUnits = [ "openai-mcp-tunnel-slate.service" ];
         };
       };

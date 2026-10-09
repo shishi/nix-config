@@ -5,7 +5,7 @@ OpenAI のトンネル、実行用 API キーを使います。トンネル作�
 
 ## 人間の出番
 
-1. `nix run .#jupiter-mcp-setup` に既存のトンネル ID、Main の HTTPS URL、実行用 API キーを入力します。キーは非表示です。
+1. `nix run .#jupiter-secrets -- --mcp` に既存のトンネル ID、Main の HTTPS URL、実行用 API キーを入力します。キーは非表示です。
 2. 適用後に ChatGPT Web の個人用 plugin を登録します。本人のログインが必要です。
 3. Web とモバイルの両方で読み書きを確認します。
 
@@ -17,7 +17,7 @@ CLI だけで個人用 plugin の登録や Plus の利用条件まで設定で�
 nix-config のルートで実行します。事前に秘密ファイルを作る必要はありません。
 
 ```sh
-nix run .#jupiter-mcp-setup
+nix run .#jupiter-secrets -- --mcp
 ```
 
 入力は次の順です。
@@ -28,13 +28,15 @@ nix run .#jupiter-mcp-setup
 | Main の HTTPS Origin | `https://slate.<tailnet の DNS suffix>.ts.net`。`/mcp` は自動で付加します |
 | API キー・確認入力 | Restricted の Tunnels Read＋Use を持つ実行用キー。管理用キーは使いません |
 
-スクリプトは平文を tmpfs の一時領域だけで扱い、既存の jupiter 用 age 受信者へ暗号化します。
-`secrets/jupiter/mcp.yaml` にキーと接続設定を保存し、暗号化ファイルだけを Git に追加します。
-終了時に一時領域を削除します。値の更新も同じコマンドで行い、空入力では更新を中止します。
-既存の `runtime.yaml`、Tailscale OAuth secret、SMB 認証情報は変更しません。
+既存の [Jupiter の秘密情報手順](jupiter-secrets-runbook.md) と同じ管理用 age 鍵を使います。
+保存先は `secrets/jupiter/runtime.yaml` の `openai-mcp-api-key` と `openai-mcp-slate-config` です。
+`--mcp` では接続情報だけを更新し、SMB・Tailscale・bootstrap の値を維持します。
+平文は tmpfs 内で扱い、既存の復号検証・更新失敗時の復元・一時ファイル削除を使います。
+キー交換も同じコマンドです。空入力や確認不一致では保存しません。
 
-この暗号化ファイルがない間は、Nix 評価が未設定の警告を出し、サービスを作りません。
-保存後の再評価で sops-nix とサービスが有効になります。未登録のまま稼働完了にはしません。
+両項目が未登録の間は Nix 評価が警告を出し、サービスを作りません。
+保存後の再評価で sops-nix とサービスが有効になります。
+暗号化済みの変更は通常の秘密情報更新と同様に Git で管理します。
 
 ## Nix が管理するもの
 

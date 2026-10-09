@@ -4,7 +4,9 @@
 
 Jupiter の初期インストール用と実行時用の秘密情報を、平文を Git、
 ログ、Nix ストアに残さず作成・更新する。リポジトリ内の暗号文の作成・更新には
-`nix run .#jupiter-secrets` だけを使い、SOPS ファイルをエディターで直接編集しない。
+`nix run .#jupiter-secrets` を使い、SOPS ファイルをエディターで直接編集しない。
+Slate のトンネル接続情報だけを登録・更新する場合は `nix run .#jupiter-secrets -- --mcp` を使う。
+入力内容と適用手順は [MCP トンネル手順](jupiter-mcp-runbook.md) を参照する。
 
 秘密の分離方針は
 [SOPS と 2 種類の age 鍵で Jupiter の秘密を配送する](ADR/20260826-005117-use-sops-age-for-jupiter-secret-provisioning.md)
@@ -23,7 +25,7 @@ Jupiter の初期インストール用と実行時用の秘密情報を、平文
 - `secrets/jupiter/bootstrap.yaml`
   - LUKS、ログイン、SSH、GPG、Jupiter 用 age 秘密鍵
 - `secrets/jupiter/runtime.yaml`
-  - SMB 資格情報、Tailscale OAuth クライアントシークレット
+  - SMB 資格情報、Tailscale OAuth クライアントシークレット、登録済みの場合は Slate MCP の API キーと接続設定
 
 管理用 age 鍵はパスワードマネージャーにもバックアップする。
 ローカルファイルとバックアップの両方を失うと、`secrets/jupiter/bootstrap.yaml` を復旧できない。

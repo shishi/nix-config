@@ -207,6 +207,7 @@ encrypt_outputs() {
 
 update_existing_secrets() {
   local bootstrap_changed=0 jupiter_age_key="$tmpdir/jupiter-age-key.txt" runtime_changed=0
+  local tunnel origin key
 
   [ -f "$management_age_key_file" ] || die 'management age key が読めない'
   SOPS_AGE_KEY_FILE="$management_age_key_file" \
@@ -224,8 +225,11 @@ update_existing_secrets() {
     sops --decrypt --output-type json secrets/jupiter/runtime.yaml >"$tmpdir/runtime-current.json"
   jq -e '
     type == "object" and
-    ((keys == ["smb-mars-shishi"]) or
-     (keys == ["smb-mars-shishi", "tailscale-oauth-secret"])) and
+    ((has("openai-mcp-api-key") | not) and (has("openai-mcp-slate-config") | not) or
+     (."openai-mcp-api-key" | type == "string" and length > 0) and
+     (."openai-mcp-slate-config" | type == "string" and length > 0)) and
+    (((del(."openai-mcp-api-key", ."openai-mcp-slate-config") | keys) == ["smb-mars-shishi"]) or
+     ((del(."openai-mcp-api-key", ."openai-mcp-slate-config") | keys) == ["smb-mars-shishi", "tailscale-oauth-secret"])) and
     (."smb-mars-shishi" | type == "string" and startswith("username=shishi\npassword=") and
       length > ("username=shishi\npassword=" | length)) and
     ((has("tailscale-oauth-secret") | not) or
@@ -233,29 +237,48 @@ update_existing_secrets() {
        length > ("tskey-client-" | length)))
   ' "$tmpdir/runtime-current.json" >/dev/null || die 'runtime.yaml の形式が不正'
 
-  if read_optional_confirmed_secret \
-    'LUKS パスフレーズ' "$tmpdir/bootstrap-current.json" 'luks-passphrase' "$tmpdir/luks-passphrase"; then
-    validate_primary_credential_file 'LUKS パスフレーズ' "$tmpdir/luks-passphrase"
-    bootstrap_changed=1
-  fi
-  if read_optional_confirmed_secret \
-    'ログインパスワード' "$tmpdir/bootstrap-current.json" 'login-password' "$tmpdir/login-password"; then
-    validate_primary_credential_file 'ログインパスワード' "$tmpdir/login-password"
-    bootstrap_changed=1
-  fi
-  if read_optional_confirmed_secret \
-    'SMB パスワード' "$tmpdir/runtime-current.json" 'smb-mars-shishi' "$tmpdir/smb-password"; then
-    printf 'username=shishi\npassword=' >"$tmpdir/smb-credential"
-    cat "$tmpdir/smb-password" >>"$tmpdir/smb-credential"
+  if [ "${1:-}" = --mcp ]; then
+    printf 'Slate の tunnel_id: ' >&2
+    IFS= read -r tunnel || die 'tunnel_id の入力を読み取れない'
+    [[ $tunnel =~ ^tunnel_[a-zA-Z0-9]+$ ]] || die 'tunnel_id の形式が不正'
+    printf 'Slate Main の HTTPS Origin: ' >&2
+    IFS= read -r origin || die 'Main Origin の入力を読み取れない'
+    origin=${origin%/}
+    [[ $origin =~ ^https://[a-zA-Z0-9.-]+\.ts\.net(:[0-9]+)?$ ]] || die 'https://…ts.net の Main Origin を指定すること'
+    read_confirmed_secret '実行用 API キー' "$tmpdir/openai-mcp-api-key"
+    jq -n --arg tunnel "$tunnel" --arg url "$origin/mcp" '{
+      config_version:1,
+      control_plane:{base_url:"https://api.openai.com",tunnel_id:$tunnel},
+      mcp:{server_urls:[{channel:"main",url:$url}]},
+      health:{listen_addr:"127.0.0.1:18080"},
+      admin_ui:{open_browser:false},log:{level:"info",format:"json"}
+    }' >"$tmpdir/openai-mcp-slate-config"
     runtime_changed=1
-  fi
-  if read_optional_confirmed_secret \
-    'Tailscale OAuth client secret' \
-    "$tmpdir/runtime-current.json" \
-    'tailscale-oauth-secret' \
-    "$tmpdir/tailscale-oauth-secret"; then
-    validate_tailscale_oauth_client_secret "$tmpdir/tailscale-oauth-secret"
-    runtime_changed=1
+  else
+    if read_optional_confirmed_secret \
+      'LUKS パスフレーズ' "$tmpdir/bootstrap-current.json" 'luks-passphrase' "$tmpdir/luks-passphrase"; then
+      validate_primary_credential_file 'LUKS パスフレーズ' "$tmpdir/luks-passphrase"
+      bootstrap_changed=1
+    fi
+    if read_optional_confirmed_secret \
+      'ログインパスワード' "$tmpdir/bootstrap-current.json" 'login-password' "$tmpdir/login-password"; then
+      validate_primary_credential_file 'ログインパスワード' "$tmpdir/login-password"
+      bootstrap_changed=1
+    fi
+    if read_optional_confirmed_secret \
+      'SMB パスワード' "$tmpdir/runtime-current.json" 'smb-mars-shishi' "$tmpdir/smb-password"; then
+      printf 'username=shishi\npassword=' >"$tmpdir/smb-credential"
+      cat "$tmpdir/smb-password" >>"$tmpdir/smb-credential"
+      runtime_changed=1
+    fi
+    if read_optional_confirmed_secret \
+      'Tailscale OAuth client secret' \
+      "$tmpdir/runtime-current.json" \
+      'tailscale-oauth-secret' \
+      "$tmpdir/tailscale-oauth-secret"; then
+      validate_tailscale_oauth_client_secret "$tmpdir/tailscale-oauth-secret"
+      runtime_changed=1
+    fi
   fi
 
   if [ "$bootstrap_changed" -eq 0 ] && [ "$runtime_changed" -eq 0 ]; then
@@ -281,6 +304,12 @@ update_existing_secrets() {
   if [ "$runtime_changed" -eq 1 ]; then
     runtime_tmp=$(mktemp "secrets/jupiter/runtime.tmp.XXXXXXXX.yaml")
     cp --preserve=mode -- secrets/jupiter/runtime.yaml "$runtime_tmp"
+    for key in openai-mcp-api-key openai-mcp-slate-config; do
+      if [ -f "$tmpdir/$key" ]; then
+        jq -Rs . <"$tmpdir/$key" | SOPS_AGE_KEY_FILE="$jupiter_age_key" \
+          sops set --value-stdin "$runtime_tmp" "[\"$key\"]"
+      fi
+    done
     if [ -f "$tmpdir/smb-credential" ]; then
       jq -Rs . <"$tmpdir/smb-credential" | \
         SOPS_AGE_KEY_FILE="$jupiter_age_key" \
@@ -320,7 +349,10 @@ update_existing_secrets() {
       sops --decrypt --output-type json "$runtime_tmp" >"$tmpdir/runtime-updated.json"
     jq -e '
       type == "object" and
-      (keys == ["smb-mars-shishi", "tailscale-oauth-secret"]) and
+    ((has("openai-mcp-api-key") | not) and (has("openai-mcp-slate-config") | not) or
+       (."openai-mcp-api-key" | type == "string" and length > 0) and
+       (."openai-mcp-slate-config" | type == "string" and length > 0)) and
+      ((del(."openai-mcp-api-key", ."openai-mcp-slate-config") | keys) == ["smb-mars-shishi", "tailscale-oauth-secret"]) and
       (."smb-mars-shishi" | type == "string" and startswith("username=shishi\npassword=") and
         length > ("username=shishi\npassword=" | length)) and
       (."tailscale-oauth-secret" | type == "string" and startswith("tskey-client-") and
@@ -413,6 +445,8 @@ cleanup() {
 trap cleanup EXIT
 trap 'cleanup; exit 1' HUP INT TERM
 
+[ "$#" -eq 0 ] || { [ "$#" -eq 1 ] && [ "$1" = --mcp ]; } || die 'usage: jupiter-secrets [--mcp]'
+
 repo_root=$(find_repo_root)
 cd "$repo_root"
 acquire_repo_lock
@@ -427,11 +461,12 @@ done
 
 tmpdir=$(mktemp -d "$(select_tmpfs_root)/jupiter-secrets.XXXXXXXX")
 if [ "$existing_outputs" -eq 3 ]; then
-  update_existing_secrets
+  update_existing_secrets "$@"
   exit 0
 fi
 [ "$existing_outputs" -eq 0 ] || die '暗号化出力の一部だけが存在するため更新できない'
 
+[ "$#" -eq 0 ] || die '先に jupiter-secrets で既存の秘密一式を作成すること'
 require_source_keys
 generate_age_keys
 read_confirmed_secret 'LUKS パスフレーズ' "$tmpdir/luks-passphrase"
