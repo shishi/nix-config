@@ -460,7 +460,7 @@
             '["gpg-secret-key","jupiter-age-key","login-password","luks-passphrase","ssh-private-key"]' \
             "$management_recipient"
           check_secret_file runtime "$runtime_file" \
-            '["smb-mars-shishi","tailscale-oauth-secret"]' "$runtime_recipient"
+            '["openai-mcp-api-key","openai-mcp-slate-config","smb-mars-shishi","tailscale-oauth-secret"]' "$runtime_recipient"
 
           # dns-osaka-1 の暗号文も同じ境界で検査する。管理鍵は jupiter と共通
           # (docs/dns-osaka-1-runbook.md 手順 5)なので、bootstrap の宛先は
