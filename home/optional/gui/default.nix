@@ -5,11 +5,6 @@
   lib,
   ...
 }:
-let
-  protonAuthenticator = pkgs.proton-authenticator.overrideAttrs (oldAttrs: {
-    patches = (oldAttrs.patches or [ ]) ++ [ ./proton-authenticator-keyring.patch ];
-  });
-in
 {
   imports = [
     ./gnome.nix
@@ -72,6 +67,7 @@ in
     home.packages = with pkgs; [
       brave
       discord
+      ente-auth
       firefox
       flameshot
       ghostty
@@ -80,7 +76,6 @@ in
       localsend
       mcomix
       microsoft-edge
-      protonAuthenticator
       rustdesk
       slack
       tailscale-systray

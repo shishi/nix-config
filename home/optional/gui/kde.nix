@@ -201,8 +201,10 @@ in
                 "applications:com.mitchellh.ghostty.desktop"
                 "applications:brave-browser.desktop"
                 "applications:steam.desktop"
-                "applications:Proton Authenticator.desktop"
                 "applications:android-emulator-default.desktop"
+                "applications:codex-desktop.desktop"
+                "applications:com.anthropic.Claude.desktop"
+                "applications:io.ente.auth.desktop"
               ];
             }
             "org.kde.plasma.pager"
@@ -223,7 +225,7 @@ in
                 "applications:com.mitchellh.ghostty.desktop"
                 "applications:brave-browser.desktop"
                 "applications:codex-desktop.desktop"
-                "applications:claude-desktop.desktop"
+                "applications:com.anthropic.Claude.desktop"
                 "applications:rustdesk.desktop"
               ];
             }
