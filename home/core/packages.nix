@@ -7,7 +7,7 @@
     bottom
     bun
     curl
-    deno
+    # deno
     emacs
     eza
     fd
@@ -32,6 +32,7 @@
     pass
     ghq
     pkg-config
+    prettier
     pyright
     rclone
     ripgrep
