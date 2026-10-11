@@ -227,6 +227,7 @@ in
     ./hardware-configuration.nix
     ./secrets.nix
     ./mcp.nix
+    ./slate.nix
   ];
 
   # Flutter 版は hwcodec を標準で含み、独自ビルドなしで GPU 動画圧縮を使える。

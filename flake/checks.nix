@@ -50,6 +50,11 @@
               touch $out
             '';
 
+        slate-update-contract = pkgs.runCommand "slate-update-contract" { } ''
+          ${pkgs.bash}/bin/bash ${../scripts/slate-update.test.sh} ${../scripts/slate-update.sh}
+          touch $out
+        '';
+
         # 可搬グラフ信号(ビルド)
         home-shishi = self.homeConfigurations."shishi".activationPackage;
         nixos-wsl-toplevel = self.nixosConfigurations.nixos-wsl.config.system.build.toplevel;

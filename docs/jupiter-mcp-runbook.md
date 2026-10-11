@@ -1,7 +1,8 @@
 # jupiter の Slate MCP トンネル
 
 Slate の接続手順3以降を NixOS で管理します。手順1・2で用意した Slate、Tailscale Serve、
-OpenAI のトンネル、実行用 API キーを使います。トンネル作成や Slate 本体の配備は行いません。
+OpenAI のトンネル、実行用 API キーを使います。このトンネル定義はトンネル作成や Slate 本体の配備を行いません。
+Slate 本体の起動・更新・公開は[Slate サービスの運用](slate-runbook.md)で管理します。
 
 ## 人間の出番
 

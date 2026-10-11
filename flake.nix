@@ -3,6 +3,8 @@
 
   inputs = {
     nixpkgs.url = "github:NixOS/nixpkgs/nixpkgs-unstable";
+    # Slate の実行環境を開発用 flake.lock と揃える。アプリ本体は作業ツリーを使う。
+    nixpkgs-slate.url = "github:NixOS/nixpkgs/ac6b2166e7a9375683b8e98f860f273222337b16";
     flake-parts.url = "github:hercules-ci/flake-parts";
     home-manager = {
       url = "github:nix-community/home-manager";
