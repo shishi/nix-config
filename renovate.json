@@ -1,0 +1,21 @@
+{
+  "$schema": "https://docs.renovatebot.com/renovate-schema.json",
+  "enabledManagers": ["nix"],
+  "ignorePaths": ["templates/**"],
+  "timezone": "Asia/Tokyo",
+  "nix": {
+    "enabled": true
+  },
+  "lockFileMaintenance": {
+    "enabled": true,
+    "schedule": ["* 0-5 * * *"],
+    "automerge": true
+  },
+  "packageRules": [
+    {
+      "matchManagers": ["nix"],
+      "matchUpdateTypes": ["!lockFileMaintenance"],
+      "enabled": false
+    }
+  ]
+}

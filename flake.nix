@@ -68,8 +68,8 @@
     # 固定する第三者 distribution。旧 wrapper の /latest/ URL は上流更新のたびに
     # 同じ lock が別内容を指して固定 hash と衝突したため使わない。
     # 用途を確認した Linux 拡張だけを有効にし、独自 usage reporting は
-    # home/optional/gui/default.nix で無効化する。lock 更新時は、この第三者 wrapper の
-    # diff と有効機能の権限・挙動を確認すること。
+    # home/optional/gui/default.nix で無効化する。lock の自動更新は
+    # CI の chatgpt-desktop-contract で有効機能と設定・パッケージの契約を検査する。
     codex-desktop-linux = {
       url = "github:ilysenko/codex-desktop-linux";
       inputs.nixpkgs.follows = "nixpkgs";
