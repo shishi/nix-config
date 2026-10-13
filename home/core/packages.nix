@@ -27,7 +27,7 @@
     llm-agents.hunk
     lua-language-server
     luajit
-    neovim # neovim-nightly-overlay 経由
+    neovim # 上流 nightly の配布 package
     p7zip
     pass
     ghq

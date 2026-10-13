@@ -44,6 +44,13 @@
     xdg.configFile."mimeapps.list".force = true;
     xdg.dataFile."applications/mimeapps.list".force = true;
 
+    # 上流 package の互換用 entry を隠し、org.neovim.nvim.desktop だけを表示する。
+    # 本体のビルド処理を変えず、binary cache を利用できる状態を保つ。
+    xdg.desktopEntries.nvim = {
+      name = "Neovim";
+      settings.Hidden = "true";
+    };
+
     # OpenAI の公式 Linux package を NixOS 向けに包む community distribution。
     # package の再現性を優先して version 付き upstream URL を使う。
     # community 独自機能は、用途を確認して明示的に採用したものだけ有効にする。
