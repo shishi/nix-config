@@ -739,14 +739,15 @@ test_mcp_uses_existing_runtime_workflow() {
 
 
 
-tunnel_fixture
+tunnel_fixture0000000000000000000000000
 https://slate.fixture.ts.net
 fixture-mcp-key
 fixture-mcp-key
+
 EOF
   decrypt_runtime_fixture >"$work/runtime-mcp.json"
   cmp "$repo/secrets/jupiter/bootstrap.yaml" "$work/bootstrap-before.yaml" || fail "MCP changed bootstrap"
-  jq -e -s '.[1] as $after | .[0] == ($after | del(."openai-mcp-api-key", ."openai-mcp-slate-config")) and $after."openai-mcp-api-key" == "fixture-mcp-key" and ($after."openai-mcp-slate-config" | fromjson | .control_plane.tunnel_id == "tunnel_fixture" and .mcp.server_urls == [{channel:"main",url:"https://slate.fixture.ts.net/mcp"}])' "$work/runtime-before.json" "$work/runtime-mcp.json" >/dev/null || fail "MCP did not preserve existing runtime secrets"
+  jq -e -s '.[1] as $after | .[0] == ($after | del(."openai-mcp-api-key", ."openai-mcp-slate-config")) and $after."openai-mcp-api-key" == "fixture-mcp-key" and ($after."openai-mcp-slate-config" | fromjson | .control_plane.tunnel_id == "tunnel_fixture0000000000000000000000000" and .mcp.server_urls == [{channel:"main",url:"https://slate.fixture.ts.net/mcp"}])' "$work/runtime-before.json" "$work/runtime-mcp.json" >/dev/null || fail "MCP did not preserve existing runtime secrets"
   ! rg -F 'fixture-mcp-key' "$work/update.stdout" "$work/update.stderr" || fail "MCP key leaked"
   test ! -e "$repo/secrets/jupiter/mcp.yaml" || fail "MCP created separate storage"
   cp "$repo/secrets/jupiter/runtime.yaml" "$work/runtime-before-failure.yaml"
@@ -755,10 +756,11 @@ EOF
 
 
 
-tunnel_fixture
+tunnel_fixture0000000000000000000000000
 https://slate.fixture.ts.net
 mismatch
 other
+
 EOF
   then
     fail "MCP accepted mismatched key"
@@ -771,10 +773,173 @@ smb-updated-value
 smb-updated-value
 
 
+
 EOF
   decrypt_runtime_fixture >"$work/runtime-updated.json"
   jq -e -s '.[0]."openai-mcp-api-key" == .[1]."openai-mcp-api-key" and .[0]."openai-mcp-slate-config" == .[1]."openai-mcp-slate-config" and .[1]."smb-mars-shishi" == "username=shishi\npassword=smb-updated-value"' "$work/runtime-mcp.json" "$work/runtime-updated.json" >/dev/null || fail "normal update lost MCP configuration"
   run_wrapper >"$work/wrapper.stdout" 2>"$work/wrapper.stderr" || fail "installer rejected runtime with MCP"
+}
+
+test_secondary_mcp_shares_slate_and_preserves_credentials() {
+  reset_wrapper_fixture
+  decrypt_runtime_fixture >"$work/runtime-before.json"
+  run_init_update >"$work/update.stdout" 2>"$work/update.stderr" <<'EOF'
+
+
+
+
+tunnel_primary0000000000000000000000000
+https://slate.fixture.ts.net
+fixture-primary-key
+fixture-primary-key
+tunnel_secondary00000000000000000000000
+fixture-secondary-key
+fixture-secondary-key
+EOF
+  ! rg -F -e 'fixture-primary-key' -e 'fixture-secondary-key' "$work/update.stdout" "$work/update.stderr" || fail "registered MCP key leaked"
+  decrypt_runtime_fixture >"$work/runtime-both.json"
+  jq -e -s '
+    .[1] as $after |
+    ($after."openai-mcp-slate-config" | fromjson) as $primary |
+    ($after."openai-mcp-secondary-config" | fromjson) as $secondary |
+    .[0] == ($after | del(."openai-mcp-api-key", ."openai-mcp-slate-config", ."openai-mcp-secondary-api-key", ."openai-mcp-secondary-config")) and
+    $after."openai-mcp-api-key" == "fixture-primary-key" and
+    $after."openai-mcp-secondary-api-key" == "fixture-secondary-key" and
+    $primary.control_plane.tunnel_id == "tunnel_primary0000000000000000000000000" and
+    $secondary.control_plane.tunnel_id == "tunnel_secondary00000000000000000000000" and
+    $primary.mcp.server_urls == $secondary.mcp.server_urls and
+    $primary.health.listen_addr == "127.0.0.1:18080" and
+    $secondary.health.listen_addr == "127.0.0.1:18081"
+  ' "$work/runtime-before.json" "$work/runtime-both.json" >/dev/null || fail "secondary tunnel did not share Slate with independent credentials and port"
+  run_wrapper >"$work/wrapper.stdout" 2>"$work/wrapper.stderr" || fail "installer rejected both tunnels"
+  cp "$repo/secrets/jupiter/bootstrap.yaml" "$work/bootstrap-before-secondary.yaml"
+  cp "$repo/secrets/jupiter/runtime.yaml" "$work/runtime-before-secondary.yaml"
+  run_init_update >"$work/update.stdout" 2>"$work/update.stderr" <<'EOF'
+
+
+
+
+
+
+EOF
+  cmp "$repo/secrets/jupiter/runtime.yaml" "$work/runtime-before-secondary.yaml" || fail "blank input rewrote both tunnels"
+  run_init_update >"$work/update.stdout" 2>"$work/update.stderr" <<'EOF'
+
+
+
+
+
+tunnel_replacement000000000000000000000
+fixture-secondary-replacement
+fixture-secondary-replacement
+EOF
+  ! rg -F 'fixture-secondary-replacement' "$work/update.stdout" "$work/update.stderr" || fail "replacement MCP key leaked"
+  decrypt_runtime_fixture >"$work/runtime-secondary-updated.json"
+  jq -e -s '
+    .[0] as $before | .[1] as $after |
+    ($before | del(."openai-mcp-secondary-api-key", ."openai-mcp-secondary-config")) ==
+    ($after | del(."openai-mcp-secondary-api-key", ."openai-mcp-secondary-config")) and
+    $after."openai-mcp-secondary-api-key" == "fixture-secondary-replacement" and
+    ($after."openai-mcp-secondary-config" | fromjson | .control_plane.tunnel_id == "tunnel_replacement000000000000000000000")
+  ' "$work/runtime-both.json" "$work/runtime-secondary-updated.json" >/dev/null || fail "secondary update changed primary or other secrets"
+  run_init_update >"$work/update.stdout" 2>"$work/update.stderr" <<'EOF'
+
+
+
+
+tunnel_primary0000000000000000000000000
+https://slate.changed.ts.net
+fixture-primary-key
+fixture-primary-key
+
+EOF
+  decrypt_runtime_fixture >"$work/runtime-origin-updated.json"
+  jq -e '
+    (."openai-mcp-slate-config" | fromjson) as $primary |
+    (."openai-mcp-secondary-config" | fromjson) as $secondary |
+    $primary.mcp.server_urls == [{channel:"main",url:"https://slate.changed.ts.net/mcp"}] and
+    $secondary.mcp.server_urls == $primary.mcp.server_urls and
+    $secondary.control_plane.tunnel_id == "tunnel_replacement000000000000000000000" and
+    ."openai-mcp-secondary-api-key" == "fixture-secondary-replacement"
+  ' "$work/runtime-origin-updated.json" >/dev/null || fail "Slate Origin change did not follow secondary tunnel"
+  cp "$repo/secrets/jupiter/runtime.yaml" "$work/runtime-before-failure.yaml"
+  if run_init_update >"$work/update.stdout" 2>"$work/update.stderr" <<'EOF'
+luks-updated-value
+luks-updated-value
+
+
+
+
+tunnel_secondary00000000000000000000000
+mismatch
+other
+EOF
+  then
+    fail "secondary accepted mismatched confirmation"
+  fi
+  cmp "$repo/secrets/jupiter/bootstrap.yaml" "$work/bootstrap-before-secondary.yaml" || fail "secondary mismatch changed bootstrap"
+  cmp "$repo/secrets/jupiter/runtime.yaml" "$work/runtime-before-failure.yaml" || fail "secondary mismatch changed runtime"
+  if run_init_update >"$work/update.stdout" 2>"$work/update.stderr" <<'EOF'
+luks-updated-value
+luks-updated-value
+
+
+
+
+EOF
+  then
+    fail "secondary prompt accepted EOF"
+  fi
+  cmp "$repo/secrets/jupiter/bootstrap.yaml" "$work/bootstrap-before-secondary.yaml" || fail "secondary EOF changed bootstrap"
+  cmp "$repo/secrets/jupiter/runtime.yaml" "$work/runtime-before-failure.yaml" || fail "secondary EOF changed runtime"
+}
+
+test_secondary_mcp_rejects_short_tunnel_id_without_changes() {
+  reset_wrapper_fixture
+  rewrite_runtime '. + {
+    "openai-mcp-api-key": "fixture-primary-key",
+    "openai-mcp-slate-config": ({control_plane:{tunnel_id:"tunnel_primary0000000000000000000000000"},mcp:{server_urls:[{channel:"main",url:"https://slate.fixture.ts.net/mcp"}]}} | tojson)
+  }'
+  cp "$repo/secrets/jupiter/bootstrap.yaml" "$work/bootstrap-before-short-id.yaml"
+  cp "$repo/secrets/jupiter/runtime.yaml" "$work/runtime-before-short-id.yaml"
+  if printf '%s\n' luks-updated-value luks-updated-value '' '' '' '' tunnel_short fixture-secondary-key fixture-secondary-key |
+    run_init_update >"$work/update.stdout" 2>"$work/update.stderr"; then
+    fail "secondary accepted a short tunnel ID rejected by tunnel-client"
+  fi
+  rg -F '追加 tunnel_id の形式が不正' "$work/update.stderr" >/dev/null || fail "short tunnel ID failed for the wrong reason"
+  cmp "$repo/secrets/jupiter/bootstrap.yaml" "$work/bootstrap-before-short-id.yaml" || fail "short secondary ID changed bootstrap"
+  cmp "$repo/secrets/jupiter/runtime.yaml" "$work/runtime-before-short-id.yaml" || fail "short secondary ID changed runtime"
+}
+
+test_mcp_rejects_same_tunnel_id_in_both_directions() {
+  local direction failures=0
+
+  for direction in secondary primary; do
+    reset_wrapper_fixture
+    rewrite_runtime '. + {
+      "openai-mcp-api-key": "fixture-primary-key",
+      "openai-mcp-slate-config": ({control_plane:{tunnel_id:"tunnel_primary0000000000000000000000000"},mcp:{server_urls:[{channel:"main",url:"https://slate.fixture.ts.net/mcp"}]}} | tojson),
+      "openai-mcp-secondary-api-key": "fixture-secondary-key",
+      "openai-mcp-secondary-config": ({control_plane:{tunnel_id:"tunnel_secondary00000000000000000000000"},mcp:{server_urls:[{channel:"main",url:"https://slate.fixture.ts.net/mcp"}]},health:{listen_addr:"127.0.0.1:18081"}} | tojson)
+    }'
+    cp "$repo/secrets/jupiter/bootstrap.yaml" "$work/bootstrap-before-collision.yaml"
+    cp "$repo/secrets/jupiter/runtime.yaml" "$work/runtime-before-collision.yaml"
+    if {
+      if [ "$direction" = secondary ]; then
+        printf '%s\n' luks-updated-value luks-updated-value '' '' '' '' tunnel_primary0000000000000000000000000 fixture-collision-key fixture-collision-key
+      else
+        printf '%s\n' luks-updated-value luks-updated-value '' '' '' tunnel_secondary00000000000000000000000 https://slate.fixture.ts.net fixture-collision-key fixture-collision-key ''
+      fi
+    } | run_init_update >"$work/update.stdout" 2>"$work/update.stderr"; then
+      printf 'FAIL: %s accepted the other tunnel ID\n' "$direction" >&2
+      failures=$((failures + 1))
+    else
+      rg -F '既存と追加の tunnel_id は別の値にすること' "$work/update.stderr" >/dev/null || fail "$direction collision failed for the wrong reason"
+      cmp "$repo/secrets/jupiter/bootstrap.yaml" "$work/bootstrap-before-collision.yaml" || fail "$direction ID collision changed bootstrap"
+      cmp "$repo/secrets/jupiter/runtime.yaml" "$work/runtime-before-collision.yaml" || fail "$direction ID collision changed runtime"
+    fi
+  done
+  [ "$failures" -eq 0 ] || fail "both tunnel IDs must remain independent"
 }
 
 test_init_update_updates_entered_values_and_preserves_empty_values() {
@@ -786,6 +951,7 @@ luks-updated-value
 
 smb-updated-value
 smb-updated-value
+
 
 
 EOF
@@ -818,6 +984,7 @@ test_init_update_adds_missing_oauth_secret() {
 tskey-client-updated-value
 tskey-client-updated-value
 
+
 EOF
 
   decrypt_runtime_fixture | \
@@ -832,6 +999,7 @@ test_init_update_preserves_all_existing_secrets_on_empty_input() {
   bootstrap_before=$(sha256sum "$repo/secrets/jupiter/bootstrap.yaml")
   runtime_before=$(sha256sum "$repo/secrets/jupiter/runtime.yaml")
   run_init_update >"$work/update.stdout" 2>"$work/update.stderr" <<'EOF'
+
 
 
 
@@ -852,6 +1020,7 @@ test_init_update_preserves_an_existing_short_primary_credential() {
   bootstrap_before=$(sha256sum "$repo/secrets/jupiter/bootstrap.yaml")
   runtime_before=$(sha256sum "$repo/secrets/jupiter/runtime.yaml")
   if ! run_init_update >"$work/update.stdout" 2>"$work/update.stderr" <<'EOF'
+
 
 
 
@@ -886,6 +1055,7 @@ luks-updated-value
 
 tskey-client-first-value
 tskey-client-second-value
+
 EOF
         then
           fail "init update accepted mismatched confirmation"
@@ -925,6 +1095,7 @@ test_init_update_rejects_non_oauth_client_secrets_without_changes() {
 
 $oauth_secret
 $oauth_secret
+
 EOF
     then
       fail "init update accepted a non-OAuth-client secret: $oauth_secret"
@@ -1013,6 +1184,7 @@ smb-updated-value
 smb-updated-value
 
 
+
 EOF
   then
     fail "init update succeeded after the second publish failed"
@@ -1045,6 +1217,7 @@ EOF
     run_init_update >"$work/update.stdout" 2>"$work/update.stderr" <<'EOF'
 luks-updated-value
 luks-updated-value
+
 
 
 
@@ -1396,6 +1569,9 @@ if [ "$suite" = wrapper ]; then
   exit 0
 fi
 
+test_secondary_mcp_rejects_short_tunnel_id_without_changes
+test_mcp_rejects_same_tunnel_id_in_both_directions
+test_secondary_mcp_shares_slate_and_preserves_credentials
 test_mcp_uses_existing_runtime_workflow
 reset_fixture
 test_missing_ssh_key_fails_before_input

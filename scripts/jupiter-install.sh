@@ -232,7 +232,10 @@ validate_runtime_secret() {
       ((has("openai-mcp-api-key") | not) and (has("openai-mcp-slate-config") | not) or
        (."openai-mcp-api-key" | type == "string" and length > 0) and
        (."openai-mcp-slate-config" | type == "string" and length > 0)) and
-      ((del(."openai-mcp-api-key", ."openai-mcp-slate-config") | keys) == ["smb-mars-shishi", "tailscale-oauth-secret"]) and
+      ((has("openai-mcp-secondary-api-key") | not) and (has("openai-mcp-secondary-config") | not) or
+       (."openai-mcp-secondary-api-key" | type == "string" and length > 0) and
+       (."openai-mcp-secondary-config" | type == "string" and length > 0)) and
+      ((del(."openai-mcp-api-key", ."openai-mcp-slate-config", ."openai-mcp-secondary-api-key", ."openai-mcp-secondary-config") | keys) == ["smb-mars-shishi", "tailscale-oauth-secret"]) and
       (."smb-mars-shishi" | type == "string") and
       (."smb-mars-shishi" | startswith("username=shishi\npassword=")) and
       (."smb-mars-shishi" | length > ("username=shishi\npassword=" | length)) and

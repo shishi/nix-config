@@ -451,7 +451,16 @@
             [ "$status" = '{"encrypted":true}' ] || fail "$label is not fully encrypted"
             actual_keys=$(${pkgs.yq-go}/bin/yq -o=json -I=0 \
               '[keys[] | select(. != "sops")] | sort' "$file")
-            [ "$actual_keys" = "$expected_keys" ] || fail "$label has unexpected top-level secret keys"
+            if [ "$label" = runtime ]; then
+              printf '%s' "$actual_keys" | ${pkgs.jq}/bin/jq -e --argjson required "$expected_keys" '
+                . as $keys |
+                ($keys - ["openai-mcp-api-key", "openai-mcp-slate-config", "openai-mcp-secondary-api-key", "openai-mcp-secondary-config"]) == $required and
+                (($keys | index("openai-mcp-api-key") != null) == ($keys | index("openai-mcp-slate-config") != null)) and
+                (($keys | index("openai-mcp-secondary-api-key") != null) == ($keys | index("openai-mcp-secondary-config") != null))
+              ' >/dev/null || fail "$label has unexpected or incomplete secret keys"
+            else
+              [ "$actual_keys" = "$expected_keys" ] || fail "$label has unexpected top-level secret keys"
+            fi
             ${pkgs.yq-go}/bin/yq -e \
               '[to_entries[] | select(.key != "sops") | .value | (tag == "!!str" and test("^ENC\\["))] | all' \
               "$file" >/dev/null || fail "$label contains a plaintext secret value"
@@ -465,7 +474,7 @@
             '["gpg-secret-key","jupiter-age-key","login-password","luks-passphrase","ssh-private-key"]' \
             "$management_recipient"
           check_secret_file runtime "$runtime_file" \
-            '["openai-mcp-api-key","openai-mcp-slate-config","smb-mars-shishi","tailscale-oauth-secret"]' "$runtime_recipient"
+            '["smb-mars-shishi","tailscale-oauth-secret"]' "$runtime_recipient"
 
           # dns-osaka-1 の暗号文も同じ境界で検査する。管理鍵は jupiter と共通
           # (docs/dns-osaka-1-runbook.md 手順 5)なので、bootstrap の宛先は

@@ -90,10 +90,12 @@ nix run .#jupiter-secrets
 3. SMB パスワード
 4. Tailscale OAuth クライアントシークレット
 5. Slate のトンネル ID（入力した場合は Main URL、API キーと確認入力へ進む）
+6. Slate の追加トンネル ID（入力した場合は別の API キーと確認入力へ進む。接続先は既存分と共通）
 
 空 Enter は既存値を維持する。値を入力した項目だけ確認入力へ進み、
 対応する暗号文だけを更新する。SSH、GPG、Jupiter 用 age 鍵は更新しない。
-トンネル ID の空 Enter は接続情報一式を維持し、未登録なら登録をスキップする。
+トンネル ID の空 Enter は ID とキーを維持し、未登録なら登録をスキップする。
+既存分の Main URL を変更すると、追加分の接続先にも反映する。
 すべて空 Enter の場合は暗号文を変更しない。
 空 Enter は削除ではない。暗号文内の必須値を空文字にするか項目ごと削除すると、
 不正な形式として停止する。
@@ -163,7 +165,7 @@ passwd
 ```
 
 続いて「既存値の更新」を実行し、ログインパスワードに同じ新しい値を入力する。
-ほかの 3 項目は空 Enter で維持する。SSH 接続を残したまま、画面ロックの解除または
+ほかの項目は空 Enter で維持する。SSH 接続を残したまま、画面ロックの解除または
 RDP 接続で新しい値を確認する。暗号文は次回の再インストールに備えてコミットする。
 
 ### 5.2 LUKS パスフレーズ
@@ -197,7 +199,7 @@ sudo cryptsetup open --test-passphrase --disable-external-tokens --key-slot <N> 
 ```
 
 確認後に「既存値の更新」を実行し、LUKS パスフレーズへ同じ新しい値を入力する。
-ほかの 3 項目は空 Enter で維持し、暗号文をコミットする。最後に古い値を入力して、
+ほかの項目は空 Enter で維持し、暗号文をコミットする。最後に古い値を入力して、
 古いキースロットだけを削除する。
 
 ```bash
@@ -217,7 +219,7 @@ sudo cryptsetup luksHeaderBackup --header-backup-file <secure-backup-path>/jupit
 ## 6. SMB パスワードの変更
 
 「既存値の更新」を実行し、SMB パスワードだけ新しい値を入力する。
-ほかの 3 項目は空 Enter で維持する。変更した `secrets/jupiter/runtime.yaml` をコミットしてプッシュし、
+ほかの項目は空 Enter で維持する。変更した `secrets/jupiter/runtime.yaml` をコミットしてプッシュし、
 Jupiter 側でチェックアウトを更新して `nh os switch` を実行する。
 
 既存の CIFS セッションを切断し、自動マウントから再接続する。

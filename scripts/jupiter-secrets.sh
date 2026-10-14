@@ -228,8 +228,11 @@ update_existing_secrets() {
     ((has("openai-mcp-api-key") | not) and (has("openai-mcp-slate-config") | not) or
      (."openai-mcp-api-key" | type == "string" and length > 0) and
      (."openai-mcp-slate-config" | type == "string" and length > 0)) and
-    (((del(."openai-mcp-api-key", ."openai-mcp-slate-config") | keys) == ["smb-mars-shishi"]) or
-     ((del(."openai-mcp-api-key", ."openai-mcp-slate-config") | keys) == ["smb-mars-shishi", "tailscale-oauth-secret"])) and
+    ((has("openai-mcp-secondary-api-key") | not) and (has("openai-mcp-secondary-config") | not) or
+     (."openai-mcp-secondary-api-key" | type == "string" and length > 0) and
+     (."openai-mcp-secondary-config" | type == "string" and length > 0)) and
+    (((del(."openai-mcp-api-key", ."openai-mcp-slate-config", ."openai-mcp-secondary-api-key", ."openai-mcp-secondary-config") | keys) == ["smb-mars-shishi"]) or
+     ((del(."openai-mcp-api-key", ."openai-mcp-slate-config", ."openai-mcp-secondary-api-key", ."openai-mcp-secondary-config") | keys) == ["smb-mars-shishi", "tailscale-oauth-secret"])) and
     (."smb-mars-shishi" | type == "string" and startswith("username=shishi\npassword=") and
       length > ("username=shishi\npassword=" | length)) and
     ((has("tailscale-oauth-secret") | not) or
@@ -265,7 +268,7 @@ update_existing_secrets() {
   printf 'Slate の tunnel_id（空Enterで接続設定を維持、未登録ならスキップ）: ' >&2
   IFS= read -r tunnel || die 'tunnel_id の入力を読み取れない'
   if [ -n "$tunnel" ]; then
-    [[ $tunnel =~ ^tunnel_[a-zA-Z0-9]+$ ]] || die 'tunnel_id の形式が不正'
+    [[ $tunnel =~ ^tunnel_[a-z0-9]{32}$ ]] || die 'tunnel_id の形式が不正'
     printf 'Slate Main の HTTPS Origin: ' >&2
     IFS= read -r origin || die 'Main Origin の入力を読み取れない'
     origin=${origin%/}
@@ -279,6 +282,35 @@ update_existing_secrets() {
       admin_ui:{open_browser:false},log:{level:"info",format:"json"}
     }' >"$tmpdir/openai-mcp-slate-config"
     runtime_changed=1
+  fi
+
+  printf 'Slate 追加トンネルの tunnel_id（空Enterで維持、未登録ならスキップ）: ' >&2
+  IFS= read -r tunnel || die '追加 tunnel_id の入力を読み取れない'
+  if [ -n "$tunnel" ]; then
+    [[ $tunnel =~ ^tunnel_[a-z0-9]{32}$ ]] || die '追加 tunnel_id の形式が不正'
+    if [ -f "$tmpdir/openai-mcp-slate-config" ]; then
+      cp "$tmpdir/openai-mcp-slate-config" "$tmpdir/slate-source-config.json"
+    else
+      jq -er '."openai-mcp-slate-config" // empty' "$tmpdir/runtime-current.json" >"$tmpdir/slate-source-config.json" || \
+        die '先に既存 Slate トンネルを登録すること'
+    fi
+    read_confirmed_secret '追加トンネルの実行用 API キー' "$tmpdir/openai-mcp-secondary-api-key"
+    jq -e --arg tunnel "$tunnel" '
+      .mcp.server_urls as $urls |
+      if ($urls | type == "array" and length > 0) then {
+        config_version:1,
+        control_plane:{base_url:"https://api.openai.com",tunnel_id:$tunnel},
+        mcp:{server_urls:$urls},
+        health:{listen_addr:"127.0.0.1:18081"},
+        admin_ui:{open_browser:false},log:{level:"info",format:"json"}
+      } else error("Slate server_urls is missing") end
+    ' "$tmpdir/slate-source-config.json" >"$tmpdir/openai-mcp-secondary-config" || die '既存 Slate 接続設定の形式が不正'
+    runtime_changed=1
+  elif [ -f "$tmpdir/openai-mcp-slate-config" ] && \
+    jq -e 'has("openai-mcp-secondary-config")' "$tmpdir/runtime-current.json" >/dev/null; then
+    jq -e --slurpfile primary "$tmpdir/openai-mcp-slate-config" '
+      ."openai-mcp-secondary-config" | fromjson | .mcp.server_urls = $primary[0].mcp.server_urls
+    ' "$tmpdir/runtime-current.json" >"$tmpdir/openai-mcp-secondary-config" || die '追加トンネル接続設定の形式が不正'
   fi
 
   if [ "$bootstrap_changed" -eq 0 ] && [ "$runtime_changed" -eq 0 ]; then
@@ -304,7 +336,7 @@ update_existing_secrets() {
   if [ "$runtime_changed" -eq 1 ]; then
     runtime_tmp=$(mktemp "secrets/jupiter/runtime.tmp.XXXXXXXX.yaml")
     cp --preserve=mode -- secrets/jupiter/runtime.yaml "$runtime_tmp"
-    for key in openai-mcp-api-key openai-mcp-slate-config; do
+    for key in openai-mcp-api-key openai-mcp-slate-config openai-mcp-secondary-api-key openai-mcp-secondary-config; do
       if [ -f "$tmpdir/$key" ]; then
         jq -Rs . <"$tmpdir/$key" | SOPS_AGE_KEY_FILE="$jupiter_age_key" \
           sops set --value-stdin "$runtime_tmp" "[\"$key\"]"
@@ -352,12 +384,21 @@ update_existing_secrets() {
     ((has("openai-mcp-api-key") | not) and (has("openai-mcp-slate-config") | not) or
        (."openai-mcp-api-key" | type == "string" and length > 0) and
        (."openai-mcp-slate-config" | type == "string" and length > 0)) and
-      ((del(."openai-mcp-api-key", ."openai-mcp-slate-config") | keys) == ["smb-mars-shishi", "tailscale-oauth-secret"]) and
+    ((has("openai-mcp-secondary-api-key") | not) and (has("openai-mcp-secondary-config") | not) or
+     (."openai-mcp-secondary-api-key" | type == "string" and length > 0) and
+     (."openai-mcp-secondary-config" | type == "string" and length > 0)) and
+      ((del(."openai-mcp-api-key", ."openai-mcp-slate-config", ."openai-mcp-secondary-api-key", ."openai-mcp-secondary-config") | keys) == ["smb-mars-shishi", "tailscale-oauth-secret"]) and
       (."smb-mars-shishi" | type == "string" and startswith("username=shishi\npassword=") and
         length > ("username=shishi\npassword=" | length)) and
       (."tailscale-oauth-secret" | type == "string" and startswith("tskey-client-") and
         length > ("tskey-client-" | length))
     ' "$tmpdir/runtime-updated.json" >/dev/null || die '更新後の runtime.yaml の形式が不正'
+    jq -e '
+      if has("openai-mcp-slate-config") and has("openai-mcp-secondary-config") then
+        (."openai-mcp-slate-config" | fromjson | .control_plane.tunnel_id) !=
+        (."openai-mcp-secondary-config" | fromjson | .control_plane.tunnel_id)
+      else true end
+    ' "$tmpdir/runtime-updated.json" >/dev/null || die '既存と追加の tunnel_id は別の値にすること'
   fi
 
   if [ "$bootstrap_changed" -eq 1 ]; then
