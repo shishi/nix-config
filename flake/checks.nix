@@ -234,7 +234,7 @@
           '';
 
         # Jupiter は SOPS で復号した OAuth client secret を使って tailnet へ自動参加し、
-        # tag:jupiter の永続ノードとして Tailscale SSH と Tailscale 限定の RDP を公開する。
+        # tag:jupiter の永続ノードとして Tailscale SSH と tailnet 内限定の RDP・HTTPS を公開する。
         jupiter-tailscale-contract =
           let
             cfg = self.nixosConfigurations.jupiter.config;
@@ -264,7 +264,7 @@
             }" "true"
             check tailscale.extraUpFlags '${builtins.toJSON tailscale.extraUpFlags}' \
               '["--advertise-tags=tag:jupiter"]'
-            check tailscale.extraSetFlags '${builtins.toJSON tailscale.extraSetFlags}' '["--ssh"]'
+            check tailscale.extraSetFlags '${builtins.toJSON tailscale.extraSetFlags}' '["--operator=shishi","--ssh"]'
             check secret.path "${secret.path or ""}" "/run/secrets/tailscale-oauth-secret"
             check secret.owner "${secret.owner or ""}" "root"
             check secret.group "${secret.group or ""}" "root"
