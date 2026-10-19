@@ -263,6 +263,8 @@ let
 in
 {
   virtualisation.docker.enable = true;
+  # user unit の起動時も Docker に接続できるよう、activation 前の停止を避ける。
+  systemd.services.docker.stopIfChanged = false;
   users.users.shishi = {
     extraGroups = [ "docker" ];
     linger = true;

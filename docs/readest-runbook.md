@@ -27,7 +27,9 @@ Service 名と tailnet の MagicDNS サフィックスから HTTPS の公開元 
 
 ## 起動と状態確認
 
-NixOS 構成を反映すると、`readest.service` と `readest-serve.service` が自動起動します。
+通常の `nh os switch` で NixOS 構成を反映します。
+Home Manager が `readest-compose` と user unit を配置します。
+反映時に `readest.service` と `readest-serve.service` を自動起動します。
 手動で起動する場合も、操作はサービスを使います。
 
 ```bash
