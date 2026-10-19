@@ -1,5 +1,6 @@
 { config, pkgs, ... }:
 let
+  serviceName = "readest";
   source = pkgs.fetchFromGitHub {
     owner = "readest";
     repo = "readest";
@@ -121,7 +122,8 @@ let
         };
       };
       rest = {
-        image = "postgrest/postgrest:v14.3";
+        # 発行直後の JWT を散発的に誤拒否する不具合の修正版（PostgREST #5196）。
+        image = "postgrest/postgrest:v14.18";
         restart = "unless-stopped";
         depends_on.db.condition = "service_healthy";
         environment = {
@@ -233,10 +235,8 @@ let
       mkdir -p "$state"
       chmod 700 "$state"
       docker info >/dev/null
-      if [[ ! -f "$state/.env" ]]; then
-        dns=$(tailscale status --json | jq -er '.Self.DNSName | select(length > 0) | rtrimstr(".")')
-        python3 ${../../scripts/readest-init.py} "$state/.env" "https://$dns"
-      fi
+      dns_suffix=$(tailscale status --json | jq -er '.CurrentTailnet.MagicDNSSuffix | select(type == "string" and length > 0)')
+      python3 ${../../scripts/readest-init.py} "$state/.env" "https://${serviceName}.$dns_suffix"
       chmod 600 "$state/.env"
     '';
   };
@@ -299,7 +299,7 @@ in
       };
       readest-serve = {
         Unit = {
-          Description = "Publish Readest through Tailscale HTTPS";
+          Description = "Publish Readest through its Tailscale Service";
           Requires = [ "readest.service" ];
           After = [ "readest.service" ];
           PartOf = [ "readest.service" ];
@@ -307,8 +307,10 @@ in
         };
         Install.WantedBy = [ "default.target" ];
         Service = {
-          Type = "exec";
-          ExecStart = "${config.services.tailscale.package}/bin/tailscale serve --yes --https=443 http://127.0.0.1:3080";
+          Type = "oneshot";
+          RemainAfterExit = true;
+          ExecStart = "${config.services.tailscale.package}/bin/tailscale serve --yes --service=svc:${serviceName} --https=443 http://127.0.0.1:3080";
+          ExecStop = "${config.services.tailscale.package}/bin/tailscale serve clear svc:${serviceName}";
           Restart = "on-failure";
           RestartSec = "15s";
         };

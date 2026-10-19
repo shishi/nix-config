@@ -12,14 +12,17 @@ S3 互換ストレージには SeaweedFS の単一プロセス構成を使いま
 Docker グループのメンバーはホストの管理者相当の権限を持ちます。
 
 利用前に Tailscale へログインし、tailnet の HTTPS 証明書を有効にします。
-ホスト自身の HTTPS ポート 443 は Readest 専用にします。
-Tailscale Services の個別サービス名で公開するほかのアプリとは併用できます。
-Tailscale Serve は tailnet 内へ公開し、インターネットへの Funnel は設定しません。
+tailnet 管理用リポジトリーから、`svc:readest` の TCP 443 を登録します。
+`readest-serve` の起動でホストが広告された後、同じ管理用リポジトリーからホストを承認します。
+承認後に HTTPS が応答しない場合は、`systemctl --user restart readest-serve` で再広告します。
+Readest はこの専用 Tailscale Service へ公開します。
+ホスト共用の HTTPS エンドポイントは使用しません。
+インターネットへの Funnel は設定しません。
 
-初回起動時にホストの Tailscale DNS 名から HTTPS の公開元 URL を決めます。
+Service 名と tailnet の MagicDNS サフィックスから HTTPS の公開元 URL を決めます。
 パスワードと JWT の署名鍵も初回に生成します。
 `${XDG_DATA_HOME:-$HOME/.local/share}/readest/.env` を所有者だけが読める権限で保存します。
-再起動しても既存のファイルを保持します。
+再起動時は既存の署名鍵・パスワード・任意設定を保持し、公開元 URL を専用 Service に揃えます。
 秘密情報を Nix store や Git に保存する必要はありません。
 
 ## 起動と状態確認
@@ -41,12 +44,11 @@ readest-compose exec -T client printenv API_BASE_URL
 ```
 
 `http://127.0.0.1:3080` はホスト内からの疎通確認用です。
-Tailscale Serve はフォアグラウンドで動くため、通常の `tailscale serve status` には
-表示されません。公開設定の詳細は `tailscale serve status --json` の `Foreground` で確認します。
+公開設定は `tailscale serve status --json` の `Services` にある `svc:readest` で確認します。
 認証、同期、ブラウザーの保存領域を使う通常操作では HTTPS URL を使います。
-公開元を変更するときは `.env` 内の `SITE_URL`、`API_EXTERNAL_URL`、
-`SUPABASE_PUBLIC_URL`、`S3_PUBLIC_ENDPOINT`、`ADDITIONAL_REDIRECT_URLS` を合わせます。
-ブラウザーのローカルデータは公開元ごとに分かれるため、URL を変える前に同期します。
+認証・同期 API・本ファイル用の公開 URL は、起動時に同じ Service の公開元へ更新します。
+ブラウザーのローカルデータは公開元ごとに分かれ、自動移行しません。
+サーバーへ同期済みの本と読書状態は、新しい公開元で同じアカウントにログインして取得します。
 
 同じ HTTPS 公開元で、`/` は Web アプリへ転送します。
 `/auth/v1/` と `/rest/v1/` は Supabase へ転送します。
@@ -67,7 +69,8 @@ systemctl --user restart readest
 
 停止時は Compose の `down` でコンテナーとネットワークを除去します。
 PostgreSQL と SeaweedFS の named volume、および `.env` は保持します。
-再起動すると HTTPS 公開も再起動します。
+停止時は `svc:readest` の広告とプロキシ設定も解除します。
+再起動すると同じ Service を再び公開します。
 
 `readest-compose` は、この構成の Compose ファイルと `.env` を指定するラッパーです。
 通常の Compose 引数を渡せます。

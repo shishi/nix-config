@@ -36,8 +36,6 @@ def main():
     if len(sys.argv) != 3:
         raise SystemExit("Usage: readest-init.py ENV_FILE HTTPS_ORIGIN")
     destination = Path(sys.argv[1])
-    if destination.exists():
-        return
     origin = sys.argv[2].rstrip("/")
     parsed = urlsplit(origin)
     if (
@@ -51,10 +49,53 @@ def main():
         or any(character in origin for character in "\r\n'")
     ):
         raise SystemExit("Readest requires a valid HTTPS origin.")
+    origin_values = {
+        "HOST_IP": parsed.hostname,
+        "API_EXTERNAL_URL": origin,
+        "SITE_URL": origin,
+        "ADDITIONAL_REDIRECT_URLS": f"{origin}/**",
+        "SUPABASE_PUBLIC_URL": origin,
+        "S3_PUBLIC_ENDPOINT": origin,
+    }
+    existing = destination.exists()
+    if existing:
+        original = destination.read_text()
+        remaining = dict(origin_values)
+        updated = []
+        for line in original.splitlines(keepends=True):
+            name = line.split("=", 1)[0]
+            if name in origin_values:
+                updated.append(f"{name}='{origin_values[name]}'\n")
+                remaining.pop(name, None)
+            else:
+                updated.append(line)
+        if remaining and updated and not updated[-1].endswith("\n"):
+            updated.append("\n")
+        updated.extend(f"{name}='{value}'\n" for name, value in remaining.items())
+        content = "".join(updated)
+        if content == original:
+            return
+    else:
+        content = initial_environment(origin_values)
+    descriptor, temporary_name = tempfile.mkstemp(prefix=".env-", dir=destination.parent)
+    temporary = Path(temporary_name)
+    try:
+        with os.fdopen(descriptor, "w") as output:
+            output.write(content)
+            output.flush()
+            os.fsync(output.fileno())
+        if existing:
+            os.replace(temporary, destination)
+        else:
+            os.link(temporary, destination)
+    finally:
+        temporary.unlink(missing_ok=True)
+
+
+def initial_environment(origin_values):
     jwt_secret = secrets.token_hex(32)
     issued_at = int(time.time())
     values = {
-        "HOST_IP": parsed.hostname,
         "POSTGRES_PASSWORD": secrets.token_hex(32),
         "POSTGRES_HOST": "db",
         "POSTGRES_PORT": "5432",
@@ -64,11 +105,6 @@ def main():
         "ANON_KEY": token(jwt_secret, "anon", issued_at),
         "SERVICE_ROLE_KEY": token(jwt_secret, "service_role", issued_at),
         "KONG_HTTP_PORT": "8000",
-        "API_EXTERNAL_URL": origin,
-        "SITE_URL": origin,
-        "ADDITIONAL_REDIRECT_URLS": f"{origin}/**",
-        "SUPABASE_PUBLIC_URL": origin,
-        "S3_PUBLIC_ENDPOINT": origin,
         "DISABLE_SIGNUP": "false",
         "ENABLE_EMAIL_SIGNUP": "true",
         "ENABLE_EMAIL_AUTOCONFIRM": "true",
@@ -89,17 +125,8 @@ def main():
         "TRANSLATION_FIXED_QUOTA": "50000",
         "FONT_BASE_URL": "",
     }
-    content = "".join(f"{key}='{value}'\n" for key, value in values.items())
-    descriptor, temporary_name = tempfile.mkstemp(prefix=".env-", dir=destination.parent)
-    temporary = Path(temporary_name)
-    try:
-        with os.fdopen(descriptor, "w") as output:
-            output.write(content)
-            output.flush()
-            os.fsync(output.fileno())
-        os.link(temporary, destination)
-    finally:
-        temporary.unlink()
+    values.update(origin_values)
+    return "".join(f"{key}='{value}'\n" for key, value in values.items())
 
 
 if __name__ == "__main__":

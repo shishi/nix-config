@@ -55,6 +55,11 @@
           touch $out
         '';
 
+        readest-initialization-contract = pkgs.runCommand "readest-initialization-contract" { } ''
+          ${pkgs.python3.interpreter} ${../scripts/readest-init.test.py} ${../scripts/readest-init.py}
+          touch $out
+        '';
+
         # 可搬グラフ信号(ビルド)
         home-shishi = self.homeConfigurations."shishi".activationPackage;
         nixos-wsl-toplevel = self.nixosConfigurations.nixos-wsl.config.system.build.toplevel;
