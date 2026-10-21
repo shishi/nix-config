@@ -12,11 +12,13 @@
       xdg-desktop-portal = prev.xdg-desktop-portal.overrideAttrs (old: {
         patches = (old.patches or [ ]) ++ [ ./portal-no-prompt.patch ];
       });
-      kdePackages = prev.kdePackages.overrideScope (_kdeFinal: kdePrev: {
-        xdg-desktop-portal-kde = kdePrev.xdg-desktop-portal-kde.overrideAttrs (old: {
-          patches = (old.patches or [ ]) ++ [ ./portal-kde-no-prompt.patch ];
-        });
-      });
+      kdePackages = prev.kdePackages.overrideScope (
+        _kdeFinal: kdePrev: {
+          xdg-desktop-portal-kde = kdePrev.xdg-desktop-portal-kde.overrideAttrs (old: {
+            patches = (old.patches or [ ]) ++ [ ./portal-kde-no-prompt.patch ];
+          });
+        }
+      );
     })
   ];
 
