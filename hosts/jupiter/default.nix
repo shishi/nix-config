@@ -237,6 +237,24 @@ in
   nixpkgs.overlays = [
     (_final: prev: {
       rustdesk = prev.rustdesk-flutter;
+      # 切断時の lock 待ちが portal 全体を止めるため、上流の修正を適用する。
+      # https://github.com/flatpak/xdg-desktop-portal/pull/2108
+      xdg-desktop-portal = prev.xdg-desktop-portal.overrideAttrs (old: {
+        patches = (old.patches or [ ]) ++ [
+          (prev.fetchpatch {
+            url = "https://github.com/flatpak/xdg-desktop-portal/commit/d65109dd573212b393c4409f570f481a3d691a09.patch";
+            hash = "sha256-Pil+dWMiktDU6x68FXofKqbhZUCiIfxBd/X74dKHAOA=";
+            stripLen = 2;
+            extraPrefix = "src/";
+          })
+          (prev.fetchpatch {
+            url = "https://github.com/flatpak/xdg-desktop-portal/commit/aeed2676973622dae5df9263f00656c1405dd13b.patch";
+            hash = "sha256-nWj1b/v0td3r0IzTvt15xA0Zn+7qO/nla7yqIBJUSFQ=";
+            stripLen = 2;
+            extraPrefix = "src/";
+          })
+        ];
+      });
     })
   ];
 
