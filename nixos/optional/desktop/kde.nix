@@ -5,6 +5,16 @@
   services.displayManager.sddm.enable = true;
   services.desktopManager.plasma6.enable = true;
 
+  # PermissionStore のアプリ別許可では、新しい app_id の初回確認が残る。
+  # 非対話の撮影を一律許可し、対話撮影の範囲選択は維持する。
+  nixpkgs.overlays = [
+    (_final: prev: {
+      xdg-desktop-portal = prev.xdg-desktop-portal.overrideAttrs (old: {
+        patches = (old.patches or [ ]) ++ [ ./screenshot-no-prompt.patch ];
+      });
+    })
+  ];
+
   # Plasma が Portal と AT-SPI を提供する。Computer Use 用の映像経路だけ追加する。
   services.pipewire = {
     enable = true;
