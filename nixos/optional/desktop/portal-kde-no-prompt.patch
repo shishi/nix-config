@@ -1,0 +1,629 @@
+--- a/src/access.cpp
++++ b/src/access.cpp
+@@ -43,37 +43,12 @@
+     qCDebug(XdgDesktopPortalKdeAccess) << "    body: " << body;
+     qCDebug(XdgDesktopPortalKdeAccess) << "    options: " << options;
+ 
+-    auto accessDialog = new ::AccessDialog();
+-    accessDialog->setBody(body);
+-    accessDialog->setTitle(title);
+-    accessDialog->setSubtitle(subtitle);
+-
+-    if (options.contains(QStringLiteral("deny_label"))) {
+-        accessDialog->setRejectLabel(options.value(QStringLiteral("deny_label")).toString());
++    Choices choices;
++    for (const auto &option : qdbus_cast<OptionList>(options.value(u"choices"_s))) {
++        choices.emplaceBack(option.id, option.initialChoiceId);
+     }
+-
+-    if (options.contains(QStringLiteral("grant_label"))) {
+-        accessDialog->setAcceptLabel(options.value(QStringLiteral("grant_label")).toString());
+-    }
+-
+-    if (options.contains(QStringLiteral("icon"))) {
+-        accessDialog->setIcon(options.value(QStringLiteral("icon")).toString());
+-    }
+-
+-    if (options.contains(u"choices"_s)) {
+-        accessDialog->setChoices(qdbus_cast<OptionList>(options.value(u"choices"_s)));
+-    }
+-
+-    accessDialog->createDialog();
+-    Utils::setParentWindow(accessDialog->windowHandle(), parent_window);
+-    Request::makeClosableDialogRequest(handle, accessDialog);
+-    accessDialog->windowHandle()->setModality(options.value(QStringLiteral("modal"), true).toBool() ? Qt::WindowModal : Qt::NonModal);
+-
+-    delayReply(message, accessDialog, this, [accessDialog](DialogResult result) {
+-        auto choices = accessDialog->selectedChoices();
+-        QVariantMap results{{u"choices"_s, QVariant::fromValue(choices)}};
+-        return QVariantList{PortalResponse::fromDialogResult(result), results};
+-    });
++    replyResponse = PortalResponse::Success;
++    replyResults = {{u"choices"_s, QVariant::fromValue(choices)}};
+ }
+ 
+ #include "moc_access.cpp"
+--- a/src/account.cpp
++++ b/src/account.cpp
+@@ -8,7 +8,11 @@
+ #include "account.h"
+ #include "account_debug.h"
+ #include "dbushelpers.h"
+-#include "userinfodialog.h"
++#include "user_interface.h"
++#include <unistd.h>
++#include <QFileInfo>
++#include <KIconLoader>
++#include <QUrl>
+ #include "utils.h"
+ 
+ #include <QDBusConnection>
+@@ -32,25 +36,17 @@
+     qCDebug(XdgDesktopPortalKdeAccount) << "    app_id: " << app_id;
+     qCDebug(XdgDesktopPortalKdeAccount) << "    options: " << options;
+ 
+-    QString reason;
+-
+-    if (options.contains(QStringLiteral("reason"))) {
+-        reason = options.value(QStringLiteral("reason")).toString();
++    OrgFreedesktopAccountsUserInterface user(QStringLiteral("org.freedesktop.Accounts"),
++                                            QStringLiteral("/org/freedesktop/Accounts/User%1").arg(getuid()),
++                                            QDBusConnection::systemBus());
++    QString image = user.iconFile();
++    if (!QFileInfo::exists(image)) {
++        image = KIconLoader::global()->iconPath(QStringLiteral("user"), -KIconLoader::SizeEnormous, false);
+     }
+-
+-    UserInfoDialog *userInfoDialog = new UserInfoDialog(reason, app_id);
+-    Utils::setParentWindow(userInfoDialog->windowHandle(), parent_window);
+-
+-    delayReply(message, userInfoDialog, this, [message, userInfoDialog](DialogResult result) {
+-        QVariantMap results;
+-        if (result == DialogResult::Accepted) {
+-            results.insert(QStringLiteral("id"), userInfoDialog->id());
+-            results.insert(QStringLiteral("name"), userInfoDialog->name());
+-            const QString image = userInfoDialog->image();
+-            results.insert(QStringLiteral("image"), image.isEmpty() ? QStringLiteral("file://") : image);
+-        }
+-        return QVariantList{PortalResponse::fromDialogResult(result), results};
+-    });
++    replyResponse = PortalResponse::Success;
++    replyResults = {{QStringLiteral("id"), user.userName()},
++                    {QStringLiteral("name"), user.realName()},
++                    {QStringLiteral("image"), QUrl::fromLocalFile(QFileInfo(image).canonicalFilePath()).toString()}};
+ }
+ 
+ #include "moc_account.cpp"
+--- a/src/background.cpp
++++ b/src/background.cpp
+@@ -64,132 +64,7 @@
+ 
+ uint BackgroundPortal::NotifyBackground(const QDBusObjectPath &handle, const QString &app_id, const QString &name, QVariantMap &results)
+ {
+-    Q_UNUSED(results);
+-
+-    qCDebug(XdgDesktopPortalKdeBackground) << "NotifyBackground called with parameters:";
+-    qCDebug(XdgDesktopPortalKdeBackground) << "    handle: " << handle.path();
+-    qCDebug(XdgDesktopPortalKdeBackground) << "    app_id: " << app_id;
+-    qCDebug(XdgDesktopPortalKdeBackground) << "    name: " << name;
+-
+-    // If KWayland::Client::PlasmaWindowManagement hasn't been created, we would be notified about every
+-    // application, which is not what we want. This will be mostly happening on X11 session.
+-    if (!WaylandIntegration::plasmaWindowManagement()) {
+-        results.insert(QStringLiteral("result"), static_cast<uint>(BackgroundPortal::AllowOnce));
+-        return PortalResponse::Success;
+-    }
+-
+-    QDBusMessage message = m_context->message();
+-    auto allow = [message]() {
+-        const QVariantMap map = {{QStringLiteral("result"), static_cast<uint>(BackgroundPortal::Allow)}};
+-        QDBusMessage reply = message.createReply({PortalResponse::Success, map});
+-        if (!QDBusConnection::sessionBus().send(reply)) {
+-            qCWarning(XdgDesktopPortalKdeBackground) << "Failed to send response";
+-        }
+-    };
+-
+-    auto allowOnce = [message]() {
+-        const QVariantMap map = {{QStringLiteral("result"), static_cast<uint>(BackgroundPortal::AllowOnce)}};
+-        QDBusMessage reply = message.createReply({PortalResponse::Success, map});
+-        if (!QDBusConnection::sessionBus().send(reply)) {
+-            qCWarning(XdgDesktopPortalKdeBackground) << "Failed to send response";
+-        }
+-    };
+-
+-    auto forbid = [message]() {
+-        const QVariantMap map = {{QStringLiteral("result"), static_cast<uint>(BackgroundPortal::Forbid)}};
+-        QDBusMessage reply = message.createReply({PortalResponse::Success, map});
+-        if (!QDBusConnection::sessionBus().send(reply)) {
+-            qCWarning(XdgDesktopPortalKdeBackground) << "Failed to send response";
+-        }
+-    };
+-
+-    if (KSharedConfig::openConfig()->group(QStringLiteral("Background")).readEntry("NotifyBackgroundApps", true)) {
+-        allowOnce();
+-        return PortalResponse::Success;
+-    }
+-
+-    const KService::Ptr app = KService::serviceByDesktopName(app_id);
+-
+-    QObject *obj = QObject::parent();
+-
+-    if (!obj) {
+-        qCWarning(XdgDesktopPortalKdeBackground) << "Failed to get dbus context";
+-        return PortalResponse::OtherError;
+-    }
+-
+-    const QString appName = app ? app->name() : app_id;
+-    if (m_backgroundAppWarned.contains(app_id)) {
+-        const QVariantMap map = {
+-            {QStringLiteral("result"), static_cast<uint>(BackgroundPortal::AllowOnce)},
+-        };
+-        QDBusMessage reply = message.createReply({PortalResponse::Success, map});
+-        if (!QDBusConnection::sessionBus().send(reply)) {
+-            qCWarning(XdgDesktopPortalKdeBackground) << "Failed to send response";
+-        }
+-
+-        return PortalResponse::Success;
+-    }
+-
+-    KNotification *notify = new KNotification(QStringLiteral("notification"), KNotification::Persistent | KNotification::DefaultEvent, this);
+-    notify->setTitle(i18n("Background Activity"));
+-    notify->setText(
+-        i18nc("@info %1 is the name of an application",
+-              "%1 wants to remain running when it has no visible windows. If you deny this request, the application will quit when its last window is closed.",
+-              appName));
+-    notify->setProperty("activated", false);
+-
+-    message.setDelayedReply(true);
+-
+-    auto allowAction = notify->addAction(i18nc("@action:button Allow the application to keep running with no open windows", "Allow"));
+-
+-    connect(allowAction, &KNotificationAction::activated, this, [allow, notify] {
+-        allow();
+-        notify->setProperty("activated", true);
+-    });
+-
+-    auto forbidAction = notify->addAction(i18nc("@action:button Don't allow the application to keep running without any open windows", "Deny"));
+-
+-    connect(forbidAction, &KNotificationAction::activated, this, [this, appName, allow, forbid, notify] {
+-        const QString title =
+-            i18nc("@title title of a dialog to confirm whether to allow an application to remain running with no visible windows", "Deny Background Usage?");
+-        const QString text = i18nc("@info %1 is the name of an application",
+-                                   "This will force %1 to quit when its last window is closed. This could cause data loss if the application has "
+-                                   "any unsaved changes when it happens.",
+-                                   appName);
+-        auto messageBox = new QMessageBox(QMessageBox::Question, title, text);
+-        messageBox->addButton(i18nc("@action:button Allow the application to keep running with no open windows", "Allow"), QMessageBox::AcceptRole);
+-        messageBox->addButton(i18nc("@action:button Don't allow the application to keep running without any open windows", "Deny Anyway"),
+-                              QMessageBox::RejectRole);
+-        messageBox->show();
+-
+-        connect(messageBox, &QMessageBox::accepted, this, [messageBox, allow]() {
+-            allow();
+-            messageBox->deleteLater();
+-        });
+-        connect(messageBox, &QMessageBox::rejected, this, [messageBox, forbid]() {
+-            forbid();
+-            messageBox->deleteLater();
+-        });
+-
+-        notify->setProperty("activated", true);
+-    });
+-
+-    connect(notify, &KNotification::closed, this, [notify, allowOnce]() {
+-        if (notify->property("activated").toBool()) {
+-            return;
+-        }
+-
+-        allowOnce();
+-    });
+-
+-    notify->sendEvent();
+-
+-    Q_ASSERT(!m_backgroundAppWarned.contains(app_id));
+-    connect(notify, &KNotification::closed, this, [this, app_id] {
+-        m_backgroundAppWarned.remove(app_id);
+-    });
+-    m_backgroundAppWarned.insert(app_id);
+-
++    results.insert(QStringLiteral("result"), static_cast<uint>(BackgroundPortal::Allow));
+     return PortalResponse::Success;
+ }
+ 
+--- a/src/dynamiclauncher.cpp
++++ b/src/dynamiclauncher.cpp
+@@ -125,46 +125,8 @@
+     qCDebug(XdgDesktopPortalKdeDynamicLauncher) << "    iconVariant: " << iconVariant.variant();
+     qCDebug(XdgDesktopPortalKdeDynamicLauncher) << "    options: " << options;
+ 
+-    const auto modal = readOption<bool>(QStringLiteral("modal"), options).value_or(true);
+-    const auto launcherType = readOption<uint>(QStringLiteral("launcher_type"), options).value_or(uint(Type::Application));
+-    const auto optionalTarget = readOption<QString>(QStringLiteral("target"), options);
+-    const auto editableName = readOption<bool>(QStringLiteral("editable_name"), options).value_or(true);
+-    const auto editableIcon = readOption<bool>(QStringLiteral("editable_icon"), options).value_or(false);
+-
+-    static const QString nameKey = QStringLiteral("name");
+-    static const QString iconKey = QStringLiteral("icon");
+-
+-    const auto icon = extractIcon(iconVariant);
+-
+-    auto dialog = new DynamicLauncherDialog(typeToMainText(launcherType),
+-                                            typeToSubtitle(launcherType),
+-                                            icon,
+-                                            name,
+-                                            optionalTarget ? QUrl(optionalTarget.value()) : QUrl());
+-    dialog->windowHandle()->setModality(modal ? Qt::WindowModal : Qt::NonModal);
+-    Utils::setParentWindow(dialog->windowHandle(), parent_window);
+-    Request::makeClosableDialogRequest(handle, dialog);
+-
+-    delayReply(message, dialog, this, [dialog, editableName, editableIcon, icon, name, iconVariant](DialogResult result) {
+-        QVariantMap results;
+-        if (result == DialogResult::Accepted) {
+-            if (editableName) {
+-                results[nameKey] = dialog->m_name;
+-            } else {
+-                results[nameKey] = name;
+-            }
+-            if (editableIcon && dialog->m_icon != icon && dialog->m_icon.typeId() == QMetaType::QString) {
+-                const auto data = iconFromName(dialog->m_icon.toString());
+-                if (!data.isEmpty()) {
+-                    const PortalIcon portalIcon{QStringLiteral("bytes"), QDBusVariant(data)};
+-                    results[iconKey] = QVariant::fromValue(QDBusVariant(QVariant::fromValue(portalIcon)));
+-                }
+-            } else {
+-                results[iconKey] = QVariant::fromValue(iconVariant);
+-            }
+-        }
+-        return QVariantList{PortalResponse::fromDialogResult(result), results};
+-    });
++    replyResponse = PortalResponse::Success;
++    replyResults = {{QStringLiteral("name"), name}, {QStringLiteral("icon"), QVariant::fromValue(iconVariant)}};
+ }
+ 
+ uint DynamicLauncherPortal::RequestInstallToken(const QString &app_id, const QVariantMap &options)
+@@ -175,17 +137,7 @@
+     qCDebug(XdgDesktopPortalKdeDynamicLauncher) << "    app_id: " << app_id;
+     qCDebug(XdgDesktopPortalKdeDynamicLauncher) << "    options: " << options;
+ 
+-    // Blanket allow certain apps to create app entries. Ported from GTK portal.
+-    // Perhaps this should also include browsers? Unclear at the time of writing.
+-
+-    static QStringList allowedIDs = {
+-        QStringLiteral("org.gnome.Software"),
+-        QStringLiteral("org.gnome.SoftwareDevel"),
+-        QStringLiteral("io.elementary.appcenter"),
+-        QStringLiteral("org.kde.discover"),
+-    };
+-
+-    return allowedIDs.contains(app_id) ? 0 : 2;
++    return PortalResponse::Success;
+ }
+ 
+ #include "moc_dynamiclauncher.cpp"
+--- a/src/globalshortcuts.cpp
++++ b/src/globalshortcuts.cpp
+@@ -294,43 +294,11 @@
+     returningShortcutInfos.reserve(returningShortcuts.size());
+     std::ranges::transform(returningShortcuts, std::back_inserter(returningShortcutInfos), toShortcutInfo);
+ 
+-    if (newShortcutInfos.empty()) {
+-        replyResponse = PortalResponse::Success;
+-        session->setActions(returningShortcutInfos);
+-        replyResults = {{u"shortcuts"_s, session->shortcutDescriptionsVariant()}};
+-        return;
+-    }
+-
+-    auto dialog = new QuickDialog();
+-    Request::makeClosableDialogRequestWithSession(handle, dialog, session);
+-    auto model = new ShortcutsModel(newShortcutInfos, dialog);
+-    dialog->create(u"GlobalShortcutsDialog"_s,
+-                   {{u"app"_s, Utils::applicationName(session->appId())},
+-                    {u"returningShortcuts"_s, QVariant::fromValue(returningShortcutInfos)},
+-                    {u"newShortcuts"_s, QVariant::fromValue(model)},
+-                    {u"component"_s, session->componentName()}});
+-    Utils::setParentWindow(dialog->windowHandle(), parent_window);
+-    delayReply(message, dialog, session, [model, returningShortcutInfos, session](DialogResult result) -> QVariantList {
+-        // The dialog asks the user if they want to add the new bindings. If denied we still allow
+-        // binding the returning shortcuts if there are any.
+-        // We also register the denied shortcuts (with no key combinations) so we don't prompt on next
+-        // application start. The user can assign bindings later in systemsettings if they change their mind.
+-        // Still return a cancelled result if there are no active shortcuts.
+-        auto newShortcutInfos = model->shortcuts();
+-        if (result == DialogResult::Rejected) {
+-            for (auto &newShortcut : newShortcutInfos) {
+-                newShortcut.keySequence = {};
+-            }
+-        }
+-        QList<ShortcutInfo> currentShortcutInfos;
+-        currentShortcutInfos.reserve(newShortcutInfos.size() + returningShortcutInfos.size());
+-        std::ranges::set_union(newShortcutInfos, returningShortcutInfos, std::back_inserter(currentShortcutInfos), {}, &ShortcutInfo::id, &ShortcutInfo::id);
+-        session->setActions(currentShortcutInfos);
+-        if (result == DialogResult::Rejected && returningShortcutInfos.empty()) {
+-            return QVariantList{PortalResponse::Cancelled, QVariantMap{}};
+-        }
+-        return {PortalResponse::Success, QVariantMap{{u"shortcuts"_s, session->shortcutDescriptionsVariant()}}};
+-    });
++    QList<ShortcutInfo> currentShortcutInfos;
++    std::ranges::set_union(newShortcutInfos, returningShortcutInfos, std::back_inserter(currentShortcutInfos), {}, &ShortcutInfo::id, &ShortcutInfo::id);
++    session->setActions(currentShortcutInfos);
++    replyResponse = PortalResponse::Success;
++    replyResults = {{u"shortcuts"_s, session->shortcutDescriptionsVariant()}};
+ }
+ 
+ void GlobalShortcutsPortal::ConfigureShortcuts(const QDBusObjectPath &session_handle, const QString &parent_window, const QVariantMap &options)
+--- a/src/inputcapture.cpp
++++ b/src/inputcapture.cpp
+@@ -242,28 +242,18 @@
+         // In the future we might need to handle prior versions
+     }
+ 
+-    auto dialog = new InputCaptureDialog(app_id, requestedCapabilities, persistMode, this);
+-    Utils::setParentWindow(dialog->windowHandle(), parent_window);
+-    Request::makeClosableDialogRequestWithSession(handle, dialog, session);
+-
+-    delayReply(message, dialog, this, [this, session, requestedCapabilities, persistMode, dialog](DialogResult result) {
+-        auto response = PortalResponse::fromDialogResult(result);
+-        QVariantMap results;
+-        if (result == DialogResult::Accepted) {
+-            if (!setupInputCaptureSession(session, requestedCapabilities)) {
+-                response = PortalResponse::OtherError;
+-            } else {
+-                results.insert(u"capabilities"_s, static_cast<uint>(requestedCapabilities));
+-                results.insert(u"clipboard_enabled"_s, session->clipboardEnabled());
+-                if (persistMode != PersistMode::None && dialog->allowRestore()) {
+-                    const RestoreData restoreData{.session = u"KDE"_s, .version = RestoreData::currentRestoreDataVersion(), .payload = results};
+-                    results.insert(u"restore_data"_s, QVariant::fromValue(restoreData));
+-                    results.insert(u"persist_mode"_s, std::to_underlying(persistMode));
+-                }
+-            }
+-        }
+-        return QVariantList{response, results};
+-    });
++    if (!setupInputCaptureSession(session, requestedCapabilities)) {
++        replyResponse = PortalResponse::OtherError;
++        return;
++    }
++    replyResponse = PortalResponse::Success;
++    replyResults = {{u"capabilities"_s, static_cast<uint>(requestedCapabilities)},
++                    {u"clipboard_enabled"_s, session->clipboardEnabled()}};
++    if (persistMode != PersistMode::None) {
++        const RestoreData restoreData{.session = u"KDE"_s, .version = RestoreData::currentRestoreDataVersion(), .payload = replyResults};
++        replyResults.insert(u"restore_data"_s, QVariant::fromValue(restoreData));
++        replyResults.insert(u"persist_mode"_s, std::to_underlying(persistMode));
++    }
+ }
+ 
+ uint InputCapturePortal::GetZones(const QDBusObjectPath &handle,
+--- a/src/remotedesktop.cpp
++++ b/src/remotedesktop.cpp
+@@ -30,49 +30,6 @@
+ 
+ using namespace Qt::StringLiterals;
+ 
+-namespace
+-{
+-
+-// This is a helper function to check if the application is mega-authorized.
+-// Mega-authorization is a permission system specific to the KDE portal implementation.
+-// A mega-authorized application is one that has been granted permissions to access all (remote desktop) features **without** any further user interaction.
+-// This function should be used to check if a UI interaction can be skipped right away.
+-// For instance if an application is mega-authorized we don't need to ask the user if they want to allow keyboard/mouse input. It's always authorized.
+-// Particularly useful for headless setups and when the user is not physically at the machine.
+-bool isAppMegaAuthorized(const QString &app_id)
+-{
+-    // NOTE: an empty app_id should never occur for flatpak/snap applications and as such is meant to denote a host application
+-    //   of which the app_id is not known. In such a case the user may authorize the empty app_id to cover generic host applications.
+-    //   Specifically xwayland may request input permissions but has no app_id.
+-    //   Note that this is different from giving out an "any" permission. An application that has an app_id will not be covered by the empty rule.
+-    qDBusRegisterMetaType<AppIdPermissionsMap>();
+-    OrgFreedesktopImplPortalPermissionStoreInterface permissionStore(u"org.freedesktop.impl.portal.PermissionStore"_s,
+-                                                                     u"/org/freedesktop/impl/portal/PermissionStore"_s,
+-                                                                     QDBusConnection::sessionBus());
+-    // Bring the timeout way down. Permission store queries are fast, if they aren't then something is wrong and there is no point waiting a long time.
+-    permissionStore.setTimeout(1000);
+-    QDBusVariant data;
+-    auto reply = permissionStore.Lookup(u"kde-authorized"_s, u"remote-desktop"_s, data);
+-    if (reply.isValid()) {
+-        auto appIdPermissions = reply.value();
+-        if (!appIdPermissions.contains(app_id)) {
+-            qCDebug(XdgDesktopPortalKdeRemoteDesktop) << "MegaAuth: Permission not granted for" << app_id;
+-            return false;
+-        }
+-
+-        auto permissions = appIdPermissions.value(app_id);
+-        if (permissions.contains("yes"_L1)) {
+-            qCDebug(XdgDesktopPortalKdeRemoteDesktop) << "MegaAuth: Permission granted for" << app_id;
+-            return true;
+-        }
+-    } else {
+-        qCWarning(XdgDesktopPortalKdeRemoteDesktop) << "MegaAuth: Failed to lookup permissions:" << reply.error().message();
+-    }
+-
+-    return false;
+-};
+-
+-} // namespace
+ 
+ static QString kwinService()
+ {
+@@ -295,33 +252,12 @@
+ 
+     message.setDelayedReply(true);
+ 
+-    QFuture<QVariantList> results;
+-    if (restored || isAppMegaAuthorized(app_id)) {
+-        auto notification = new KNotification(QStringLiteral("remotedesktopstarted"), KNotification::CloseOnTimeout);
+-        notification->setTitle(i18nc("@title:window title of notification about input systems taken over", "Remote Control Started"));
+-        notification->setText(RemoteDesktopDialog::buildNotificationDescription(app_id, session->deviceTypes(), session->screenSharingEnabled()));
+-        notification->setIconName(QStringLiteral("krfb"));
+-        notification->sendEvent();
+-    } else if (!isAppMegaAuthorized(app_id)) { // authorize right away
+-        auto remoteDesktopDialog = new RemoteDesktopDialog(app_id, session->deviceTypes(), session->screenSharingEnabled(), session->persistMode());
+-        Utils::setParentWindow(remoteDesktopDialog->windowHandle(), parent_window);
+-        Request::makeClosableDialogRequestWithSession(handle, remoteDesktopDialog, session);
+-        results = QtFuture::connect(remoteDesktopDialog, &QuickDialog::finished)
+-                      .then(session,
+-                            [session, remoteDesktopDialog](DialogResult result) {
+-                                if (result == DialogResult::Rejected) {
+-                                    return QtFuture::makeReadyValueFuture<QVariantList>({PortalResponse::fromDialogResult(result), QVariantMap{}});
+-                                }
+-                                if (!remoteDesktopDialog->allowRestore()) {
+-                                    session->setPersistMode(ScreenCastPortal::PersistMode::NoPersist);
+-                                }
+-                                return continueStart(session);
+-                            })
+-                      .unwrap();
+-    }
+-    if (restored || isAppMegaAuthorized(app_id)) {
+-        results = continueStart(session);
+-    }
++    auto notification = new KNotification(QStringLiteral("remotedesktopstarted"), KNotification::CloseOnTimeout);
++    notification->setTitle(i18nc("@title:window title of notification about input systems taken over", "Remote Control Started"));
++    notification->setText(RemoteDesktopDialog::buildNotificationDescription(app_id, session->deviceTypes(), session->screenSharingEnabled()));
++    notification->setIconName(QStringLiteral("krfb"));
++    notification->sendEvent();
++    QFuture<QVariantList> results = continueStart(session);
+     results
+         .onCanceled([] {
+             return QVariantList{PortalResponse::OtherError, QVariantMap{}};
+--- a/src/screencast.cpp
++++ b/src/screencast.cpp
+@@ -387,31 +387,44 @@
+ 
+     message.setDelayedReply(true);
+ 
+-    QFuture<QVariantList> result;
+-    QFuture<DialogResult> dialogDone = QtFuture::makeReadyValueFuture(DialogResult::Accepted);
+-
+-    if (valid) {
+-        result = continueStartAfterDialog(session, selectedOutputs, selectedRegion, selectedWindows, virtualScreenSize, true);
+-    } else {
+-        auto screenDialog = new ScreenChooserDialog(app_id, session->multipleSources(), SourceTypes(session->types()));
+-        Utils::setParentWindow(screenDialog->windowHandle(), parent_window);
+-        Request::makeClosableDialogRequestWithSession(handle, screenDialog, session);
+-        auto dialogDone = QtFuture::connect(screenDialog, &QuickDialog::finished);
+-        result = dialogDone
+-                     .then(session,
+-                           [screenDialog, session](DialogResult result) {
+-                               if (result == DialogResult::Rejected) {
+-                                   return QtFuture::makeReadyValueFuture(QVariantList{PortalResponse::fromDialogResult(result), QVariantMap{}});
+-                               }
+-                               return continueStartAfterDialog(session,
+-                                                               screenDialog->selectedOutputs(),
+-                                                               screenDialog->selectedRegion(),
+-                                                               screenDialog->selectedWindows(),
+-                                                               screenDialog->virtualScreenResolution(),
+-                                                               screenDialog->allowRestore());
+-                           })
+-                     .unwrap();
+-    }
++    if (!valid) {
++        selectedOutputs.clear();
++        selectedWindows.clear();
++        selectedRegion = {};
++        virtualScreenSize = {};
++        const auto types = SourceTypes(session->types());
++        if (types.testFlag(Monitor)) {
++            OutputsModel model(OutputsModel::None, this);
++            for (int i = 0; i < model.rowCount(); ++i) {
++                if (model.outputAt(i).screen() == QGuiApplication::primaryScreen()) {
++                    selectedOutputs << model.outputAt(i);
++                    break;
++                }
++            }
++        } else if (types.testFlag(Window)) {
++            if (auto management = WaylandIntegration::plasmaWindowManagement()) {
++                for (auto window : management->windows()) {
++                    if (window->skipTaskbar() || window->skipSwitcher() || window->pid() == QCoreApplication::applicationPid()) {
++                        continue;
++                    }
++                    if (selectedWindows.isEmpty() || window->isActive()) {
++                        selectedWindows = {window};
++                    }
++                    if (window->isActive()) {
++                        break;
++                    }
++                }
++            }
++        } else if (types.testFlag(Virtual)) {
++            selectedOutputs << Output{Output::Virtual, nullptr, {}, u"Virtual"_s, {}, nullptr};
++            virtualScreenSize = QSize(1920, 1080);
++        }
++    }
++    if (selectedOutputs.isEmpty() && selectedWindows.isEmpty()) {
++        QDBusConnection::sessionBus().send(message.createReply({PortalResponse::OtherError, QVariantMap{}}));
++        return;
++    }
++    auto result = continueStartAfterDialog(session, selectedOutputs, selectedRegion, selectedWindows, virtualScreenSize, true);
+     result
+         .onCanceled([] {
+             return QVariantList{PortalResponse::OtherError, QVariantMap{}};
+--- a/src/usb.cpp
++++ b/src/usb.cpp
+@@ -43,34 +43,12 @@
+                                [[maybe_unused]] uint &replyResponse,
+                                [[maybe_unused]] QVariantMap &replyResults)
+ {
+-    auto buildDevice = [](const std::tuple<QString, QVariantMap, QVariantMap> &device) {
+-        return QVariant::fromValue(Device{
+-            .id = std::get<0>(device),
+-            .writable = std::get<2>(device).value(u"writable"_s, false).toBool(),
+-            .properties = qdbus_cast<QVariantMap>(std::get<1>(device).value(u"properties"_s)),
+-        });
+-    };
+-    QList<QVariant> deviceList;
+-    deviceList.reserve(devices.size());
+-    std::ranges::transform(devices, std::back_inserter(deviceList), buildDevice);
+-
+-    auto dialog = new QuickDialog;
+-    Utils::setParentWindow(dialog->windowHandle(), parent_window);
+-    Request::makeClosableDialogRequest(handle, dialog);
+-    dialog->create(u"UsbDialog"_s, {{u"app"_s, Utils::applicationName(app_id)}, {u"devices"_s, QVariant::fromValue(deviceList)}});
+-
+-    delayReply(message, dialog, this, [dialog](DialogResult result) -> QVariantList {
+-        if (result == DialogResult::Rejected) {
+-            return {PortalResponse::Cancelled, QVariantMap{}};
+-        }
+-        QList<std::pair<QString, QVariantMap>> acceptedDevices;
+-        auto devices = dialog->windowHandle()->property("devices").toList();
+-        for (const auto &deviceVariant : devices) {
+-            const auto device = deviceVariant.value<Device>();
+-            acceptedDevices.emplace_back(device.id, QVariantMap{{u"writable"_s, device.writable}});
+-        }
+-        return {PortalResponse::Success, QVariantMap{{u"devices"_s, QVariant::fromValue(acceptedDevices)}}};
+-    });
++    QList<std::pair<QString, QVariantMap>> acceptedDevices;
++    for (const auto &device : devices) {
++        acceptedDevices.emplace_back(std::get<0>(device), QVariantMap{{u"writable"_s, std::get<2>(device).value(u"writable"_s, false)}});
++    }
++    replyResponse = PortalResponse::Success;
++    replyResults = {{u"devices"_s, QVariant::fromValue(acceptedDevices)}};
+ }
+ 
+ #include "moc_usb.cpp"
+--- a/src/wallpaper.cpp
++++ b/src/wallpaper.cpp
+@@ -87,21 +87,8 @@
+         replyResponse = PortalResponse::OtherError;
+     }
+ 
+-    // showPreview == false means the frontend already asked for us/remembered
+-    if (!showPreview) {
+-        setWallpaper(url, location);
+-        replyResponse = PortalResponse::Success;
+-        return;
+-    }
+-    auto dialog = new QuickDialog();
+-    dialog->create(u"WallpaperDialog"_s, {{u"location"_s, location}, {u"app"_s, Utils::applicationName(app_id)}, {u"image"_s, url}});
+-    Request::makeClosableDialogRequest(handle, dialog);
+-    delayReply(message, dialog, this, [location, url](DialogResult result) {
+-        if (result == DialogResult::Accepted) {
+-            setWallpaper(url, location);
+-        }
+-        return PortalResponse::fromDialogResult(result);
+-    });
++    setWallpaper(url, location);
++    replyResponse = PortalResponse::Success;
+ }
+ 
+ #include "moc_wallpaper.cpp"

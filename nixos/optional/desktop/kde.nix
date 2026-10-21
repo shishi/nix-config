@@ -5,12 +5,17 @@
   services.displayManager.sddm.enable = true;
   services.desktopManager.plasma6.enable = true;
 
-  # PermissionStore のアプリ別許可では、新しい app_id の初回確認が残る。
-  # 非対話の撮影を一律許可し、対話撮影の範囲選択は維持する。
+  # アプリ別の事前許可では新しい app_id の確認が残るため、Portal の
+  # frontend と KDE backend の両方でアクセスを許可する。
   nixpkgs.overlays = [
     (_final: prev: {
       xdg-desktop-portal = prev.xdg-desktop-portal.overrideAttrs (old: {
-        patches = (old.patches or [ ]) ++ [ ./screenshot-no-prompt.patch ];
+        patches = (old.patches or [ ]) ++ [ ./portal-no-prompt.patch ];
+      });
+      kdePackages = prev.kdePackages.overrideScope (_kdeFinal: kdePrev: {
+        xdg-desktop-portal-kde = kdePrev.xdg-desktop-portal-kde.overrideAttrs (old: {
+          patches = (old.patches or [ ]) ++ [ ./portal-kde-no-prompt.patch ];
+        });
       });
     })
   ];

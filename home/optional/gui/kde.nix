@@ -257,6 +257,7 @@ in
       # 組み込みのカスタムタイリング(Meta+T のゾーンエディタと Shift ドラッグ)は
       # 無効化しない。KZones が期待どおりでなかったときの退避経路として残す。
       configFile."kwinrc" = {
+        Xwayland.XwaylandEisNoPrompt = true;
         Plugins = {
           kzonesEnabled = true;
           "fit-wezterm-windowEnabled" = true;
@@ -450,79 +451,6 @@ in
     # clipboard が両方向とも動かない(ソースで確認)。Portal 経路はテキストのみ
     # 転送する(PortalSession.cpp が「テキストだけコピーする」と明記)。
     #
-    # Portal は初回接続時に画面上での許可を求める。その許可は
-    # ~/.local/state/krdp-serverstaterc の restorationToken として保存され、以後は
-    # 再利用されるので聞かれない。**この token は実機の前に立たなくても取れる** —
-    # --plasma で動いている RDP 画面越しにダイアログを押せばよい
-    # (実測 2026-08-22)。token が失効・不一致になった場合の代替は
-    # xdg-desktop-portal-kde の mega-auth で、PermissionStore の
-    # kde-authorized / remote-desktop に "yes" を書くとダイアログが出なくなる
-    # (上流が headless 用に用意している口。remotedesktop.cpp の
-    # isAppMegaAuthorized)。
-    #
-    # 復旧手段: krdpserver を --plasma 付きで起動し直せば、clipboard を失う
-    # 代わりに許可なしで必ず動く。unit 実体は store への read-only symlink
-    # なので直接編集はできない。SSH から:
-    #   systemctl --user edit app-org.kde.krdpserver
-    # で drop-in を開き、次の 3 行を書いて保存する(値が空の
-    # ExecStart= が既存の ExecStart を打ち消す。空行では打ち消せない):
-    #   [Service]
-    #   ExecStart=
-    #   ExecStart=<systemctl cat app-org.kde.krdpserver で見える現 ExecStart> --plasma
-    # そのあと systemctl --user restart app-org.kde.krdpserver
-    # 恒久反映はこのファイルを直して rebuild。**drop-in は rebuild では
-    # 消えない**(home-manager 管理外)ので、`systemctl --user revert
-    # app-org.kde.krdpserver` で drop-in を消してから restart する。消し忘れると
-    # --plasma のまま走り続け、drop-in が固定した旧 store パスが GC された
-    # 時点で unit 自体が起動しなくなる。
-    #
-    # ── ここから下は krdp-portal-permission unit の話 ──
-    # Portal の RemoteDesktop を無人で使えるようにする。
-    #
-    # xdg-desktop-portal-kde は許可を出す前に PermissionStore の
-    # kde-authorized / remote-desktop を引き、その app_id に "yes" があれば
-    # ダイアログの分岐に入らず通知だけ出して続行する(remotedesktop.cpp の
-    # isAppMegaAuthorized。上流のコメントに "Particularly useful for headless
-    # setups and when the user is not physically at the machine" と書かれている、
-    # そのための口)。
-    #
-    # **宣言で入れないと意味がない。** 手で 1 回叩く運用にすると、再インストール
-    # した直後に「RDP が無いとダイアログを押せない / ダイアログを押さないと RDP が
-    # 使えない」へ戻る。インストール時に自動で入る必要がある。
-    #
-    # app_id は org.kde.krdpserver(portal の debug ログで実測)。空文字は
-    # app_id を持たないホストアプリ用の別枠なので、ここでは効かない。
-    #
-    # restorationToken には頼らない。実測ではダイアログを許可して保存されても
-    # 次の接続の SelectDevices に載らず、載ったとしてもセッション毎に書き換わる
-    # 値なので、新規インストール直後の 1 回目を無人で通す役に立たない。
-    #
-    # **これは「krdpserver が無確認で入力とスクリーンを掌握してよい」という許可**
-    # である。RDP の口が PAM 認証で、その先が NOPASSWD の sudo であることと
-    # 合わせて評価すること(nixos/sudo.nix)。
-    systemd.user.services.krdp-portal-permission = {
-      Unit = {
-        Description = "Pre-authorize krdpserver for the RemoteDesktop portal";
-        # krdpserver より先に走らせる。After=plasma-workspace.target を
-        # 張ると、target が Wants する unit へ暗黙の After= が付く性質と
-        # 衝突して循環になり、RDP が丸ごと起動しなくなる(実際に起きた)。
-        # Before= 方向なら循環しないが krdpserver との相対順序を保証しない
-        # ので、app-org.kde.krdpserver.service へ直接張る。
-        Before = [ "app-org.kde.krdpserver.service" ];
-      };
-      Service = {
-        Type = "oneshot";
-        RemainAfterExit = true;
-        # PermissionStore は D-Bus activatable なので、先に起動しておく必要はない。
-        # シグネチャは sbssas (table, create, id, app, permissions)。busctl は
-        # 型指定が短いと引数を配列長として読もうとして
-        # "Failed to parse ... number of array entries" で落ちる。introspect で
-        # 確定させてある。
-        ExecStart = "${pkgs.systemd}/bin/busctl --user call org.freedesktop.impl.portal.PermissionStore /org/freedesktop/impl/portal/PermissionStore org.freedesktop.impl.portal.PermissionStore SetPermission sbssas kde-authorized true remote-desktop org.kde.krdpserver 1 yes";
-      };
-      Install.WantedBy = [ "plasma-workspace.target" ];
-    };
-
     systemd.user.services."app-org.kde.krdpserver" = {
       Unit = {
         Description = "KRDP server for the running Plasma session";

@@ -1,0 +1,291 @@
+--- a/src/location.c
++++ b/src/location.c
+@@ -369,37 +369,8 @@
+                           GClueAccuracyLevel *accuracy,
+                           gint64 *last_used)
+ {
+-  g_auto(GStrv) perms = NULL;
+-
+-  if (xdp_app_info_is_host (app_info))
+-    {
+-      /* unsandboxed */
+-      *accuracy = GCLUE_ACCURACY_LEVEL_EXACT;
+-      *last_used = 0;
+-      return TRUE;
+-    }
+-
+-  g_debug ("Getting location permissions for '%s'",
+-           xdp_app_info_get_id (app_info));
+-
+-  perms = xdp_get_permissions_sync (app_info,
+-                                    LOCATION_PERMISSION_TABLE,
+-                                    LOCATION_PERMISSION_ID);
+-
+-  if (perms == NULL)
+-    return FALSE;
+-
+-  if (g_strv_length ((char **)perms) < 2)
+-    {
+-      g_warning ("Wrong permission format");
+-      return FALSE;
+-    }
+-
+-  *accuracy = gclue_accuracy_level_from_string (perms[0]);
+-  *last_used = g_ascii_strtoll (perms[1], NULL, 10);
+-
+-  g_debug ("got permission store accuracy: %s -> %d", perms[0], *accuracy);
+-
++  *accuracy = GCLUE_ACCURACY_LEVEL_EXACT;
++  *last_used = 0;
+   return TRUE;
+ }
+ 
+--- a/src/background.c
++++ b/src/background.c
+@@ -145,42 +145,7 @@
+ get_one_permission (const char *app_id,
+                     GVariant   *perms)
+ {
+-  g_autofree const char **permissions = NULL;
+-
+-  if (perms == NULL)
+-    {
+-      g_debug ("No background permissions found");
+-
+-      return XDP_PERMISSION_UNSET;
+-    }
+-  else if (!g_variant_lookup (perms, app_id, "^a&s", &permissions))
+-    {
+-      g_debug ("No background permissions stored for: app %s", app_id);
+-
+-      return XDP_PERMISSION_UNSET;
+-    }
+-  else if (g_strv_length ((char **)permissions) != 1)
+-    {
+-      g_autofree char *a = g_strjoinv (" ", (char **)permissions);
+-      g_warning ("Wrong background permission format, ignoring (%s)", a);
+-      return XDP_PERMISSION_UNSET;
+-    }
+-
+-  g_debug ("permission store: background, app %s -> %s", app_id, permissions[0]);
+-
+-  if (g_strcmp0 (permissions[0], "yes") == 0)
+-    return XDP_PERMISSION_YES;
+-  else if (g_strcmp0 (permissions[0], "no") == 0)
+-    return XDP_PERMISSION_NO;
+-  else if (g_strcmp0 (permissions[0], "ask") == 0)
+-    return XDP_PERMISSION_ASK;
+-  else
+-    {
+-      g_autofree char *a = g_strjoinv (" ", (char **)permissions);
+-      g_warning ("Wrong permission format, ignoring (%s)", a);
+-    }
+-
+-  return XDP_PERMISSION_UNSET;
++  return XDP_PERMISSION_YES;
+ }
+ 
+ static XdpPermission
+--- a/src/screenshot.c
++++ b/src/screenshot.c
+@@ -259,9 +259,7 @@
+   uint access_response = 2;
+   const char *app_id;
+ 
+-  permission = xdp_get_permission_sync (request->app_info,
+-                                        SCREENSHOT_PERMISSION_TABLE,
+-                                        SCREENSHOT_PERMISSION_ID);
++  permission = XDP_PERMISSION_YES;
+ 
+   if (permission == XDP_PERMISSION_YES)
+     return TRUE;
+--- a/src/wallpaper.c
++++ b/src/wallpaper.c
+@@ -163,9 +163,7 @@
+       return;
+     }
+ 
+-  permission = xdp_get_permission_sync (request->app_info,
+-                                        WALLPAPER_PERMISSION_TABLE,
+-                                        WALLPAPER_PERMISSION_ID);
++  permission = XDP_PERMISSION_YES;
+ 
+   if (permission == XDP_PERMISSION_NO)
+     {
+--- a/src/usb.c
++++ b/src/usb.c
+@@ -304,8 +304,7 @@
+   g_assert (G_UDEV_IS_DEVICE (device));
+ 
+   permission_id = unique_permission_id_for_device (device);
+-  return xdp_get_permission_sync (sender_info->app_info,
+-                                  USB_PERMISSION_TABLE, permission_id);
++  return XDP_PERMISSION_YES;
+ }
+ 
+ static void
+@@ -800,9 +799,7 @@
+ 
+   g_debug ("[usb] Handling CreateSession");
+ 
+-  permission = xdp_get_permission_sync (app_info,
+-                                        USB_PERMISSION_TABLE,
+-                                        USB_PERMISSION_ID);
++  permission = XDP_PERMISSION_YES;
+   if (permission == XDP_PERMISSION_NO)
+     {
+       g_dbus_method_invocation_return_error (invocation,
+@@ -904,9 +901,7 @@
+ 
+   self = XDP_USB (object);
+ 
+-  permission = xdp_get_permission_sync (app_info,
+-                                        USB_PERMISSION_TABLE,
+-                                        USB_PERMISSION_ID);
++  permission = XDP_PERMISSION_YES;
+ 
+   if (permission == XDP_PERMISSION_NO)
+     {
+@@ -1174,9 +1169,7 @@
+ 
+   REQUEST_AUTOLOCK (request);
+ 
+-  permission = xdp_get_permission_sync (request->app_info,
+-                                        USB_PERMISSION_TABLE,
+-                                        USB_PERMISSION_ID);
++  permission = XDP_PERMISSION_YES;
+   if (permission == XDP_PERMISSION_NO)
+     {
+       g_dbus_method_invocation_return_error (invocation,
+@@ -1281,9 +1274,7 @@
+       return G_DBUS_METHOD_INVOCATION_HANDLED;
+     }
+ 
+-  permission = xdp_get_permission_sync (app_info,
+-                                        USB_PERMISSION_TABLE,
+-                                        USB_PERMISSION_ID);
++  permission = XDP_PERMISSION_YES;
+   if (permission == XDP_PERMISSION_NO)
+     {
+       /* If permission was revoked in between D-Bus calls, reset state */
+--- a/tests/test_camera.py
++++ b/tests/test_camera.py
+@@ -43,56 +43,11 @@
+ 
+         assert response
+         assert response.response == 0
++        permissions, _ = xdp.get_permission_store_iface(dbus_con).Lookup("devices", "camera")
++        assert list(permissions[app_id]) == ["yes"]
+ 
+-        # Check the impl portal was called with the right args
+         method_calls = mock_intf.GetMethodCalls("AccessDialog")
+-        assert len(method_calls) == 1
+-        _, args = method_calls[-1]
+-        assert args[1] == app_id
+-
+-    @pytest.mark.parametrize("template_params", ({"access": {"response": 1}},))
+-    def test_access_cancel(self, portals, dbus_con, xdp_app_info):
+-        app_id = xdp_app_info.app_id
+-        camera_intf = xdp.get_portal_iface(dbus_con, "Camera")
+-        mock_intf = xdp.get_mock_iface(dbus_con)
+-
+-        request = xdp.Request(dbus_con, camera_intf)
+-        response = request.call(
+-            "AccessCamera",
+-            options={},
+-        )
+-
+-        assert response
+-        assert response.response == 1
+-
+-        # Check the impl portal was called with the right args
+-        method_calls = mock_intf.GetMethodCalls("AccessDialog")
+-        assert len(method_calls) == 1
+-        _, args = method_calls[-1]
+-        assert args[1] == app_id
+-
+-    @pytest.mark.parametrize("template_params", ({"access": {"expect-close": True}},))
+-    def test_access_close(self, portals, dbus_con, xdp_app_info):
+-        app_id = xdp_app_info.app_id
+-        camera_intf = xdp.get_portal_iface(dbus_con, "Camera")
+-        mock_intf = xdp.get_mock_iface(dbus_con)
+-
+-        request = xdp.Request(dbus_con, camera_intf)
+-        # technically racy, and valgrind is really slow
+-        request.schedule_close(3000 if xdp.is_valgrind() else 500)
+-        request.call(
+-            "AccessCamera",
+-            options={},
+-        )
+-
+-        # Only true if the impl.Request was closed too
+-        assert request.closed
+-
+-        # Check the impl portal was called with the right args
+-        method_calls = mock_intf.GetMethodCalls("AccessDialog")
+-        assert len(method_calls) == 1
+-        _, args = method_calls[-1]
+-        assert args[1] == app_id
++        assert len(method_calls) == 0
+ 
+     @pytest.mark.parametrize(
+         "template_params", ({"lockdown": {"disable-camera": True}},)
+@@ -115,7 +70,7 @@
+         method_calls = mock_intf.GetMethodCalls("AccessDialog")
+         assert len(method_calls) == 0
+ 
+-    def test_access_denied(self, portals, dbus_con, xdp_app_info):
++    def test_access_ignores_stored_denial(self, portals, dbus_con, xdp_app_info):
+         app_id = xdp_app_info.app_id
+         camera_intf = xdp.get_portal_iface(dbus_con, "Camera")
+         mock_intf = xdp.get_mock_iface(dbus_con)
+@@ -129,7 +84,9 @@
+         )
+ 
+         assert response
+-        assert response.response == 1
++        assert response.response == 0
++        permissions, _ = xdp.get_permission_store_iface(dbus_con).Lookup("devices", "camera")
++        assert list(permissions[app_id]) == ["yes"]
+ 
+         # Check the impl portal was called with the right args
+         method_calls = mock_intf.GetMethodCalls("AccessDialog")
+--- a/tests/test_wallpaper.py
++++ b/tests/test_wallpaper.py
+@@ -149,8 +149,8 @@
+         )
+ 
+         assert response
+-        assert response.response == 2
++        assert response.response == 0
+ 
+         # Check the impl portal was called with the right args
+         method_calls = mock_intf.GetMethodCalls("SetWallpaperURI")
+-        assert len(method_calls) == 0
++        assert len(method_calls) == 1
+--- a/src/camera.c
++++ b/src/camera.c
+@@ -81,6 +81,11 @@
+   XdpAppInfo *app_info = request->app_info;
+   gboolean allowed;
+ 
++  xdp_set_permission_sync (app_info,
++                            CAMERA_PERMISSION_TABLE,
++                            CAMERA_PERMISSION_DEVICE_CAMERA,
++                            XDP_PERMISSION_YES);
++
+   permission = xdp_get_permission_sync (app_info,
+                                         CAMERA_PERMISSION_TABLE,
+                                         CAMERA_PERMISSION_DEVICE_CAMERA);
+@@ -287,6 +292,11 @@
+     }
+ 
+   app_info = xdp_invocation_get_app_info (invocation);
++  xdp_set_permission_sync (app_info,
++                            CAMERA_PERMISSION_TABLE,
++                            CAMERA_PERMISSION_DEVICE_CAMERA,
++                            XDP_PERMISSION_YES);
++
+   permission = xdp_get_permission_sync (app_info,
+                                         CAMERA_PERMISSION_TABLE,
+                                         CAMERA_PERMISSION_DEVICE_CAMERA);
