@@ -1,14 +1,23 @@
 { config, pkgs, ... }:
 let
   serviceName = "readest";
-  source = pkgs.fetchFromGitHub {
-    owner = "readest";
-    repo = "readest";
+  source = pkgs.fetchgit {
+    url = "https://github.com/readest/readest.git";
     rev = "2d37bbfc2e94725e1343ab2a825573545aa59f5f";
-    hash = "sha256-TDIN5laQDFm9eJQhlNuSrB+Sj1jneJyaKx+xQxf2B3M=";
+    hash = "sha256-b6Ce6TtHDmY3g0q7BV6ITlnh0njhBUit2sRp4dDy4+k=";
+    fetchSubmodules = true;
   };
+  webBuildSource = pkgs.applyPatches {
+    name = "readest-web-pwa";
+    src = source;
+    patches = [ ../../patches/readest-docker-pwa.patch ];
+  };
+  webImage = "readest-local:${builtins.baseNameOf webBuildSource}";
   env = name: "$" + "{${name}}";
   proxyConfig = pkgs.writeText "readest-nginx.conf" ''
+    upstream readest_library {
+      server unix:/run/readest-opds/http.sock;
+    }
     server {
       listen 80;
       server_name _;
@@ -18,6 +27,10 @@ let
       proxy_set_header X-Forwarded-Proto https;
       location / {
         proxy_pass http://client:3000;
+      }
+      location /nas-books/ {
+        proxy_pass http://readest_library;
+        proxy_buffering off;
       }
       location ~ ^/(auth|rest)/v1/ {
         proxy_pass http://kong:8000;
@@ -164,7 +177,18 @@ let
         };
       };
       client = {
-        image = "ghcr.io/readest/readest@sha256:56a28e655e9d7afe788b398354f01be8feee8f15c09058d08bd165de95a62a43";
+        image = env "READEST_WEB_IMAGE";
+        pull_policy = "never";
+        build = {
+          context = "${webBuildSource}";
+          target = "production-stage";
+          args = {
+            NEXT_PUBLIC_APP_PLATFORM = "web";
+            NEXT_PUBLIC_SUPABASE_URL = env "SUPABASE_PUBLIC_URL";
+            NEXT_PUBLIC_SUPABASE_ANON_KEY = env "ANON_KEY";
+            NEXT_PUBLIC_API_BASE_URL = env "SITE_URL";
+          };
+        };
         restart = "unless-stopped";
         environment = {
           SUPABASE_URL = "http://kong:8000";
@@ -195,7 +219,10 @@ let
         image = "nginx:1.28-alpine";
         restart = "unless-stopped";
         ports = [ "127.0.0.1:3080:80" ];
-        volumes = [ "${proxyConfig}:/etc/nginx/conf.d/default.conf:ro" ];
+        volumes = [
+          "${proxyConfig}:/etc/nginx/conf.d/default.conf:ro"
+          "/run/readest-opds:/run/readest-opds:ro"
+        ];
         depends_on.client.condition = "service_started";
       };
     };
@@ -208,8 +235,10 @@ let
   compose = pkgs.writeShellApplication {
     name = "readest-compose";
     runtimeInputs = [
+      pkgs.coreutils
       pkgs.docker
       pkgs.docker-compose
+      pkgs.jq
     ];
     text = ''
       state="''${XDG_DATA_HOME:-$HOME/.local/share}/readest"
@@ -217,6 +246,9 @@ let
         echo 'Readest has not been initialized. Start readest.service with systemctl --user start readest.' >&2
         exit 1
       fi
+      export READEST_WEB_IMAGE="${webImage}"
+      image_hash=$(docker compose --project-name readest --env-file "$state/.env" --file ${composeFile} config --format json | jq -cS '.services.client.build' | sha256sum)
+      export READEST_WEB_IMAGE="${webImage}-''${image_hash%% *}"
       exec docker compose --project-name readest --env-file "$state/.env" --file ${composeFile} "$@"
     '';
   };
@@ -238,6 +270,10 @@ let
       dns_suffix=$(tailscale status --json | jq -er '.CurrentTailnet.MagicDNSSuffix | select(type == "string" and length > 0)')
       python3 ${../../scripts/readest-init.py} "$state/.env" "https://${serviceName}.$dns_suffix"
       chmod 600 "$state/.env"
+      web_image=$(${compose}/bin/readest-compose config --format json | jq -er '.services.client.image')
+      if ! docker image inspect "$web_image" >/dev/null 2>&1; then
+        ${compose}/bin/readest-compose build client
+      fi
     '';
   };
   ready = pkgs.writeShellApplication {
@@ -262,6 +298,7 @@ let
   };
 in
 {
+  imports = [ ./readest-library.nix ];
   virtualisation.docker.enable = true;
   # user unit の起動時も Docker に接続できるよう、activation 前の停止を避ける。
   systemd.services.docker.stopIfChanged = false;
@@ -287,14 +324,14 @@ in
           Type = "exec";
           ExecStartPre = [
             "${initialize}/bin/readest-initialize"
-            "${compose}/bin/readest-compose pull --policy missing --quiet"
+            "${compose}/bin/readest-compose pull --ignore-buildable --policy missing --quiet"
           ];
           ExecStart = "${compose}/bin/readest-compose up --no-color --remove-orphans";
           ExecStartPost = "${ready}/bin/readest-ready";
           ExecStop = "${compose}/bin/readest-compose down --timeout 30";
           Restart = "on-failure";
           RestartSec = "15s";
-          TimeoutStartSec = "15min";
+          TimeoutStartSec = "30min";
           TimeoutStopSec = "90s";
           UMask = "0077";
         };

@@ -1,0 +1,35 @@
+--- a/Dockerfile
++++ b/Dockerfile
+@@ -52 +52 @@
+-RUN pnpm build-web
++RUN pnpm patch-build-webpack && NODE_OPTIONS=--max-old-space-size=8192 pnpm build-web
+--- a/apps/readest-app/src/sw.ts
++++ b/apps/readest-app/src/sw.ts
+@@ -0,0 +1 @@
++import { PAGES_CACHE_NAME } from '@serwist/next/worker';
+@@ -30,5 +31,2 @@
+-      matcher: ({ url, request }) => {
+-        const clientRoutes = ['/library', '/reader'];
+-        const isClientRoute = clientRoutes.some((route) => url.pathname.startsWith(route));
+-        return isClientRoute && request.mode === 'navigate';
+-      },
++      matcher: ({ url, request, sameOrigin }) =>
++        sameOrigin && request.mode === 'navigate' && !url.pathname.startsWith('/api/'),
+@@ -36 +34 @@
+-        cacheName: 'client-pages',
++        cacheName: PAGES_CACHE_NAME.html,
+@@ -46,8 +43,0 @@
+-          {
+-            cacheKeyWillBeUsed: async ({ request }) => {
+-              const url = new URL(request.url);
+-              const basePath = url.pathname.split('/')[1];
+-              const cacheKey = `${url.origin}/${basePath}`;
+-              return cacheKey;
+-            },
+-          },
+--- a/apps/readest-app/next.config.mjs
++++ b/apps/readest-app/next.config.mjs
+@@ -3,0 +4 @@
++import { randomUUID } from 'node:crypto';
+@@ -186,0 +188 @@
++      additionalPrecacheEntries: [{ url: '/offline', revision: randomUUID() }],
