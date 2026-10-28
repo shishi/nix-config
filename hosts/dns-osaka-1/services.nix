@@ -221,6 +221,12 @@ in
         "||ssp.bance.jp.wcdnga.com^"
         "||pumpkin.uverse.iponweb.net^"
         "||gateway.rtbfabric.ap-northeast-1.amazonaws.com^"
+        "||cdn.4dvertible.com^"
+        "||api3.4dvertible.com^"
+        "||content.cdn.personaly.bid^"
+        "||sg-event.personaly.bid^"
+        "||alisg-agg-track.algogear.com^"
+        "||cdn-creatives-cf-prd.acquire.unity3dusercontent.com^"
       ];
       filtering = {
         filtering_enabled = true;
