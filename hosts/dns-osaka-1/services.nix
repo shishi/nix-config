@@ -227,6 +227,8 @@ in
         "||sg-event.personaly.bid^"
         "||alisg-agg-track.algogear.com^"
         "||cdn-creatives-cf-prd.acquire.unity3dusercontent.com^"
+        "||creative.cdnyeah.com^"
+        "||disk.akamaized.net^"
       ];
       filtering = {
         filtering_enabled = true;
