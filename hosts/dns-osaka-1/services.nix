@@ -229,6 +229,8 @@ in
         "||cdn-creatives-cf-prd.acquire.unity3dusercontent.com^"
         "||creative.cdnyeah.com^"
         "||disk.akamaized.net^"
+        # 広告 SDK の配信先かつ会議サーバーの許可先のため、照会を観測した端末に限定する。
+        "||sf16-muse-va.ibytedtos.com^$client=100.107.166.102|fd7a:115c:a1e0::5f01:a666"
       ];
       filtering = {
         filtering_enabled = true;
