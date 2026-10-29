@@ -171,9 +171,6 @@ in
           use_global_blocked_services = true;
         }
       ];
-      # 280blocker(日本のモバイル広告)は公式配布元が OCI の IP からの取得を
-      # 403 で拒否するため購読できない。第三者ミラーは改ざんリスクがあり使わない。
-      # 日本ドメインの取りこぼしは user_rules か別リストで個別に足す。
       filters = [
         {
           enabled = true;
@@ -211,6 +208,12 @@ in
           name = "HaGeZi's DNS Rebind Protection";
           url = "https://adguardteam.github.io/HostlistsRegistry/assets/filter_71.txt";
         }
+        {
+          enabled = true;
+          id = 7;
+          name = "1Hosts (Lite)";
+          url = "https://adguardteam.github.io/HostlistsRegistry/assets/filter_24.txt";
+        }
       ];
       user_rules = [
         # Peter Lowe's Blocklist は t.co 全体を遮断するが、短縮リンクは日常利用する。
@@ -229,8 +232,16 @@ in
         "||cdn-creatives-cf-prd.acquire.unity3dusercontent.com^"
         "||creative.cdnyeah.com^"
         "||disk.akamaized.net^"
-        # 広告 SDK の配信先かつ会議サーバーの許可先のため、照会を観測した端末に限定する。
-        "||sf16-muse-va.ibytedtos.com^$client=100.107.166.102|fd7a:115c:a1e0::5f01:a666"
+        # SDK・アプリ内キャンペーン・起動時差し替え表示の配信先。
+        "||sf16-muse-va.ibytedtos.com^"
+        # 広告画像と共用のため、TikTok の通常画像も遮断される場合がある。
+        "||p16-common-sign.tiktokcdn.com^"
+        # Yahoo 広告タグが呼び出すリターゲティング計測先。
+        "||dm.slim02.jp^"
+        # 広告 SDK と動画配信 SDK が共用するため、一部動画も再生できなくなる。
+        "||imasdk.googleapis.com^"
+        "||firebaseinappmessaging.googleapis.com^"
+        "||splash-jack.shonenjumpplus.com^"
       ];
       filtering = {
         filtering_enabled = true;
