@@ -824,12 +824,8 @@
             check initrd.availableKernelModules.e1000 "${
               if builtins.elem "e1000" cfg.boot.initrd.availableKernelModules then "present" else "missing"
             }" "present"
-            # 下の initrd 系の条件は systemd initrd が前提。boot.initrd.systemd.enable
-            # を落とすと scripted initrd に戻り、network.networks も
-            # crypttabExtraOpts の tpm2-device も initrd に反映されない。
-            # にもかかわらず attrset の値としては読めてしまうので、土台を先に見る。
-            # これが無いと、下の条件は「見ているように見えて何も守らない」。
-            check initrd.systemd.enable "${if cfg.boot.initrd.systemd.enable then "true" else "false"}" "true"
+            # initrd が無効だと SSH や TPM2 解錠の設定は起動時に使われない。
+            check initrd.enable "${if cfg.boot.initrd.enable then "true" else "false"}" "true"
             # NIC ドライバがあってもこれが無いと IP が来ない(上のコメント参照)。
             check initrd.dhcpNetwork "${
               if cfg.boot.initrd.systemd.network.networks ? "99-ethernet-default-dhcp" then

@@ -30,7 +30,8 @@ VM で成立している。カーネル更新に追従させる `systemd-pcrlock
 - `boot.loader.systemd-boot.enable = false;` / `boot.lanzaboote.enable = true;`
   (`pkiBundle = "/var/lib/sbctl";`)
 - `boot.loader.efi.canTouchEfiVariables = true;`
-- `boot.initrd.systemd.enable = true;`(TPM2 自動解錠には systemd initrd が前提)
+- TPM2 自動解錠には systemd initrd が必要。現在の nixpkgs では initrd に
+  systemd を使うため、切り替えの設定は不要。
 - `boot.initrd.availableKernelModules`(`e1000` = VM 用 + USB イーサの集合。
   実機に有線ポートが無いため、遠隔復旧は USB アダプタ前提。詳細は §5.1。
   `e1000` は VM リハーサル用として残し、消さない)

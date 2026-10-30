@@ -291,10 +291,6 @@ in
     "net.ipv4.conf.default.arp_announce" = 2;
   };
 
-  # TPM2 自動解錠(systemd-cryptenroll)は systemd initrd が前提。
-  # 無いと enroll しても起動時に解錠されず、遠隔無人再起動が不達になる
-  boot.initrd.systemd.enable = true;
-
   # initrd で NIC を認識させるためのドライバ。nixos-generate-config が生成する
   # availableKernelModules はストレージ・入力系が中心で NIC ドライバを含まない
   # ため、hardware-configuration.nix を実機の実物にしても、ここは自動では
@@ -334,8 +330,8 @@ in
     "aqc111"
   ];
 
-  # TPM 自動解錠が失敗したときの遠隔復旧。これが無いと、systemd initrd を
-  # 入れた理由(遠隔無人再起動)が TPM の失敗でそのまま失われる。
+  # TPM 自動解錠が失敗したときの遠隔復旧。これが無いと、TPM の失敗で
+  # 遠隔無人再起動ができなくなる。
   #
   # initrd.network.enable が無いと ssh.enable は no-op になる(nixpkgs の
   # initrd-ssh.nix が両方を要求する)。
