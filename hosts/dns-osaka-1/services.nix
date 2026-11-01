@@ -79,13 +79,14 @@ in
 
   services.adguardhome = {
     enable = true;
-    host = "0.0.0.0";
-    port = 3000;
     # 宣言が正。UI での変更は再起動で失われる(閲覧・実験用)
     mutableSettings = false;
     openFirewall = false;
     settings = {
-      http.doh.insecure_enabled = true;
+      http = {
+        address = "0.0.0.0:3000";
+        doh.insecure_enabled = true;
+      };
       users = [ ];
       dns = {
         bind_hosts = [ "0.0.0.0" ];
