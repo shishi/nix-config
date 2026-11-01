@@ -51,12 +51,17 @@ in
           wants = [
             "network-online.target"
             "tailscaled-autoconnect.service"
+            "slate.service"
+            "slate-serve.service"
           ];
           requires = [ "tailscaled.service" ];
+          # doctor in ExecStartPre fails on the 502 returned while Slate is still starting.
           after = [
             "network-online.target"
             "tailscaled.service"
             "tailscaled-autoconnect.service"
+            "slate.service"
+            "slate-serve.service"
           ];
           serviceConfig = {
             ExecStartPre = "${lib.getExe package} doctor --config %d/config --control-plane.api-key=file:%d/api-key --explain";
