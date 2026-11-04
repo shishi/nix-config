@@ -8,6 +8,7 @@ secrets/**
 !secrets/*/.sops.yaml
 !secrets/*/bootstrap.yaml
 !secrets/*/runtime.yaml
+!secrets/dns-osaka-1/adguard-sync.yaml
 *.swp
 .DS_Store
 .claude/settings.local.json

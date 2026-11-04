@@ -487,32 +487,38 @@
           dns_sops_config=${../secrets/dns-osaka-1/.sops.yaml}
           dns_bootstrap_file=${../secrets/dns-osaka-1/bootstrap.yaml}
           dns_runtime_file=${../secrets/dns-osaka-1/runtime.yaml}
+          dns_sync_file=${../secrets/dns-osaka-1/adguard-sync.yaml}
 
           if ${pkgs.gnugrep}/bin/grep -q 'AGE-SECRET-KEY-' "$dns_sops_config"; then
             fail "dns-osaka-1 .sops.yaml contains an age private key"
           fi
-          [ "$(${pkgs.yq-go}/bin/yq -r '.creation_rules | length' "$dns_sops_config")" = 2 ] || \
-            fail "dns-osaka-1 .sops.yaml must contain exactly two creation rules"
+          [ "$(${pkgs.yq-go}/bin/yq -r '.creation_rules | length' "$dns_sops_config")" = 3 ] || \
+            fail "dns-osaka-1 .sops.yaml must contain exactly three creation rules"
           dns_rule_paths=$(${pkgs.yq-go}/bin/yq -o=json -I=0 \
             '[.creation_rules[].path_regex] | sort' "$dns_sops_config")
-          [ "$dns_rule_paths" = '["(^|/)bootstrap\\.yaml$","(^|/)runtime\\.yaml$"]' ] || \
+          [ "$dns_rule_paths" = '["(^|/)adguard-sync\\.yaml$","(^|/)bootstrap\\.yaml$","(^|/)runtime\\.yaml$"]' ] || \
             fail "dns-osaka-1 .sops.yaml creation rules target unexpected paths"
 
           dns_bootstrap_recipient=$(${pkgs.yq-go}/bin/yq -r \
             '.creation_rules[] | select(.path_regex | contains("bootstrap")) | .age' "$dns_sops_config")
           dns_runtime_recipient=$(${pkgs.yq-go}/bin/yq -r \
             '.creation_rules[] | select(.path_regex | contains("runtime")) | .age' "$dns_sops_config")
+          dns_sync_recipient=$(${pkgs.yq-go}/bin/yq -r \
+            '.creation_rules[] | select(.path_regex | contains("adguard-sync")) | .age' "$dns_sops_config")
           [ "$dns_bootstrap_recipient" = "$management_recipient" ] || \
             fail "dns-osaka-1 bootstrap must be encrypted to the shared management key"
           case "$dns_runtime_recipient" in age1*) ;; *) fail "dns-osaka-1 runtime creation rule has no public age recipient" ;; esac
           [ "$dns_runtime_recipient" != "$dns_bootstrap_recipient" ] || \
             fail "dns-osaka-1 bootstrap and runtime recipients must differ"
+          [ "$dns_sync_recipient" = "$dns_runtime_recipient" ] || \
+            fail "dns-osaka-1 sync and runtime recipients must match"
 
           check_secret_file dns-bootstrap "$dns_bootstrap_file" \
             '["dns-osaka-1-age-key"]' "$dns_bootstrap_recipient"
           check_secret_file dns-runtime "$dns_runtime_file" \
             '["digest-feed-password","digest-htpasswd","freshrss-api-password","freshrss-api-url","freshrss-api-username","tailscale-oauth-secret"]' \
             "$dns_runtime_recipient"
+          check_secret_file dns-sync "$dns_sync_file" '["adguard-sync-env"]' "$dns_sync_recipient"
           touch $out
         '';
 

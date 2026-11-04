@@ -9,6 +9,7 @@
     ./disko.nix
     ./hardware-configuration.nix
     ./oci-agent.nix
+    ./adguard-sync.nix
     ./secrets.nix
     ./services.nix
   ];
