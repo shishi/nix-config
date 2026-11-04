@@ -243,6 +243,7 @@ in
         "||imasdk.googleapis.com^"
         "||firebaseinappmessaging.googleapis.com^"
         "||splash-jack.shonenjumpplus.com^"
+        "||insightjs.com^"
       ];
       filtering = {
         filtering_enabled = true;
