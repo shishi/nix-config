@@ -31,6 +31,9 @@
   };
   systemd.services.docker-adguardhome-sync = {
     wants = [ "tailscaled-autoconnect.service" ];
-    after = [ "tailscaled-autoconnect.service" "adguardhome.service" ];
+    after = [
+      "tailscaled-autoconnect.service"
+      "adguardhome.service"
+    ];
   };
 }
