@@ -246,6 +246,7 @@ in
       ];
       filtering = {
         filtering_enabled = true;
+        safebrowsing_enabled = true;
         filters_update_interval = 24;
         protection_enabled = true;
       };
