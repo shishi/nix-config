@@ -239,8 +239,6 @@ in
         "||p16-common-sign.tiktokcdn.com^"
         # Yahoo 広告タグが呼び出すリターゲティング計測先。
         "||dm.slim02.jp^"
-        # 広告 SDK と動画配信 SDK が共用するため、一部動画も再生できなくなる。
-        "||imasdk.googleapis.com^"
         "||firebaseinappmessaging.googleapis.com^"
         "||splash-jack.shonenjumpplus.com^"
         "||insightjs.com^"
