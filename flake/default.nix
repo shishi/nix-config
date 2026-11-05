@@ -37,6 +37,7 @@
     };
 
   flake.overlays.default = _final: prev: {
+    brave = inputs.brave-browser.packages.${prev.stdenv.hostPlatform.system}.brave;
     yaskkserv2 = inputs.yaskkserv2.packages.${prev.stdenv.hostPlatform.system}.yaskkserv2;
   };
 }

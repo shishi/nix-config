@@ -3,6 +3,8 @@
 
   inputs = {
     nixpkgs.url = "github:NixOS/nixpkgs/nixpkgs-unstable";
+    # 通常版 Brave の継続供給元。依存は上流の pin を使い、独立して更新する。
+    brave-browser.url = "git+https://codeberg.org/buckley310/brave-browser-nix?ref=main";
     # Slate の実行環境を開発用 flake.lock と揃える。アプリ本体は作業ツリーを使う。
     nixpkgs-slate.url = "github:NixOS/nixpkgs/ac6b2166e7a9375683b8e98f860f273222337b16";
     flake-parts.url = "github:hercules-ci/flake-parts";
@@ -83,11 +85,13 @@
     extra-trusted-public-keys = [
       "nix-community.cachix.org-1:mB9FSh9qf2dCimDSUo8Zy7bkq5CX+/rkCWyvRCYg3Fs="
       "niks3.numtide.com-1:DTx8wZduET09hRmMtKdQDxNNthLQETkc/yaX7M4qK0g="
+      "nix-config-shishi.cachix.org-1:ODGpLIFZJvXdLJG7rB2UXhVeD41LpkORb7EQTgUaGM0="
       "nixpkgs-ruby.cachix.org-1:vrcdi50fTolOxWCZZkw0jakOnUI1T19oYJ+PRYdK4SM="
     ];
     extra-substituters = [
       "https://nix-community.cachix.org"
       "https://cache.numtide.com"
+      "https://nix-config-shishi.cachix.org"
       "https://nixpkgs-ruby.cachix.org"
     ];
   };

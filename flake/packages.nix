@@ -4,7 +4,7 @@
     { pkgs, ... }:
     {
       packages = {
-        inherit (pkgs) yaskkserv2;
+        inherit (pkgs) brave yaskkserv2;
         tunnel-client = pkgs.callPackage ../pkgs/tunnel-client { };
       };
     };
