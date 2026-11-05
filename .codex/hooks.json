@@ -1,0 +1,15 @@
+{
+  "hooks": {
+    "PostToolUse": [
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "bash \"$(git rev-parse --show-toplevel)/scripts/format-nix.sh\"",
+            "timeout": 60
+          }
+        ]
+      }
+    ]
+  }
+}
