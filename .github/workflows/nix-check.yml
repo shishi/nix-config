@@ -43,11 +43,15 @@ jobs:
       - uses: cachix/install-nix-action@13d8dd58da0234aa297dedd986986ccb8e7f3e24 # v31.11.1
         with:
           github_access_token: ${{ secrets.GITHUB_TOKEN }}
-      - name: Build locked Brave and Cachix
+      - name: Build locked Brave, system packages, and Cachix
         run: |
           nix build --accept-flake-config --no-update-lock-file \
-            --out-link "$RUNNER_TEMP/brave-result" --print-out-paths --print-build-logs \
-            .#packages.x86_64-linux.brave > "$RUNNER_TEMP/brave-paths"
+            --out-link "$RUNNER_TEMP/cache-result" --print-out-paths --print-build-logs \
+            .#packages.x86_64-linux.brave \
+            .#nixosConfigurations.jupiter.pkgs.kdePackages.kinfocenter \
+            '.#nixosConfigurations.jupiter.pkgs.kdePackages.xdg-desktop-portal-kde^out,dev' \
+            '.#nixosConfigurations.jupiter.pkgs.pkgsi686Linux.ncurses5^out,dev' \
+            .#nixosConfigurations.jupiter.pkgs.xdg-desktop-portal > "$RUNNER_TEMP/cache-paths"
           nix build --accept-flake-config --no-update-lock-file \
             --inputs-from . --out-link "$RUNNER_TEMP/cachix-result" nixpkgs#cachix
           test -x "$RUNNER_TEMP/cachix-result-bin/bin/cachix"
@@ -57,4 +61,4 @@ jobs:
           CACHIX_AUTH_TOKEN: ${{ secrets.CACHIX_AUTH_TOKEN }}
         run: |
           : "${CACHIX_AUTH_TOKEN:?Set the repository secret CACHIX_AUTH_TOKEN}"
-          bash scripts/push-missing-to-cachix.sh nix-config-shishi "$RUNNER_TEMP/brave-paths"
+          bash scripts/push-missing-to-cachix.sh nix-config-shishi "$RUNNER_TEMP/cache-paths"
