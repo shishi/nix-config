@@ -43,6 +43,19 @@ jobs:
       - uses: cachix/install-nix-action@13d8dd58da0234aa297dedd986986ccb8e7f3e24 # v31.11.1
         with:
           github_access_token: ${{ secrets.GITHUB_TOKEN }}
+      - name: Prepare the portal validator sandbox
+        run: |
+          test "$(id -u)" -ne 0
+          bwrap="$(nix eval --accept-flake-config --no-update-lock-file --raw .#nixosConfigurations.jupiter.pkgs.bubblewrap.outPath)/bin/bwrap"
+          nix build --accept-flake-config --no-update-lock-file --no-link .#nixosConfigurations.jupiter.pkgs.bubblewrap
+          if "$bwrap" --unshare-user --unshare-net --unshare-pid --ro-bind / / --proc /proc /bin/true; then
+            exit 0
+          fi
+          test "$(sysctl -n kernel.apparmor_restrict_unprivileged_userns)" = 1
+          printf 'abi <abi/4.0>,\nprofile nix-cache-bubblewrap-%s-%s %s flags=(unconfined) {\n  userns,\n}\n' \
+            "$GITHUB_RUN_ID" "$GITHUB_RUN_ATTEMPT" "$bwrap" > "$RUNNER_TEMP/nix-cache-bubblewrap.apparmor"
+          sudo apparmor_parser --add "$RUNNER_TEMP/nix-cache-bubblewrap.apparmor"
+          "$bwrap" --unshare-user --unshare-net --unshare-pid --ro-bind / / --proc /proc /bin/true
       - name: Build locked Brave, system packages, and Cachix
         run: |
           nix build --accept-flake-config --no-update-lock-file \
@@ -56,6 +69,13 @@ jobs:
             --inputs-from . --out-link "$RUNNER_TEMP/cachix-result" nixpkgs#cachix
           test -x "$RUNNER_TEMP/cachix-result-bin/bin/cachix"
           echo "$RUNNER_TEMP/cachix-result-bin/bin" >> "$GITHUB_PATH"
+      - name: Remove the portal validator profile
+        if: always()
+        run: |
+          if test -e "$RUNNER_TEMP/nix-cache-bubblewrap.apparmor"; then
+            sudo apparmor_parser --remove "$RUNNER_TEMP/nix-cache-bubblewrap.apparmor"
+            rm "$RUNNER_TEMP/nix-cache-bubblewrap.apparmor"
+          fi
       - name: Push only official-cache misses
         env:
           CACHIX_AUTH_TOKEN: ${{ secrets.CACHIX_AUTH_TOKEN }}
