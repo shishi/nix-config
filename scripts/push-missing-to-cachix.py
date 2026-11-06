@@ -1,9 +1,10 @@
 #!/usr/bin/env python3
 import base64
 import concurrent.futures
+import contextlib
 import hashlib
 import json
-import lzma
+from compression import zstd
 import os
 from pathlib import Path
 import re
@@ -11,6 +12,7 @@ import subprocess
 import sys
 import tempfile
 import urllib.error
+import urllib.parse
 import urllib.request
 
 STORE_PATH = re.compile(r'/nix/store/[0-9a-z]{32}-[^/\s]+')
@@ -38,12 +40,20 @@ def available(source, path):
 
 def upload(cache, path, info, api, token):
     base = f'{api}/api/v1/cache/{cache}'
-    headers = {'Authorization': f'Bearer {token}', 'User-Agent': 'nix-config-cache/1.0'}
+    headers = {'Authorization': f'Bearer {token}', 'User-Agent': 'nix-config-cache/1.0', 'Content-Type': 'application/json'}
+
+    def post(endpoint, body=None):
+        request = urllib.request.Request(base + endpoint, data=json.dumps(body).encode() if body is not None else b'', method='POST', headers=headers)
+        with urllib.request.urlopen(request, timeout=60) as response:
+            data = response.read()
+            return json.loads(data) if data else None
+
+    print(f'Uploading {path} ({info["narSize"]} NAR bytes)', flush=True)
     with tempfile.TemporaryFile() as compressed:
         digest = hashlib.sha256()
         raw_digest = hashlib.sha256()
         raw_size = 0
-        compressor = lzma.LZMACompressor(preset=2)
+        compressor = zstd.ZstdCompressor(level=8)
         with subprocess.Popen(['nix-store', '--dump', path], stdout=subprocess.PIPE) as process:
             while chunk := process.stdout.read(1024 * 1024):
                 raw_digest.update(chunk)
@@ -60,34 +70,48 @@ def upload(cache, path, info, api, token):
             raise ValueError(f"NAR export does not match store metadata: {path}")
         size = compressed.tell()
         compressed.seek(0)
-        request = urllib.request.Request(
-            base + '/nar?compression=xz', data=compressed, method='POST',
-            headers={**headers, 'Content-Type': 'application/octet-stream', 'Content-Length': str(size)},
-        )
-        with urllib.request.urlopen(request, timeout=300) as response:
-            response.read()
-    nar_hash = subprocess.run(
-        ['nix', 'hash', 'convert', '--hash-algo', 'sha256', '--to', 'nix32', info['narHash']],
-        check=True, text=True, stdout=subprocess.PIPE,
-    ).stdout.strip()
-    store_hash, suffix = path[11:].split('-', 1)
-    metadata = {
-        'cStoreHash': store_hash, 'cStoreSuffix': suffix,
-        'cNarHash': 'sha256:' + nar_hash, 'cNarSize': info['narSize'],
-        'cFileHash': digest.hexdigest(), 'cFileSize': size,
-        'cReferences': [p[11:] for p in info['references']],
-        'cDeriver': 'unknown-deriver', 'cSig': None,
-    }
-    request = urllib.request.Request(
-        base + '/' + store_hash + '.narinfo', data=json.dumps(metadata).encode(), method='POST',
-        headers={**headers, 'Content-Type': 'application/json'},
-    )
-    with urllib.request.urlopen(request, timeout=60) as response:
-        response.read()
+        nar_hash = subprocess.run(
+            ['nix', 'hash', 'convert', '--hash-algo', 'sha256', '--to', 'nix32', info['narHash']],
+            check=True, text=True, stdout=subprocess.PIPE,
+        ).stdout.strip()
+        store_hash, suffix = path[11:].split('-', 1)
+        metadata = {
+            'cStoreHash': store_hash, 'cStoreSuffix': suffix,
+            'cNarHash': 'sha256:' + nar_hash, 'cNarSize': info['narSize'],
+            'cFileHash': digest.hexdigest(), 'cFileSize': size,
+            'cReferences': [p[11:] for p in info['references']],
+            'cDeriver': 'unknown-deriver', 'cSig': None,
+        }
+        upload = post('/multipart-nar?compression=zst')
+        endpoint = '/multipart-nar/' + upload['narId']
+        query = urllib.parse.urlencode({'uploadId': upload['uploadId']})
+        try:
+            parts = []
+            while chunk := compressed.read(32 * 1024 * 1024):
+                part_number = len(parts) + 1
+                md5 = base64.b64encode(hashlib.md5(chunk).digest()).decode()
+                signed = post(endpoint + '?' + query + f'&partNumber={part_number}', {'contentMD5': md5})
+                request = urllib.request.Request(
+                    signed['uploadUrl'], data=chunk, method='PUT',
+                    headers={'Content-Type': 'application/octet-stream', 'Content-MD5': md5},
+                )
+                with urllib.request.urlopen(request, timeout=300) as response:
+                    etag = response.headers['ETag']
+                    response.read()
+                if not etag:
+                    raise ValueError(f'Missing ETag for {path}, part {part_number}')
+                parts.append({'partNumber': part_number, 'eTag': etag})
+            post(endpoint + '/complete?' + query, {'parts': parts, 'narInfoCreate': metadata})
+        except BaseException as error:
+            if isinstance(error, urllib.error.HTTPError):
+                error.close()
+            with contextlib.suppress(Exception):
+                post(endpoint + '/abort?' + query)
+            raise
     print(f'Uploaded {path}', flush=True)
 
 
-def publish(cache, outputs_file, sources, api='https://api.cachix.org'):
+def publish(cache, outputs_file, sources, api='https://cachix.org'):
     if not re.fullmatch(r'[a-z0-9][a-z0-9-]*', cache):
         raise ValueError('Invalid Cachix cache name')
     outputs = Path(outputs_file).read_text().splitlines()
