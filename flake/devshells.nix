@@ -15,6 +15,7 @@
           nixd
           nixfmt
           openssh
+          python3
           sops
           util-linux
         ];

@@ -25,11 +25,11 @@ jobs:
       - uses: cachix/install-nix-action@13d8dd58da0234aa297dedd986986ccb8e7f3e24 # v31.11.1
         with:
           github_access_token: ${{ secrets.GITHUB_TOKEN }}
-      - run: bash scripts/push-missing-to-cachix.test.sh scripts/push-missing-to-cachix.sh
+      - run: nix develop --accept-flake-config --no-update-lock-file -c bash scripts/push-missing-to-cachix.test.sh scripts/push-missing-to-cachix.sh
       - run: nix flake check --accept-flake-config --no-update-lock-file --print-build-logs
 
-  cache-brave:
-    name: cache-brave
+  cache-system:
+    name: cache-system
     if: >-
       github.ref == 'refs/heads/main' &&
       (github.event_name == 'push' || github.event_name == 'workflow_dispatch')
@@ -43,6 +43,10 @@ jobs:
       - uses: cachix/install-nix-action@13d8dd58da0234aa297dedd986986ccb8e7f3e24 # v31.11.1
         with:
           github_access_token: ${{ secrets.GITHUB_TOKEN }}
+      - name: Free space for the desktop system closure
+        run: |
+          sudo rm -rf /usr/local/lib/android /usr/share/dotnet /opt/ghc /opt/hostedtoolcache
+          df -h /nix
       - name: Prepare the portal validator sandbox
         run: |
           test "$(id -u)" -ne 0
@@ -56,19 +60,12 @@ jobs:
             "$GITHUB_RUN_ID" "$GITHUB_RUN_ATTEMPT" "$bwrap" > "$RUNNER_TEMP/nix-cache-bubblewrap.apparmor"
           sudo apparmor_parser --add "$RUNNER_TEMP/nix-cache-bubblewrap.apparmor"
           "$bwrap" --unshare-user --unshare-net --unshare-pid --ro-bind / / --proc /proc /bin/true
-      - name: Build locked Brave, system packages, and Cachix
+      - name: Build the locked system closure
         run: |
           nix build --accept-flake-config --no-update-lock-file \
             --out-link "$RUNNER_TEMP/cache-result" --print-out-paths --print-build-logs \
-            .#packages.x86_64-linux.brave \
-            .#nixosConfigurations.jupiter.pkgs.kdePackages.kinfocenter \
-            '.#nixosConfigurations.jupiter.pkgs.kdePackages.xdg-desktop-portal-kde^out,dev' \
-            '.#nixosConfigurations.jupiter.pkgs.pkgsi686Linux.ncurses5^out,dev' \
-            .#nixosConfigurations.jupiter.pkgs.xdg-desktop-portal > "$RUNNER_TEMP/cache-paths"
-          nix build --accept-flake-config --no-update-lock-file \
-            --inputs-from . --out-link "$RUNNER_TEMP/cachix-result" nixpkgs#cachix
-          test -x "$RUNNER_TEMP/cachix-result-bin/bin/cachix"
-          echo "$RUNNER_TEMP/cachix-result-bin/bin" >> "$GITHUB_PATH"
+            .#nixosConfigurations.jupiter.config.system.build.toplevel > "$RUNNER_TEMP/cache-paths"
+          nix path-info --recursive $(cat "$RUNNER_TEMP/cache-paths") > "$RUNNER_TEMP/cache-closure"
       - name: Remove the portal validator profile
         if: always()
         run: |
@@ -76,9 +73,14 @@ jobs:
             sudo apparmor_parser --remove "$RUNNER_TEMP/nix-cache-bubblewrap.apparmor"
             rm "$RUNNER_TEMP/nix-cache-bubblewrap.apparmor"
           fi
-      - name: Push only official-cache misses
+      - name: Push only paths missing from all configured caches
         env:
           CACHIX_AUTH_TOKEN: ${{ secrets.CACHIX_AUTH_TOKEN }}
         run: |
           : "${CACHIX_AUTH_TOKEN:?Set the repository secret CACHIX_AUTH_TOKEN}"
-          bash scripts/push-missing-to-cachix.sh nix-config-shishi "$RUNNER_TEMP/cache-paths"
+          nix develop --accept-flake-config --no-update-lock-file -c bash scripts/push-missing-to-cachix.sh nix-config-shishi "$RUNNER_TEMP/cache-paths"
+      - name: Verify the complete closure is downloadable
+        run: |
+          rm "$RUNNER_TEMP/cache-result"
+          nix store gc
+          nix develop --accept-flake-config --no-update-lock-file -c bash scripts/verify-system-cache.sh "$RUNNER_TEMP/cache-paths" "$RUNNER_TEMP/cache-closure"
