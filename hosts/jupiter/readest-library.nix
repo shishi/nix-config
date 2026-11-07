@@ -1,6 +1,7 @@
 { pkgs, ... }:
 let
   bookDirectory = "/mnt/mars/shishi/book";
+  copyparty = pkgs.copyparty.override { withFastThumbnails = true; };
   configuration = pkgs.writeText "readest-library.conf" ''
     [global]
       name: NAS 本棚
@@ -8,7 +9,8 @@ let
       http-only
       rp-loc: /nas-books
       rproxy: 1
-      no-thumb
+      hist: /tmp/readest-thumbnails
+      th-vips-add: pdf
       no-snap
       no-readme
       no-logues
@@ -50,7 +52,7 @@ in
       User = "shishi";
       Group = "users";
       WorkingDirectory = "/";
-      ExecStart = "${pkgs.copyparty}/bin/copyparty -c ${configuration}";
+      ExecStart = "${copyparty}/bin/copyparty -c ${configuration}";
       Restart = "on-failure";
       RestartSec = "30s";
       RuntimeDirectory = "readest-opds";
