@@ -26,7 +26,8 @@ def preflight():
     body = uuid.uuid4().hex.encode()
     client.put_object(Bucket=bucket, Key=probe, Body=body, CacheControl='no-store')
     try:
-        with urllib.request.urlopen(url + '/' + probe, timeout=30) as response:
+        request = urllib.request.Request(url + '/' + probe, headers={'User-Agent': 'nix-config-cache/1.0'})
+        with urllib.request.urlopen(request, timeout=30) as response:
             if response.read() != body:
                 raise ValueError('Public endpoint did not return the uploaded probe')
     finally:
@@ -34,7 +35,8 @@ def preflight():
     client.put_object(Bucket=bucket, Key='nix-cache-info',
                       Body=b'StoreDir: /nix/store\nWantMassQuery: 1\nPriority: 50\n',
                       ContentType='text/x-nix-cache-info', CacheControl='no-cache')
-    with urllib.request.urlopen(url + '/nix-cache-info', timeout=30) as response:
+    request = urllib.request.Request(url + '/nix-cache-info', headers={'User-Agent': 'nix-config-cache/1.0'})
+    with urllib.request.urlopen(request, timeout=30) as response:
         if b'StoreDir: /nix/store\n' not in response.read():
             raise ValueError('Public nix-cache-info is invalid')
     print('R2 write/read/delete, public delivery and signing key checks passed')
