@@ -11,7 +11,7 @@ keys=$(jq -r '.trustedPublicKeys | join(" ")' <<< "$settings")
 verification_root=$(mktemp -d)
 trap 'chmod -R u+w "$verification_root"; rm -rf "$verification_root"' EXIT
 store="local?root=$verification_root"
-nix-store --store "$store" --realise "${outputs[@]}" --option max-jobs 0 --option builders '' --option substituters "$substituters" --option trusted-public-keys "$keys"
+nix-store --store "$store" --realise "${outputs[@]}" --option always-allow-substitutes true --option max-jobs 0 --option builders '' --option substituters "$substituters" --option trusted-public-keys "$keys"
 nix path-info --store "$store" --recursive "${outputs[@]}" | sort > "$verification_root/actual"
 sort "$closure_file" > "$verification_root/expected"
 diff -u "$verification_root/expected" "$verification_root/actual"
