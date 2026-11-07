@@ -5,7 +5,7 @@ CI は NixOS システムの実行時依存全体をビルドし、上流キャ�
 ## 人間の初期操作
 
 1. Cloudflare で R2 を有効にし、課金設定を完了します。
-2. Standard のバケット `nix-config` を作り、Cloudflare 管理下の専用ドメインを接続します。開発用の `r2.dev` は使いません。
+2. Standard のバケット `nix-cache` を作り、Cloudflare 管理下の専用ドメインを接続します。開発用の `r2.dev` は使いません。
 3. 対象バケットだけに Object Read & Write 権限を持つ R2 API token を作成します。
 4. 準備された Nix 署名秘密鍵を指定して `scripts/configure-r2-cache.py` を devShell から実行します。S3 endpoint と認証情報を入力すると、スクリプトが GitHub Secrets と Variables に登録します。認証情報をチャットや Git に保存しないでください。
 

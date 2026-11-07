@@ -5,6 +5,11 @@ on:
   push:
     branches: [main]
   workflow_dispatch:
+    inputs:
+      preflight_only:
+        description: Check R2 access without building the system
+        type: boolean
+        default: false
 
 permissions:
   contents: read
@@ -18,7 +23,7 @@ jobs:
     name: nix-flake-check
     needs: r2-preflight
     if: >-
-      always() &&
+      always() && !inputs.preflight_only &&
       (needs.r2-preflight.result == 'success' || needs.r2-preflight.result == 'skipped')
     runs-on: ubuntu-24.04
     timeout-minutes: 60

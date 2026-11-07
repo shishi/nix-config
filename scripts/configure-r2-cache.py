@@ -32,7 +32,7 @@ def main():
     gh('secret', 'R2_SECRET_ACCESS_KEY', secret_key)
     gh('secret', 'NIX_CACHE_SIGNING_KEY', signing_key.read_text())
     gh('variable', 'R2_ENDPOINT', endpoint)
-    gh('variable', 'R2_BUCKET', 'nix-config')
+    gh('variable', 'R2_BUCKET', 'nix-cache')
     gh('variable', 'R2_PUBLIC_URL', 'https://nix-cache.srevo.net')
     print('GitHub への登録が完了しました。R2 の接続確認を実行できます。')
 
