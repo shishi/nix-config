@@ -17,7 +17,7 @@ jobs:
       - uses: cachix/install-nix-action@13d8dd58da0234aa297dedd986986ccb8e7f3e24
         with:
           github_access_token: ${{ secrets.GITHUB_TOKEN }}
-      - name: Read capacity only
+      - name: Read capacity and retention evidence
         env:
           CACHIX_AUTH_TOKEN: ${{ secrets.CACHIX_AUTH_TOKEN }}
           INSPECTION_RECIPIENT: age1jrq9s0yvqzle23m5mawh032g2zjjfkh8056wd7vxgnjkypj5qu5s7azt8p
