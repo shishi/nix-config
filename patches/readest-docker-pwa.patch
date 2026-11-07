@@ -33,3 +33,96 @@
 +import { randomUUID } from 'node:crypto';
 @@ -186,0 +188 @@
 +      additionalPrecacheEntries: [{ url: '/offline', revision: randomUUID() }],
+--- a/apps/readest-app/src/services/tts/TTSController.ts
++++ b/apps/readest-app/src/services/tts/TTSController.ts
+@@ -36,0 +37,2 @@
++import { releaseUnblockAudio, unblockAudio } from './ttsMediaBridge';
++import { getOSPlatform } from '@/utils/misc';
+@@ -384,0 +387,7 @@
++  #syncSilentAudio() {
++    if (getOSPlatform() === 'ios' && !this.appService?.isIOSApp) {
++      if (this.ttsClient === this.ttsWebClient) releaseUnblockAudio();
++      else unblockAudio();
++    }
++  }
++
+@@ -575,0 +585 @@
++    this.#syncSilentAudio();
+@@ -2328,0 +2339 @@
++      this.#syncSilentAudio();
+@@ -2370,0 +2382 @@
++    this.#syncSilentAudio();
+--- a/apps/readest-app/src/__tests__/services/tts-controller.test.ts
++++ b/apps/readest-app/src/__tests__/services/tts-controller.test.ts
+@@ -5,0 +6 @@
++import { releaseUnblockAudio, unblockAudio } from '@/services/tts/ttsMediaBridge';
+@@ -228,0 +230,66 @@
++  describe('iOS Web TTS silent audio ownership', () => {
++    let audioElements: HTMLAudioElement[];
++
++    beforeEach(() => {
++      vi.spyOn(navigator, 'userAgent', 'get').mockReturnValue(
++        'Mozilla/5.0 (iPhone; CPU iPhone OS 26_0 like Mac OS X)',
++      );
++      vi.spyOn(HTMLMediaElement.prototype, 'play').mockResolvedValue();
++      vi.spyOn(HTMLMediaElement.prototype, 'pause').mockImplementation(() => {});
++      vi.spyOn(HTMLMediaElement.prototype, 'load').mockImplementation(() => {});
++      releaseUnblockAudio();
++      audioElements = [];
++      const createElement = document.createElement.bind(document);
++      vi.spyOn(document, 'createElement').mockImplementation(((
++        tagName: string,
++        options?: ElementCreationOptions,
++      ) => {
++        const element = createElement(tagName, options);
++        if (tagName === 'audio') audioElements.push(element as HTMLAudioElement);
++        return element;
++      }) as typeof document.createElement);
++    });
++
++    afterEach(() => {
++      releaseUnblockAudio();
++    });
++
++    test('releases the silent audio when the remembered iOS voice is Web TTS', async () => {
++      vi.mocked(TTSUtils.getPreferredClient).mockReturnValueOnce('web');
++      unblockAudio();
++      const audio = audioElements[0]!;
++      expect(audio.src).not.toBe('');
++
++      await controller.init();
++
++      expect(controller.ttsClient).toBe(controller.ttsWebClient);
++      expect(audio.getAttribute('src')).toBe('');
++    });
++
++    test('restores silent audio when switching from iOS Web TTS to Edge', async () => {
++      controller.ttsEdgeVoices = [{ id: 'edge-voice-1', name: 'Edge', lang: 'ja-JP' }];
++      unblockAudio();
++      const previousAudio = audioElements[0]!;
++
++      await controller.setVoice('unknown-voice', 'ja');
++
++      expect(previousAudio.getAttribute('src')).toBe('');
++      await controller.setVoice('edge-voice-1', 'ja');
++      expect(controller.ttsClient).toBe(controller.ttsEdgeClient);
++      expect(audioElements).toHaveLength(2);
++      expect(audioElements[1]!.src).not.toBe('');
++    });
++
++    test('preserves silent audio for Web TTS on Windows', async () => {
++      vi.spyOn(navigator, 'userAgent', 'get').mockReturnValue(
++        'Mozilla/5.0 (Windows NT 10.0; Win64; x64)',
++      );
++      unblockAudio();
++      const audio = audioElements[0]!;
++
++      await controller.setVoice('unknown-voice', 'ja');
++
++      expect(audio.src).not.toBe('');
++    });
++  });
++
+@@ -330 +397 @@
+-      vi.mocked(TTSUtils.getPreferredClient).mockReturnValue('web');
++      vi.mocked(TTSUtils.getPreferredClient).mockReturnValueOnce('web');
