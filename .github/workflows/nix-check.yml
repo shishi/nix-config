@@ -86,10 +86,26 @@ jobs:
       - uses: cachix/install-nix-action@13d8dd58da0234aa297dedd986986ccb8e7f3e24 # v31.11.1
         with:
           github_access_token: ${{ secrets.GITHUB_TOKEN }}
+          extra_nix_config: |
+            extra-platforms = aarch64-linux i686-linux
+      - uses: docker/setup-qemu-action@99012661954931238ded8c8b007157a8430204e1 # v4.4.0
+        with:
+          platforms: arm64
       - name: Free space for the desktop system closure
         run: |
           sudo rm -rf /usr/local/lib/android /usr/share/dotnet /opt/ghc /opt/hostedtoolcache
           df -h /nix
+      - name: Verify ARM64 execution in the Nix sandbox
+        run: |
+          nix build --accept-flake-config --no-update-lock-file --no-link \
+            --impure --builders '' --expr '
+              let
+                pkgs = (builtins.getFlake (toString ./.)).nixosConfigurations.dns-osaka-1.pkgs;
+              in pkgs.runCommand "aarch64-cache-smoke" {
+                preferLocalBuild = true;
+                allowSubstitutes = false;
+              } "test \"$(uname -m)\" = aarch64; echo aarch64 > \"$out\""
+            '
       - name: Prepare the portal validator sandbox
         run: |
           test "$(id -u)" -ne 0
@@ -103,11 +119,14 @@ jobs:
             "$GITHUB_RUN_ID" "$GITHUB_RUN_ATTEMPT" "$bwrap" > "$RUNNER_TEMP/nix-cache-bubblewrap.apparmor"
           sudo apparmor_parser --add "$RUNNER_TEMP/nix-cache-bubblewrap.apparmor"
           "$bwrap" --unshare-user --unshare-net --unshare-pid --ro-bind / / --proc /proc /bin/true
-      - name: Build the locked system closure
+      - name: Build both locked system closures
         run: |
           nix build --accept-flake-config --no-update-lock-file \
+            --option always-allow-substitutes true \
             --out-link "$RUNNER_TEMP/cache-result" --print-out-paths --print-build-logs \
-            .#nixosConfigurations.jupiter.config.system.build.toplevel > "$RUNNER_TEMP/cache-paths"
+            .#nixosConfigurations.jupiter.config.system.build.toplevel \
+            .#nixosConfigurations.dns-osaka-1.config.system.build.toplevel > "$RUNNER_TEMP/cache-paths"
+          test "$(wc -l < "$RUNNER_TEMP/cache-paths")" -eq 2
           nix path-info --recursive $(cat "$RUNNER_TEMP/cache-paths") > "$RUNNER_TEMP/cache-closure"
       - name: Remove the portal validator profile
         if: always()
@@ -133,7 +152,7 @@ jobs:
           nix develop --accept-flake-config --no-update-lock-file -c python3 scripts/push-missing-to-r2.py publish "$RUNNER_TEMP/cache-paths" "$RUNNER_TEMP/cache-generation.json"
       - name: Verify the complete closure is downloadable
         run: |
-          rm "$RUNNER_TEMP/cache-result"
+          rm "$RUNNER_TEMP/cache-result" "$RUNNER_TEMP/cache-result-1"
           nix store gc
           nix develop --accept-flake-config --no-update-lock-file -c bash scripts/verify-system-cache.sh "$RUNNER_TEMP/cache-paths" "$RUNNER_TEMP/cache-closure" "$RUNNER_TEMP/cache-generation.json"
       - name: Retain only the verified generation
