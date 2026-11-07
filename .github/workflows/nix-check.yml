@@ -1,145 +1,15 @@
-name: Nix
-
+name: R2 network probe
 on:
-  pull_request:
-  push:
-    branches: [main]
   workflow_dispatch:
-    inputs:
-      preflight_only:
-        description: Check R2 access without building the system
-        type: boolean
-        default: false
-
 permissions:
   contents: read
-
-concurrency:
-  group: nix-check-${{ github.ref }}
-  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
-
 jobs:
-  check:
-    name: nix-flake-check
-    needs: r2-preflight
-    if: >-
-      always() && !inputs.preflight_only &&
-      (needs.r2-preflight.result == 'success' || needs.r2-preflight.result == 'skipped')
-    runs-on: ubuntu-24.04
-    timeout-minutes: 60
-    steps:
-      - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
-        with:
-          persist-credentials: false
-      - uses: cachix/install-nix-action@13d8dd58da0234aa297dedd986986ccb8e7f3e24 # v31.11.1
-        with:
-          github_access_token: ${{ secrets.GITHUB_TOKEN }}
-      - run: nix develop --accept-flake-config --no-update-lock-file -c python3 scripts/push-missing-to-r2.test.py scripts/push-missing-to-r2.py
-      - run: nix flake check --accept-flake-config --no-update-lock-file --print-build-logs
-
-  r2-preflight:
-    if: >-
-      (github.ref == 'refs/heads/main' && github.event_name == 'push') ||
-      github.event_name == 'workflow_dispatch'
+  probe:
     runs-on: ubuntu-24.04
     timeout-minutes: 5
     steps:
-      - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
+      - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803
         with:
           persist-credentials: false
-      - uses: cachix/install-nix-action@13d8dd58da0234aa297dedd986986ccb8e7f3e24 # v31.11.1
-      - name: Check R2 before building the system
-        env:
-          AWS_ACCESS_KEY_ID: ${{ secrets.R2_ACCESS_KEY_ID }}
-          AWS_SECRET_ACCESS_KEY: ${{ secrets.R2_SECRET_ACCESS_KEY }}
-          R2_ENDPOINT: ${{ vars.R2_ENDPOINT }}
-          R2_BUCKET: ${{ vars.R2_BUCKET }}
-          R2_PUBLIC_URL: ${{ vars.R2_PUBLIC_URL }}
-          NIX_SIGNING_KEY: ${{ secrets.NIX_CACHE_SIGNING_KEY }}
-        run: |
-          : "${AWS_ACCESS_KEY_ID:?Configure R2_ACCESS_KEY_ID}"
-          : "${AWS_SECRET_ACCESS_KEY:?Configure R2_SECRET_ACCESS_KEY}"
-          : "${R2_ENDPOINT:?Configure R2_ENDPOINT}"
-          : "${NIX_SIGNING_KEY:?Configure NIX_CACHE_SIGNING_KEY}"
-          umask 077
-          export NIX_SIGNING_KEY_FILE="$RUNNER_TEMP/nix-cache-key"
-          trap 'rm -f "$NIX_SIGNING_KEY_FILE"' EXIT
-          printf '%s' "$NIX_SIGNING_KEY" > "$NIX_SIGNING_KEY_FILE"
-          unset NIX_SIGNING_KEY
-          nix develop --accept-flake-config --no-update-lock-file -c python3 scripts/r2-cache-preflight.py
-
-  cache-system:
-    name: cache-system
-    if: >-
-      (github.ref == 'refs/heads/main' && github.event_name == 'push') ||
-      github.event_name == 'workflow_dispatch'
-    needs: [check, r2-preflight]
-    concurrency:
-      group: nix-cache-r2-publication
-      cancel-in-progress: false
-    runs-on: ubuntu-24.04
-    timeout-minutes: 60
-    steps:
-      - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
-        with:
-          persist-credentials: false
-      - uses: cachix/install-nix-action@13d8dd58da0234aa297dedd986986ccb8e7f3e24 # v31.11.1
-        with:
-          github_access_token: ${{ secrets.GITHUB_TOKEN }}
-      - name: Free space for the desktop system closure
-        run: |
-          sudo rm -rf /usr/local/lib/android /usr/share/dotnet /opt/ghc /opt/hostedtoolcache
-          df -h /nix
-      - name: Prepare the portal validator sandbox
-        run: |
-          test "$(id -u)" -ne 0
-          bwrap="$(nix eval --accept-flake-config --no-update-lock-file --raw .#nixosConfigurations.jupiter.pkgs.bubblewrap.outPath)/bin/bwrap"
-          nix build --accept-flake-config --no-update-lock-file --no-link .#nixosConfigurations.jupiter.pkgs.bubblewrap
-          if "$bwrap" --unshare-user --unshare-net --unshare-pid --ro-bind / / --proc /proc /bin/true; then
-            exit 0
-          fi
-          test "$(sysctl -n kernel.apparmor_restrict_unprivileged_userns)" = 1
-          printf 'abi <abi/4.0>,\nprofile nix-cache-bubblewrap-%s-%s %s flags=(unconfined) {\n  userns,\n}\n' \
-            "$GITHUB_RUN_ID" "$GITHUB_RUN_ATTEMPT" "$bwrap" > "$RUNNER_TEMP/nix-cache-bubblewrap.apparmor"
-          sudo apparmor_parser --add "$RUNNER_TEMP/nix-cache-bubblewrap.apparmor"
-          "$bwrap" --unshare-user --unshare-net --unshare-pid --ro-bind / / --proc /proc /bin/true
-      - name: Build the locked system closure
-        run: |
-          nix build --accept-flake-config --no-update-lock-file \
-            --out-link "$RUNNER_TEMP/cache-result" --print-out-paths --print-build-logs \
-            .#nixosConfigurations.jupiter.config.system.build.toplevel > "$RUNNER_TEMP/cache-paths"
-          nix path-info --recursive $(cat "$RUNNER_TEMP/cache-paths") > "$RUNNER_TEMP/cache-closure"
-      - name: Remove the portal validator profile
-        if: always()
-        run: |
-          if test -e "$RUNNER_TEMP/nix-cache-bubblewrap.apparmor"; then
-            sudo apparmor_parser --remove "$RUNNER_TEMP/nix-cache-bubblewrap.apparmor"
-            rm "$RUNNER_TEMP/nix-cache-bubblewrap.apparmor"
-          fi
-      - name: Publish only paths missing from upstream caches and R2
-        env:
-          AWS_ACCESS_KEY_ID: ${{ secrets.R2_ACCESS_KEY_ID }}
-          AWS_SECRET_ACCESS_KEY: ${{ secrets.R2_SECRET_ACCESS_KEY }}
-          R2_ENDPOINT: ${{ vars.R2_ENDPOINT }}
-          R2_BUCKET: ${{ vars.R2_BUCKET }}
-          R2_PUBLIC_URL: ${{ vars.R2_PUBLIC_URL }}
-          NIX_SIGNING_KEY: ${{ secrets.NIX_CACHE_SIGNING_KEY }}
-        run: |
-          umask 077
-          export NIX_SIGNING_KEY_FILE="$RUNNER_TEMP/nix-cache-key"
-          trap 'rm -f "$NIX_SIGNING_KEY_FILE"' EXIT
-          printf '%s' "$NIX_SIGNING_KEY" > "$NIX_SIGNING_KEY_FILE"
-          unset NIX_SIGNING_KEY
-          nix develop --accept-flake-config --no-update-lock-file -c python3 scripts/push-missing-to-r2.py publish "$RUNNER_TEMP/cache-paths" "$RUNNER_TEMP/cache-generation.json"
-      - name: Verify the complete closure is downloadable
-        run: |
-          rm "$RUNNER_TEMP/cache-result"
-          nix store gc
-          nix develop --accept-flake-config --no-update-lock-file -c bash scripts/verify-system-cache.sh "$RUNNER_TEMP/cache-paths" "$RUNNER_TEMP/cache-closure" "$RUNNER_TEMP/cache-generation.json"
-      - name: Retain only the verified generation
-        env:
-          AWS_ACCESS_KEY_ID: ${{ secrets.R2_ACCESS_KEY_ID }}
-          AWS_SECRET_ACCESS_KEY: ${{ secrets.R2_SECRET_ACCESS_KEY }}
-          R2_ENDPOINT: ${{ vars.R2_ENDPOINT }}
-          R2_BUCKET: ${{ vars.R2_BUCKET }}
-        run: nix develop --accept-flake-config --no-update-lock-file -c python3 scripts/push-missing-to-r2.py prune "$RUNNER_TEMP/cache-generation.json"
+      - uses: cachix/install-nix-action@13d8dd58da0234aa297dedd986986ccb8e7f3e24
+      - run: nix develop --accept-flake-config --no-update-lock-file -c python3 scripts/r2-network-probe.py
