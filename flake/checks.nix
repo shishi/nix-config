@@ -60,14 +60,6 @@
           touch $out
         '';
 
-        # 可搬グラフ信号(ビルド)
-        home-shishi = self.homeConfigurations."shishi".activationPackage;
-        nixos-wsl-toplevel = self.nixosConfigurations.nixos-wsl.config.system.build.toplevel;
-
-        # 合成 DE(eval)
-        synth-gnome-eval = evalOnly "synth-gnome" self.nixosConfigurations.synth-gnome;
-        synth-kde-eval = evalOnly "synth-kde" self.nixosConfigurations.synth-kde;
-
         # jupiter はスタブ hardware のため隔離名(「実機 OK」と誤読させない)。
         # 実 hardware-configuration.nix の commit 後に jupiter-toplevel として既定編入する
         jupiter-stub-eval = evalOnly "jupiter-stub" self.nixosConfigurations.jupiter;
