@@ -1,4 +1,5 @@
 #!/usr/bin/env python3
+import argparse
 import base64
 import concurrent.futures
 import hashlib
@@ -94,24 +95,94 @@ def publish(bucket, outputs_file, sources, client, key_file):
         raise ValueError('Invalid or empty closure')
     print(f'Checking {len(closure)} paths against {len(sources)} caches', flush=True)
 
-    def missing(path):
-        return not any(available(source, path) for source in sources)
+    def source_for(path):
+        return next((source for source in sources if available(source, path)), None)
 
     # Complete every lookup before publishing: errors must not turn into misses.
     with concurrent.futures.ThreadPoolExecutor(max_workers=16) as pool:
-        absent = [p for p, absent in zip(closure, pool.map(missing, closure)) if absent]
+        found = list(pool.map(source_for, closure))
+    absent = [path for path, source in zip(closure, found) if source is None]
+    required = [path for path, source in zip(closure, found) if source is None or source == sources[-1]]
     print(f'{len(absent)} paths are missing from all configured caches', flush=True)
     for path in absent:
         upload(bucket, path, closure[path], client, key_file)
+    return outputs, required
+
+
+NAR_OBJECT = re.compile(r'nar/[0-9a-f]{64}\.nar\.zst')
+INFO_OBJECT = re.compile(r'[0-9a-z]{32}\.narinfo')
+
+
+def generation_manifest(bucket, outputs, required, client):
+    objects = set()
+    for path in required:
+        key = path[11:43] + '.narinfo'
+        response = client.get_object(Bucket=bucket, Key=key)
+        with response['Body'] as stream:
+            lines = stream.read().decode().splitlines()
+        if f'StorePath: {path}' not in lines:
+            raise ValueError(f'Unexpected store path in {key}')
+        urls = [line[5:] for line in lines if line.startswith('URL: ')]
+        if len(urls) != 1 or not NAR_OBJECT.fullmatch(urls[0]):
+            raise ValueError(f'Unexpected NAR object in {key}')
+        objects.update([key, urls[0]])
+    return {'version': 1, 'outputs': outputs, 'objects': sorted(objects)}
+
+
+def prune(bucket, manifest_file, client):
+    manifest = json.loads(Path(manifest_file).read_text())
+    outputs = manifest.get('outputs')
+    objects = manifest.get('objects')
+    if (manifest.get('version') != 1 or not isinstance(outputs, list) or not outputs
+            or any(not isinstance(path, str) or not STORE_PATH.fullmatch(path) for path in outputs)
+            or not isinstance(objects, list)
+            or any(not isinstance(key, str) or not (NAR_OBJECT.fullmatch(key) or INFO_OBJECT.fullmatch(key)) for key in objects)):
+        raise ValueError('Invalid generation manifest')
+    keep = set(objects)
+
+    def inventory():
+        return {item['Key']
+                for page in client.get_paginator('list_objects_v2').paginate(Bucket=bucket)
+                for item in page.get('Contents', [])
+                if NAR_OBJECT.fullmatch(item['Key']) or INFO_OBJECT.fullmatch(item['Key'])}
+
+    present = inventory()
+    if not keep.issubset(present):
+        raise ValueError('Current generation objects are missing; refusing to prune')
+    obsolete = present - keep
+    # Remove metadata before its NAR so old entries cannot advertise deleted data.
+    for group in [sorted(key for key in obsolete if INFO_OBJECT.fullmatch(key)),
+                  sorted(key for key in obsolete if NAR_OBJECT.fullmatch(key))]:
+        for offset in range(0, len(group), 1000):
+            result = client.delete_objects(Bucket=bucket, Delete={
+                'Objects': [{'Key': key} for key in group[offset:offset + 1000]], 'Quiet': True})
+            if result.get('Errors'):
+                raise RuntimeError('R2 did not delete every obsolete object')
+    if inventory() != keep:
+        raise ValueError('R2 inventory does not match the single current generation')
+    print(f'Retained one generation: {len(keep)} objects; removed {len(obsolete)} obsolete objects', flush=True)
 
 
 if __name__ == '__main__':
     try:
         import boto3
-        sources = nix_json('eval', '--json', '--file', str(Path(__file__).resolve().parents[1] / 'shared/nix-caches.nix'), '--apply', 'x: x.upstreamSubstituters')
-        sources.append(os.environ['R2_PUBLIC_URL'])
+        parser = argparse.ArgumentParser()
+        commands = parser.add_subparsers(dest='command', required=True)
+        publish_parser = commands.add_parser('publish')
+        publish_parser.add_argument('outputs')
+        publish_parser.add_argument('manifest')
+        prune_parser = commands.add_parser('prune')
+        prune_parser.add_argument('manifest')
+        args = parser.parse_args()
         client = boto3.client('s3', endpoint_url=os.environ['R2_ENDPOINT'], region_name='auto')
-        publish(os.environ['R2_BUCKET'], sys.argv[1], sources, client, os.environ['NIX_SIGNING_KEY_FILE'])
+        if args.command == 'publish':
+            sources = nix_json('eval', '--json', '--file', str(Path(__file__).resolve().parents[1] / 'shared/nix-caches.nix'), '--apply', 'x: x.upstreamSubstituters')
+            sources.append(os.environ['R2_PUBLIC_URL'])
+            outputs, required = publish(os.environ['R2_BUCKET'], args.outputs, sources, client, os.environ['NIX_SIGNING_KEY_FILE'])
+            manifest = generation_manifest(os.environ['R2_BUCKET'], outputs, required, client)
+            Path(args.manifest).write_text(json.dumps(manifest))
+        else:
+            prune(os.environ['R2_BUCKET'], args.manifest, client)
     except Exception as error:
         print(f'Cache publication failed: {error}', file=sys.stderr)
         sys.exit(1)

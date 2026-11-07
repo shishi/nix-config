@@ -84,5 +84,50 @@ class ObjectUploadTest(unittest.TestCase):
     def test_store_metadata_mismatch_prevents_every_write(self):
         self.assertEqual(self.exercise(corrupt=True)[1], [])
 
+class ManifestTest(unittest.TestCase):
+    def test_current_metadata_produces_prune_keep_set(self):
+        nar = 'nar/' + 'a' * 64 + '.nar.zst'
+        body = f'StorePath: {ROOT}\nURL: {nar}\n'.encode()
+        client = unittest.mock.MagicMock()
+        client.get_object.return_value = {'Body': io.BytesIO(body)}
+        manifest = uploader.generation_manifest('bucket', [ROOT], [ROOT], client)
+        self.assertEqual(manifest, {'version': 1, 'outputs': [ROOT], 'objects': sorted([ROOT[11:43] + '.narinfo', nar])})
+
+class RetentionTest(unittest.TestCase):
+    def test_keeps_one_generation_and_shared_nar(self):
+        current_info = '0' * 32 + '.narinfo'
+        old_info = '1' * 32 + '.narinfo'
+        shared_nar = 'nar/' + 'a' * 64 + '.nar.zst'
+        old_nar = 'nar/' + 'b' * 64 + '.nar.zst'
+        keys = {current_info, old_info, shared_nar, old_nar, 'nix-cache-info', 'unrelated/file'}
+        deleted = []
+        class Client:
+            def get_paginator(self, name):
+                return self
+            def paginate(self, **kwargs):
+                return [{'Contents': [{'Key': key} for key in sorted(keys)]}]
+            def delete_objects(self, **kwargs):
+                batch = [item['Key'] for item in kwargs['Delete']['Objects']]
+                deleted.extend(batch)
+                keys.difference_update(batch)
+                return {}
+            def put_object(self, **kwargs):
+                keys.add(kwargs['Key'])
+        with tempfile.TemporaryDirectory() as directory:
+            manifest = Path(directory) / 'generation.json'
+            manifest.write_text(json.dumps({'version': 1, 'outputs': [ROOT], 'objects': [current_info, shared_nar]}))
+            uploader.prune('bucket', manifest, Client())
+        self.assertEqual(deleted, [old_info, old_nar])
+        self.assertEqual(keys, {current_info, shared_nar, 'nix-cache-info', 'unrelated/file'})
+
+    def test_invalid_manifest_never_deletes(self):
+        client = unittest.mock.MagicMock()
+        with tempfile.TemporaryDirectory() as directory:
+            manifest = Path(directory) / 'generation.json'
+            manifest.write_text(json.dumps({'version': 1, 'outputs': [], 'objects': []}))
+            with self.assertRaises(ValueError):
+                uploader.prune('bucket', manifest, client)
+        client.delete_objects.assert_not_called()
+
 if __name__ == '__main__':
     unittest.main()
