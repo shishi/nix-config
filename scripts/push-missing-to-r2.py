@@ -129,7 +129,7 @@ def generation_manifest(bucket, outputs, required, client):
     return {'version': 1, 'outputs': outputs, 'objects': sorted(objects)}
 
 
-def prune(bucket, manifest_file, client):
+def read_manifest(manifest_file):
     manifest = json.loads(Path(manifest_file).read_text())
     outputs = manifest.get('outputs')
     objects = manifest.get('objects')
@@ -138,7 +138,40 @@ def prune(bucket, manifest_file, client):
             or not isinstance(objects, list)
             or any(not isinstance(key, str) or not (NAR_OBJECT.fullmatch(key) or INFO_OBJECT.fullmatch(key)) for key in objects)):
         raise ValueError('Invalid generation manifest')
-    keep = set(objects)
+    return manifest
+
+
+def merge_generations(expected, artifacts):
+    hosts = {'jupiter', 'dns-osaka-1'}
+    if (not isinstance(expected, dict) or set(expected) != hosts
+            or any(not isinstance(path, str) or not STORE_PATH.fullmatch(path) for path in expected.values())
+            or len(set(expected.values())) != len(hosts)):
+        raise ValueError('Expected exactly two distinct frozen system roots')
+    artifacts = Path(artifacts)
+    if {entry.name for entry in artifacts.iterdir()} != {'cache-generation-' + host for host in hosts}:
+        raise ValueError('Expected artifacts for exactly jupiter and dns-osaka-1')
+    closure, objects = set(), set()
+    for host, output in expected.items():
+        artifact = artifacts / ('cache-generation-' + host)
+        manifest = read_manifest(artifact / 'cache-generation.json')
+        paths = (artifact / 'cache-paths').read_text().splitlines()
+        if paths != [output] or manifest['outputs'] != paths:
+            raise ValueError(f'Artifact for {host} does not match its expected root')
+        paths = (artifact / 'cache-closure').read_text().splitlines()
+        if (output not in paths or any(not STORE_PATH.fullmatch(path) for path in paths)
+                or len(paths) != len(set(paths))):
+            raise ValueError(f'Invalid closure for {host}')
+        info_keys = {path[11:43] + '.narinfo' for path in paths}
+        if any(INFO_OBJECT.fullmatch(key) and key not in info_keys for key in manifest['objects']):
+            raise ValueError(f'Manifest objects are outside the closure for {host}')
+        closure.update(paths)
+        objects.update(manifest['objects'])
+    outputs = sorted(expected.values())
+    return outputs, sorted(closure), {'version': 1, 'outputs': outputs, 'objects': sorted(objects)}
+
+
+def prune(bucket, manifest_file, client):
+    keep = set(read_manifest(manifest_file)['objects'])
 
     def inventory():
         return {item['Key']
@@ -165,7 +198,6 @@ def prune(bucket, manifest_file, client):
 
 if __name__ == '__main__':
     try:
-        import boto3
         parser = argparse.ArgumentParser()
         commands = parser.add_subparsers(dest='command', required=True)
         publish_parser = commands.add_parser('publish')
@@ -173,7 +205,20 @@ if __name__ == '__main__':
         publish_parser.add_argument('manifest')
         prune_parser = commands.add_parser('prune')
         prune_parser.add_argument('manifest')
+        merge_parser = commands.add_parser('merge')
+        merge_parser.add_argument('expected')
+        merge_parser.add_argument('artifacts')
+        merge_parser.add_argument('destination')
         args = parser.parse_args()
+        if args.command == 'merge':
+            outputs, closure, manifest = merge_generations(json.loads(Path(args.expected).read_text()), args.artifacts)
+            destination = Path(args.destination)
+            destination.mkdir(parents=True, exist_ok=True)
+            (destination / 'cache-paths').write_text('\n'.join(outputs) + '\n')
+            (destination / 'cache-closure').write_text('\n'.join(closure) + '\n')
+            (destination / 'cache-generation.json').write_text(json.dumps(manifest))
+            sys.exit(0)
+        import boto3
         client = boto3.client('s3', endpoint_url=os.environ['R2_ENDPOINT'], region_name='auto')
         if args.command == 'publish':
             sources = nix_json('eval', '--json', '--file', str(Path(__file__).resolve().parents[1] / 'shared/nix-caches.nix'), '--apply', 'x: x.upstreamSubstituters')

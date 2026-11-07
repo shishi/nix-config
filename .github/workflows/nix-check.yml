@@ -15,7 +15,7 @@ permissions:
   contents: read
 
 concurrency:
-  group: nix-check-${{ github.ref }}
+  group: ${{ github.event_name == 'pull_request' && format('nix-check-{0}', github.ref) || 'nix-cache-r2-publication' }}
   cancel-in-progress: ${{ github.event_name == 'pull_request' }}
 
 jobs:
@@ -34,7 +34,7 @@ jobs:
       - uses: cachix/install-nix-action@13d8dd58da0234aa297dedd986986ccb8e7f3e24 # v31.11.1
         with:
           github_access_token: ${{ secrets.GITHUB_TOKEN }}
-      - run: nix develop --accept-flake-config --no-update-lock-file -c python3 scripts/push-missing-to-r2.test.py scripts/push-missing-to-r2.py
+      - run: nix develop --accept-flake-config --no-update-lock-file .#cache -c python3 scripts/push-missing-to-r2.test.py scripts/push-missing-to-r2.py
       - run: nix flake check --accept-flake-config --no-update-lock-file --print-build-logs
 
   r2-preflight:
@@ -66,18 +66,23 @@ jobs:
           trap 'rm -f "$NIX_SIGNING_KEY_FILE"' EXIT
           printf '%s' "$NIX_SIGNING_KEY" > "$NIX_SIGNING_KEY_FILE"
           unset NIX_SIGNING_KEY
-          nix develop --accept-flake-config --no-update-lock-file -c python3 scripts/r2-cache-preflight.py
+          nix develop --accept-flake-config --no-update-lock-file .#cache -c python3 scripts/r2-cache-preflight.py
 
   cache-system:
-    name: cache-system
+    name: cache-system (${{ matrix.host }})
     if: >-
       (github.ref == 'refs/heads/main' && github.event_name == 'push') ||
       github.event_name == 'workflow_dispatch'
     needs: [check, r2-preflight]
-    concurrency:
-      group: nix-cache-r2-publication
-      cancel-in-progress: false
-    runs-on: ubuntu-24.04
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - host: jupiter
+            runner: ubuntu-24.04
+          - host: dns-osaka-1
+            runner: ubuntu-24.04-arm
+    runs-on: ${{ matrix.runner }}
     timeout-minutes: 60
     steps:
       - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
@@ -86,11 +91,22 @@ jobs:
       - uses: cachix/install-nix-action@13d8dd58da0234aa297dedd986986ccb8e7f3e24 # v31.11.1
         with:
           github_access_token: ${{ secrets.GITHUB_TOKEN }}
+      - name: Verify the runner matches the native system architecture
+        env:
+          CACHE_HOST: ${{ matrix.host }}
+        run: |
+          uname -m
+          target_system=$(nix eval --accept-flake-config --no-update-lock-file --raw ".#nixosConfigurations.$CACHE_HOST.pkgs.stdenv.hostPlatform.system")
+          runner_system=$(nix eval --impure --raw --expr builtins.currentSystem)
+          printf 'Target Nix system: %s\nRunner Nix system: %s\n' "$target_system" "$runner_system"
+          test "$target_system" = "$runner_system"
       - name: Free space for the desktop system closure
+        if: matrix.host == 'jupiter'
         run: |
           sudo rm -rf /usr/local/lib/android /usr/share/dotnet /opt/ghc /opt/hostedtoolcache
           df -h /nix
       - name: Prepare the portal validator sandbox
+        if: matrix.host == 'jupiter'
         run: |
           test "$(id -u)" -ne 0
           bwrap="$(nix eval --accept-flake-config --no-update-lock-file --raw .#nixosConfigurations.jupiter.pkgs.bubblewrap.outPath)/bin/bwrap"
@@ -103,14 +119,19 @@ jobs:
             "$GITHUB_RUN_ID" "$GITHUB_RUN_ATTEMPT" "$bwrap" > "$RUNNER_TEMP/nix-cache-bubblewrap.apparmor"
           sudo apparmor_parser --add "$RUNNER_TEMP/nix-cache-bubblewrap.apparmor"
           "$bwrap" --unshare-user --unshare-net --unshare-pid --ro-bind / / --proc /proc /bin/true
-      - name: Build the locked system closure
+      - name: Realise the locked system using all configured caches
+        env:
+          CACHE_HOST: ${{ matrix.host }}
         run: |
+          mkdir "$RUNNER_TEMP/cache-generation"
           nix build --accept-flake-config --no-update-lock-file \
+            --option always-allow-substitutes true \
             --out-link "$RUNNER_TEMP/cache-result" --print-out-paths --print-build-logs \
-            .#nixosConfigurations.jupiter.config.system.build.toplevel > "$RUNNER_TEMP/cache-paths"
-          nix path-info --recursive $(cat "$RUNNER_TEMP/cache-paths") > "$RUNNER_TEMP/cache-closure"
+            ".#nixosConfigurations.$CACHE_HOST.config.system.build.toplevel" > "$RUNNER_TEMP/cache-generation/cache-paths"
+          test "$(wc -l < "$RUNNER_TEMP/cache-generation/cache-paths")" -eq 1
+          nix path-info --recursive "$(cat "$RUNNER_TEMP/cache-generation/cache-paths")" > "$RUNNER_TEMP/cache-generation/cache-closure"
       - name: Remove the portal validator profile
-        if: always()
+        if: always() && matrix.host == 'jupiter'
         run: |
           if test -e "$RUNNER_TEMP/nix-cache-bubblewrap.apparmor"; then
             sudo apparmor_parser --remove "$RUNNER_TEMP/nix-cache-bubblewrap.apparmor"
@@ -130,16 +151,55 @@ jobs:
           trap 'rm -f "$NIX_SIGNING_KEY_FILE"' EXIT
           printf '%s' "$NIX_SIGNING_KEY" > "$NIX_SIGNING_KEY_FILE"
           unset NIX_SIGNING_KEY
-          nix develop --accept-flake-config --no-update-lock-file -c python3 scripts/push-missing-to-r2.py publish "$RUNNER_TEMP/cache-paths" "$RUNNER_TEMP/cache-generation.json"
-      - name: Verify the complete closure is downloadable
+          nix develop --accept-flake-config --no-update-lock-file .#cache -c python3 scripts/push-missing-to-r2.py publish "$RUNNER_TEMP/cache-generation/cache-paths" "$RUNNER_TEMP/cache-generation/cache-generation.json"
+      - name: Pass only generation metadata to verification
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: cache-generation-${{ matrix.host }}
+          path: |
+            ${{ runner.temp }}/cache-generation/cache-paths
+            ${{ runner.temp }}/cache-generation/cache-closure
+            ${{ runner.temp }}/cache-generation/cache-generation.json
+          if-no-files-found: error
+          retention-days: 1
+
+  verify-cache-generation:
+    name: verify-cache-generation
+    needs: cache-system
+    runs-on: ubuntu-24.04
+    timeout-minutes: 60
+    steps:
+      - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
+        with:
+          persist-credentials: false
+      - uses: cachix/install-nix-action@13d8dd58da0234aa297dedd986986ccb8e7f3e24 # v31.11.1
+        with:
+          github_access_token: ${{ secrets.GITHUB_TOKEN }}
+      - name: Free space for fresh closure verification
         run: |
-          rm "$RUNNER_TEMP/cache-result"
-          nix store gc
-          nix develop --accept-flake-config --no-update-lock-file -c bash scripts/verify-system-cache.sh "$RUNNER_TEMP/cache-paths" "$RUNNER_TEMP/cache-closure" "$RUNNER_TEMP/cache-generation.json"
-      - name: Retain only the verified generation
+          sudo rm -rf /usr/local/lib/android /usr/share/dotnet /opt/ghc /opt/hostedtoolcache
+          df -h /nix
+      - name: Download both current-run metadata artifacts
+        uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
+        with:
+          pattern: cache-generation-*
+          path: ${{ runner.temp }}/cache-artifacts
+      - name: Merge exactly the two locked system generations
+        run: |
+          nix eval --accept-flake-config --no-update-lock-file --json \
+            .#nixosConfigurations --apply 'hosts: builtins.mapAttrs (_: host: host.config.system.build.toplevel.outPath) {
+              inherit (hosts) jupiter dns-osaka-1;
+            }' > "$RUNNER_TEMP/cache-expected.json"
+          nix develop --accept-flake-config --no-update-lock-file .#cache -c python3 scripts/push-missing-to-r2.py merge \
+            "$RUNNER_TEMP/cache-expected.json" "$RUNNER_TEMP/cache-artifacts" "$RUNNER_TEMP/cache-generation"
+      - name: Verify both closures together with signatures and no builders
+        run: |
+          nix develop --accept-flake-config --no-update-lock-file .#cache -c bash scripts/verify-system-cache.sh \
+            "$RUNNER_TEMP/cache-generation/cache-paths" "$RUNNER_TEMP/cache-generation/cache-closure" "$RUNNER_TEMP/cache-generation/cache-generation.json"
+      - name: Retain only the verified generation for both systems
         env:
           AWS_ACCESS_KEY_ID: ${{ secrets.R2_ACCESS_KEY_ID }}
           AWS_SECRET_ACCESS_KEY: ${{ secrets.R2_SECRET_ACCESS_KEY }}
           R2_ENDPOINT: ${{ vars.R2_ENDPOINT }}
           R2_BUCKET: ${{ vars.R2_BUCKET }}
-        run: nix develop --accept-flake-config --no-update-lock-file -c python3 scripts/push-missing-to-r2.py prune "$RUNNER_TEMP/cache-generation.json"
+        run: nix develop --accept-flake-config --no-update-lock-file .#cache -c python3 scripts/push-missing-to-r2.py prune "$RUNNER_TEMP/cache-generation/cache-generation.json"

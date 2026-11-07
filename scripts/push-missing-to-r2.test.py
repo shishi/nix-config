@@ -93,6 +93,65 @@ class ManifestTest(unittest.TestCase):
         manifest = uploader.generation_manifest('bucket', [ROOT], [ROOT], client)
         self.assertEqual(manifest, {'version': 1, 'outputs': [ROOT], 'objects': sorted([ROOT[11:43] + '.narinfo', nar])})
 
+class MergeTest(unittest.TestCase):
+    def fixture(self, directory):
+        root = Path(directory)
+        expected = {'jupiter': ROOT, 'dns-osaka-1': PATHS[1]}
+        shared_nar = 'nar/' + 'a' * 64 + '.nar.zst'
+        for host, output in expected.items():
+            artifact = root / ('cache-generation-' + host)
+            artifact.mkdir()
+            (artifact / 'cache-paths').write_text(output + '\n')
+            (artifact / 'cache-closure').write_text(output + '\n' + PATHS[2] + '\n')
+            (artifact / 'cache-generation.json').write_text(json.dumps({
+                'version': 1, 'outputs': [output],
+                'objects': [output[11:43] + '.narinfo', shared_nar]}))
+        return root, expected, shared_nar
+
+    def test_union_retains_both_roots_and_shared_nar_once(self):
+        with tempfile.TemporaryDirectory() as directory:
+            root, expected, shared_nar = self.fixture(directory)
+            outputs, closure, manifest = uploader.merge_generations(expected, root)
+        self.assertEqual(outputs, sorted([ROOT, PATHS[1]]))
+        self.assertEqual(closure, sorted([ROOT, PATHS[1], PATHS[2]]))
+        self.assertEqual(manifest, {'version': 1, 'outputs': outputs, 'objects': sorted([
+            ROOT[11:43] + '.narinfo', PATHS[1][11:43] + '.narinfo', shared_nar])})
+
+    def test_missing_host_cannot_form_a_generation(self):
+        with tempfile.TemporaryDirectory() as directory:
+            root, expected, _ = self.fixture(directory)
+            for path in (root / 'cache-generation-dns-osaka-1').iterdir():
+                path.unlink()
+            (root / 'cache-generation-dns-osaka-1').rmdir()
+            with self.assertRaisesRegex(ValueError, 'Expected artifacts'):
+                uploader.merge_generations(expected, root)
+
+    def test_duplicate_or_wrong_root_cannot_replace_other_host(self):
+        with tempfile.TemporaryDirectory() as directory:
+            root, expected, _ = self.fixture(directory)
+            artifact = root / 'cache-generation-dns-osaka-1'
+            (artifact / 'cache-paths').write_text(ROOT + '\n')
+            manifest_file = artifact / 'cache-generation.json'
+            manifest = json.loads(manifest_file.read_text())
+            manifest['outputs'] = [ROOT]
+            manifest_file.write_text(json.dumps(manifest))
+            with self.assertRaisesRegex(ValueError, 'expected root'):
+                uploader.merge_generations(expected, root)
+
+    def test_invalid_manifest_and_incomplete_closure_are_rejected(self):
+        for damage in ['manifest', 'closure']:
+            with self.subTest(damage=damage), tempfile.TemporaryDirectory() as directory:
+                root, expected, _ = self.fixture(directory)
+                artifact = root / 'cache-generation-jupiter'
+                if damage == 'manifest':
+                    (artifact / 'cache-generation.json').write_text(json.dumps({
+                        'version': 1, 'outputs': [ROOT], 'objects': ['unrelated/file']}))
+                else:
+                    (artifact / 'cache-closure').write_text(PATHS[2] + '\n')
+                with self.assertRaises(ValueError):
+                    uploader.merge_generations(expected, root)
+
+
 class RetentionTest(unittest.TestCase):
     def test_keeps_one_generation_and_shared_nar(self):
         current_info = '0' * 32 + '.narinfo'
