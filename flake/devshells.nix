@@ -1,4 +1,11 @@
-{ ... }:
+{ inputs, ... }:
+let
+  mkCacheShell =
+    pkgs:
+    pkgs.mkShellNoCC {
+      packages = [ (pkgs.python3.withPackages (ps: [ ps.boto3 ])) ];
+    };
+in
 {
   perSystem =
     { pkgs, ... }:
@@ -21,5 +28,9 @@
           util-linux
         ];
       };
+      devShells.cache = mkCacheShell pkgs;
     };
+  flake.devShells.aarch64-linux.cache = mkCacheShell (
+    import inputs.nixpkgs { system = "aarch64-linux"; }
+  );
 }
