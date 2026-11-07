@@ -3,8 +3,11 @@
 
   inputs = {
     nixpkgs.url = "github:NixOS/nixpkgs/nixpkgs-unstable";
-    # 通常版 Brave の継続供給元。依存は上流の pin を使い、独立して更新する。
-    brave-browser.url = "git+https://codeberg.org/buckley310/brave-browser-nix?ref=main";
+    # 通常版 Brave。ブラウザーの更新を追跡し、依存ライブラリは構成全体と揃える。
+    brave-browser = {
+      url = "github:drishal/brave-browser-flake";
+      inputs.nixpkgs.follows = "nixpkgs";
+    };
     # Slate の実行環境を開発用 flake.lock と揃える。アプリ本体は作業ツリーを使う。
     nixpkgs-slate.url = "github:NixOS/nixpkgs/ac6b2166e7a9375683b8e98f860f273222337b16";
     flake-parts.url = "github:hercules-ci/flake-parts";

@@ -74,6 +74,13 @@
 
         dns-osaka-1-eval = evalOnly "dns-osaka-1" self.nixosConfigurations.dns-osaka-1;
 
+        brave-runtime-contract =
+          pkgs.runCommand "brave-runtime-contract" { nativeBuildInputs = [ pkgs.gnugrep ]; }
+            ''
+              ${pkgs.bash}/bin/bash ${../scripts/brave-contract.test.sh} ${pkgs.brave} ${pkgs.brave.version}
+              touch $out
+            '';
+
         # ChatGPT Desktop は OpenAI の version 付き Linux package を使う。
         # /latest/ は同じ lock の取得物が上流更新で変わり、固定 hash と衝突するため禁止する。
         chatgpt-desktop-contract =

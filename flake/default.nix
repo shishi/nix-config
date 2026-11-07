@@ -37,7 +37,39 @@
     };
 
   flake.overlays.default = _final: prev: {
-    brave = inputs.brave-browser.packages.${prev.stdenv.hostPlatform.system}.brave;
+    brave =
+      let
+        runtimeLibraries = [
+          prev.pciutils
+          prev.speechd-minimal
+          prev.vulkan-loader
+        ];
+        stable =
+          inputs.brave-browser.packages.${prev.stdenv.hostPlatform.system}.brave-stable.overrideAttrs
+            (old: {
+              postInstall = (old.postInstall or "") + ''
+                ln -sf ${prev.lib.getLib prev.vulkan-loader}/lib/libvulkan.so.1 "$out/opt/brave.com/brave/libvulkan.so.1"
+              '';
+              preFixup = (old.preFixup or "") + ''
+                gappsWrapperArgs+=(--prefix LD_LIBRARY_PATH : ${prev.lib.makeLibraryPath runtimeLibraries})
+              '';
+            });
+      in
+      prev.symlinkJoin {
+        name = "brave-${stable.version}";
+        pname = "brave";
+        inherit (stable) version;
+        paths = [ stable ];
+        allowSubstitutes = true;
+        # 上流の実行名に加え、既存の CLI・スクリプトが使う brave を提供する。
+        postBuild = ''
+          ln -s ${stable}/bin/brave-stable "$out/bin/brave"
+        '';
+        meta = stable.meta // {
+          mainProgram = "brave";
+          platforms = [ "x86_64-linux" ];
+        };
+      };
     yaskkserv2 = inputs.yaskkserv2.packages.${prev.stdenv.hostPlatform.system}.yaskkserv2;
   };
 }
