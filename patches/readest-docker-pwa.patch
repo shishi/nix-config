@@ -126,3 +126,43 @@
 @@ -330 +397 @@
 -      vi.mocked(TTSUtils.getPreferredClient).mockReturnValue('web');
 +      vi.mocked(TTSUtils.getPreferredClient).mockReturnValueOnce('web');
+--- a/apps/readest-app/src/utils/lang.ts
++++ b/apps/readest-app/src/utils/lang.ts
+@@ -90 +90 @@
+-  return lang.split('-')[0]!.toLowerCase();
++  return lang.split(/[-_]/)[0]!.toLowerCase();
+--- a/apps/readest-app/src/__tests__/services/web-speech-client.test.ts
++++ b/apps/readest-app/src/__tests__/services/web-speech-client.test.ts
+@@ -137,0 +138,32 @@
++
++describe('WebSpeechClient Android locale voices', () => {
++  test.each([
++    ['ja', 'Japanese Japan', 'ja_JP'],
++    ['en-US', 'English United States', 'en_US'],
++  ])('offers Android voices for %s books', async (bookLang, name, voiceLang) => {
++    const androidVoices = [
++      makeVoice('Japanese Japan', 'ja_JP'),
++      makeVoice('English United States', 'en_US'),
++    ];
++    Object.defineProperty(window, 'speechSynthesis', {
++      value: {
++        getVoices: () => androidVoices,
++        cancel: vi.fn(),
++        pause: vi.fn(),
++        resume: vi.fn(),
++        speak: vi.fn(),
++      },
++      configurable: true,
++    });
++    const client = new WebSpeechClient();
++    await client.init();
++
++    const groups = await client.getVoices(bookLang);
++
++    expect(groups[0]!.disabled).toBe(false);
++    expect(groups[0]!.voices.map((voice) => voice.name)).toEqual([name]);
++    expect(await client.getWebSpeechVoiceFromLang(bookLang)).toBe(
++      androidVoices.find((voice) => voice.lang === voiceLang),
++    );
++  });
++});

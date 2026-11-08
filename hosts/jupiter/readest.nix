@@ -28,6 +28,12 @@ let
       location / {
         proxy_pass http://client:3000;
       }
+      location = /api/tts/edge {
+        proxy_pass http://client:3000;
+        # 単語境界ヘッダーは最大 8 KiB で、既定のヘッダーバッファーを超える。
+        proxy_buffer_size 16k;
+        proxy_buffers 4 16k;
+      }
       location /nas-books/ {
         proxy_pass http://readest_library;
         proxy_buffering off;
@@ -208,6 +214,8 @@ let
           SELF_HOSTED = env "SELF_HOSTED";
           STORAGE_FIXED_QUOTA = "1125899906842624";
           TRANSLATION_FIXED_QUOTA = "1000000000000";
+          # Webpack の空 bufferutil stub を避け、ws の標準実装でフレームを送信する。
+          WS_NO_BUFFER_UTIL = "1";
           FONT_BASE_URL = env "FONT_BASE_URL";
         };
         depends_on = {
