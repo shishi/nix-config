@@ -80,6 +80,7 @@
       ghostty
       google-chrome
       llm-agents.claude-desktop
+      llm-agents.herdr-app
       localsend
       mcomix
       microsoft-edge
