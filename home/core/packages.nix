@@ -20,6 +20,7 @@
     gitleaks
     gnupg
     jq
+    leaf-markdown-viewer
     less
     llm-agents.claude-code
     llm-agents.codex
