@@ -45,7 +45,8 @@ done
 
 # install は自マシンの絶対パスで hook を登録するが、~/.claude/settings.json と
 # ~/.codex/hooks.json は dotfiles でマシン間共有している。絶対パスのままだと
-# 他マシンで「ファイルが無い」エラーになるため ~ 形式 1 エントリへ正規化する。
+# 他マシンで「ファイルが無い」エラーになるため、絶対パスの登録を除く。
+# 除いた結果 herdr の登録が無くなる場合だけ、下の ~ 形式のエントリを足す。
 # 失敗しても後続(plugin install)は続ける
 python3 "$HERDR_NORMALIZE_HOOKS" "$HOME/.claude/settings.json" \
   'bash ~/.claude/hooks/herdr-agent-state.sh session' ||

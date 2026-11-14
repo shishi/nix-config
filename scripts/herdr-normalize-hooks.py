@@ -4,20 +4,27 @@
 `herdr integration install` は設定ファイルに自マシンの絶対パスで hook を
 追記する。~/.claude/settings.json と ~/.codex/hooks.json は dotfiles で
 マシン間共有しているため、絶対パスのままだと他マシンで「ファイルが無い」
-エラーになる。ここで ~ 形式 1 エントリへ畳む。
+エラーになる。ここで絶対パスの登録を除く。ほかの登録は変えない。
 
 usage: herdr-normalize-hooks.py <settings-json> <canonical-command> [--no-matcher]
-  herdr-agent-state.sh を含む SessionStart hook を全て除去し、
-  1 つでも存在した場合のみ canonical-command のエントリを 1 つ追加する。
+  herdr-agent-state.sh を絶対パスで呼ぶ SessionStart hook を全て除去する。
+  除去した結果 herdr-agent-state.sh を呼ぶ hook が無くなる場合のみ、
+  canonical-command のエントリを 1 つ追加する。
 """
 
 import contextlib
 import json
 import os
+import re
 import sys
 import tempfile
 
 MARKER = "herdr-agent-state.sh"
+HOOK_PATH = re.compile(r"""[^\s'"]*""" + re.escape(MARKER))
+
+
+def has_absolute_hook_path(command: str) -> bool:
+    return any(os.path.isabs(path) for path in HOOK_PATH.findall(command))
 
 
 def write_atomic(real_path: str, content: str) -> None:
@@ -52,20 +59,25 @@ def normalize(path: str, canonical: str, with_matcher: bool) -> bool:
     if not isinstance(session_start, list):
         return False
 
-    had_herdr = False
+    # herdr-agent-state.sh を絶対パスで呼ばない登録は、dotfiles 側が OS ごとの
+    # 分岐や matcher を持たせた共有用の定義なので変えない
+    removed = False
+    has_portable = False
     kept_blocks = []
     for block in session_start:
         hooks = block.get("hooks", [])
-        kept = [h for h in hooks if MARKER not in h.get("command", "")]
+        kept = [h for h in hooks if not has_absolute_hook_path(h.get("command", ""))]
         if len(kept) != len(hooks):
-            had_herdr = True
+            removed = True
+        if any(MARKER in h.get("command", "") for h in kept):
+            has_portable = True
         if kept:
             block = dict(block, hooks=kept)
             kept_blocks.append(block)
         elif hooks == []:
             kept_blocks.append(block)
 
-    if had_herdr:
+    if removed and not has_portable:
         entry = {"type": "command", "command": canonical, "timeout": 10}
         block = {"matcher": "*", "hooks": [entry]} if with_matcher else {"hooks": [entry]}
         kept_blocks.append(block)
