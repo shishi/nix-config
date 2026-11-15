@@ -18,6 +18,41 @@ spec.loader.exec_module(uploader)
 ROOT = '/nix/store/' + '0' * 32 + '-system'
 PATHS = [ROOT] + ['/nix/store/' + str(i) * 32 + '-dependency' for i in range(1, 6)]
 
+
+class CacheLookupTest(unittest.TestCase):
+    def test_retries_wrapped_tls_timeout_then_succeeds(self):
+        timeout = uploader.urllib.error.URLError(TimeoutError('TLS handshake timed out'))
+        response = io.BytesIO(f'StorePath: {ROOT}\n'.encode())
+        with patch.object(uploader.urllib.request, 'urlopen', side_effect=[timeout, response]) as request, \
+                patch.object(uploader.time, 'sleep') as sleep:
+            self.assertTrue(uploader.available('https://cache.example', ROOT))
+        self.assertEqual(request.call_count, 2)
+        sleep.assert_called_once_with(1)
+
+    def test_persistent_http_failure_is_not_a_cache_miss(self):
+        error = uploader.urllib.error.HTTPError('https://cache.example', 503, 'Unavailable', None, None)
+        with patch.object(uploader.urllib.request, 'urlopen', side_effect=error) as request, \
+                patch.object(uploader.time, 'sleep') as sleep:
+            with self.assertRaises(uploader.urllib.error.HTTPError):
+                uploader.available('https://cache.example', ROOT)
+        self.assertEqual(request.call_count, 3)
+        self.assertEqual([call.args for call in sleep.call_args_list], [(1,), (2,)])
+
+    def test_404_and_403_do_not_retry(self):
+        for status in (404, 403):
+            with self.subTest(status=status):
+                error = uploader.urllib.error.HTTPError('https://cache.example', status, 'Error', None, None)
+                with patch.object(uploader.urllib.request, 'urlopen', side_effect=error) as request, \
+                        patch.object(uploader.time, 'sleep') as sleep:
+                    if status == 404:
+                        self.assertFalse(uploader.available('https://cache.example', ROOT))
+                    else:
+                        with self.assertRaises(uploader.urllib.error.HTTPError):
+                            uploader.available('https://cache.example', ROOT)
+                self.assertEqual(request.call_count, 1)
+                sleep.assert_not_called()
+
+
 class PublicationTest(unittest.TestCase):
     def test_publishes_only_missing_despite_external_references(self):
         with tempfile.TemporaryDirectory() as directory:
