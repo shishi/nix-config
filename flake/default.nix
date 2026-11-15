@@ -44,8 +44,9 @@
           prev.speechd-minimal
           prev.vulkan-loader
         ];
-        # 上流 builder の xorg.libxcb 引数には、改名後の同じライブラリーを渡す。
-        # pkgs.xorg 全体は変更せず、Brave の依存解決だけに限定する。
+        # brave-browser-flake の pkgs/build-brave.nix が xorg.libxcb を使う間だけの回避策。
+        # 上流がトップレベルの libxcb へ移行し、その修正版を flake.lock に取り込んだら、
+        # この .override { callPackage = ...; } を削除する。下の overrideAttrs は残す。
         upstreamStable =
           inputs.brave-browser.packages.${prev.stdenv.hostPlatform.system}.brave-stable.override
             {
