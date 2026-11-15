@@ -44,16 +44,21 @@
           prev.speechd-minimal
           prev.vulkan-loader
         ];
-        stable =
-          inputs.brave-browser.packages.${prev.stdenv.hostPlatform.system}.brave-stable.overrideAttrs
-            (old: {
-              postInstall = (old.postInstall or "") + ''
-                ln -sf ${prev.lib.getLib prev.vulkan-loader}/lib/libvulkan.so.1 "$out/opt/brave.com/brave/libvulkan.so.1"
-              '';
-              preFixup = (old.preFixup or "") + ''
-                gappsWrapperArgs+=(--prefix LD_LIBRARY_PATH : ${prev.lib.makeLibraryPath runtimeLibraries})
-              '';
-            });
+        # 上流 builder の xorg.libxcb 引数には、改名後の同じライブラリーを渡す。
+        # pkgs.xorg 全体は変更せず、Brave の依存解決だけに限定する。
+        upstreamStable =
+          inputs.brave-browser.packages.${prev.stdenv.hostPlatform.system}.brave-stable.override
+            {
+              callPackage = path: args: prev.callPackage path (args // { xorg = { inherit (prev) libxcb; }; });
+            };
+        stable = upstreamStable.overrideAttrs (old: {
+          postInstall = (old.postInstall or "") + ''
+            ln -sf ${prev.lib.getLib prev.vulkan-loader}/lib/libvulkan.so.1 "$out/opt/brave.com/brave/libvulkan.so.1"
+          '';
+          preFixup = (old.preFixup or "") + ''
+            gappsWrapperArgs+=(--prefix LD_LIBRARY_PATH : ${prev.lib.makeLibraryPath runtimeLibraries})
+          '';
+        });
       in
       prev.symlinkJoin {
         name = "brave-${stable.version}";
