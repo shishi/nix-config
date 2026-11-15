@@ -3,18 +3,22 @@ import argparse
 import base64
 import concurrent.futures
 import hashlib
+import http.client
 import json
 from compression import zstd
 import os
 from pathlib import Path
 import re
+import socket
 import subprocess
 import sys
 import tempfile
+import time
 import urllib.error
 import urllib.request
 
 STORE_PATH = re.compile(r'/nix/store/[0-9a-z]{32}-[^/\s]+')
+RETRYABLE_HTTP_STATUS = {408, 429, 500, 502, 503, 504}
 
 
 def nix_json(*args):
@@ -23,18 +27,27 @@ def nix_json(*args):
 
 def available(source, path):
     url = source.rstrip('/') + '/' + path[11:43] + '.narinfo'
-    try:
-        request = urllib.request.Request(url, headers={'User-Agent': 'nix-config-cache/1.0'})
-        with urllib.request.urlopen(request, timeout=30) as response:
-            narinfo = response.read().decode()
-        if f'StorePath: {path}' not in narinfo.splitlines():
-            raise ValueError(f'Unexpected StorePath from {url}')
-        return True
-    except urllib.error.HTTPError as error:
-        error.close()
-        if error.code == 404:
-            return False
-        raise
+    request = urllib.request.Request(url, headers={'User-Agent': 'nix-config-cache/1.0'})
+    for delay in (1, 2, None):
+        try:
+            with urllib.request.urlopen(request, timeout=30) as response:
+                narinfo = response.read().decode()
+            if f'StorePath: {path}' not in narinfo.splitlines():
+                raise ValueError(f'Unexpected StorePath from {url}')
+            return True
+        except urllib.error.HTTPError as error:
+            error.close()
+            if error.code == 404:
+                return False
+            if delay is None or error.code not in RETRYABLE_HTTP_STATUS:
+                raise
+        except (urllib.error.URLError, TimeoutError, ConnectionError, http.client.IncompleteRead) as error:
+            reason = error.reason if isinstance(error, urllib.error.URLError) else error
+            temporary_dns_error = isinstance(reason, socket.gaierror) and reason.errno == socket.EAI_AGAIN
+            retryable = temporary_dns_error or isinstance(reason, (TimeoutError, ConnectionError, http.client.IncompleteRead))
+            if delay is None or not retryable:
+                raise
+        time.sleep(delay)
 
 
 def upload(bucket, path, info, client, key_file):
