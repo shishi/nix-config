@@ -4,12 +4,17 @@
   fetchurl,
   unzip,
 }:
-stdenvNoCC.mkDerivation rec {
+let
+  # Renovate が tag と配布物の SHA-256 を一緒に更新するので、この 2 行は隣接させて書く。
+  tag = "v0.0.16";
+  sha256 = "d60cdba019bce451bcc3a15478cc5b9cb11270b049f5b56ea39a80b517f8b117";
+in
+stdenvNoCC.mkDerivation {
   pname = "tunnel-client";
-  version = "0.0.16";
+  version = lib.removePrefix "v" tag;
   src = fetchurl {
-    url = "https://github.com/openai/tunnel-client/releases/download/v${version}/tunnel-client-v${version}-linux-amd64.zip";
-    hash = "sha256-1gzboBm85FG8w6FUeMxbnLEScLBJ9bVuo5qAtRf4sRc=";
+    url = "https://github.com/openai/tunnel-client/releases/download/${tag}/tunnel-client-${tag}-linux-amd64.zip";
+    inherit sha256;
   };
   nativeBuildInputs = [ unzip ];
   dontUnpack = true;

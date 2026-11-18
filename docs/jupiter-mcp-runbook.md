@@ -53,7 +53,7 @@ nix run .#jupiter-secrets
 
 ## Nix が管理するもの
 
-- `pkgs/tunnel-client/`: 公式 Linux amd64 バイナリーをバージョンと SHA-256 で固定します。ホスト上の手動ダウンロードやソースコンパイルは不要です。
+- `pkgs/tunnel-client/`: 公式 Linux amd64 バイナリーをバージョンと SHA-256 で固定します。ホスト上の手動ダウンロードやソースコンパイルは不要です。新しいリリースは Renovate が GitHub Releases API の SHA-256 とあわせて更新し、CI がバイナリーの取得とハッシュ照合に成功すると自動マージします。
 - `hosts/jupiter/mcp.nix`: sops-nix が復号した設定とキーを systemd credentials で渡します。キーを Nix store やコマンド引数の値に埋め込みません。
 - `openai-mcp-tunnel-slate.service` と `openai-mcp-tunnel-secondary.service`: 各トンネルの起動前の `doctor`、常駐実行、異常終了時の再起動を管理します。システムサービスなのでユーザーのログインや Linger 設定は不要です。
 - 管理 UI とヘルス確認は、既存分が `127.0.0.1:18080`、追加分が `127.0.0.1:18081` です。ファイアウォールへ公開ポートを追加しません。
