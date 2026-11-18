@@ -1,6 +1,9 @@
 { config, pkgs, ... }:
 let
   serviceName = "readest";
+  # Web 版は API に手元のアクセストークンを送り、起動のたびに試す更新が完了するまで差し替えない。
+  # 更新がサーバーへ届かない端末でも期限内なら同期を続けられるよう、1 年有効にする。
+  accessTokenLifetime = toString (365 * 24 * 60 * 60);
   source = pkgs.fetchgit {
     url = "https://github.com/readest/readest.git";
     rev = "2d37bbfc2e94725e1343ab2a825573545aa59f5f";
@@ -72,7 +75,7 @@ let
           PGDATABASE = env "POSTGRES_DB";
           POSTGRES_DB = env "POSTGRES_DB";
           JWT_SECRET = env "JWT_SECRET";
-          JWT_EXP = env "JWT_EXPIRY";
+          JWT_EXP = accessTokenLifetime;
         };
         command = [
           "postgres"
@@ -127,7 +130,7 @@ let
           GOTRUE_JWT_ADMIN_ROLES = "service_role";
           GOTRUE_JWT_AUD = "authenticated";
           GOTRUE_JWT_DEFAULT_GROUP_NAME = "authenticated";
-          GOTRUE_JWT_EXP = env "JWT_EXPIRY";
+          GOTRUE_JWT_EXP = accessTokenLifetime;
           GOTRUE_JWT_SECRET = env "JWT_SECRET";
           GOTRUE_EXTERNAL_EMAIL_ENABLED = env "ENABLE_EMAIL_SIGNUP";
           GOTRUE_EXTERNAL_ANONYMOUS_USERS_ENABLED = env "ENABLE_ANONYMOUS_USERS";
@@ -152,7 +155,7 @@ let
           PGRST_JWT_SECRET = env "JWT_SECRET";
           PGRST_DB_USE_LEGACY_GUCS = "false";
           PGRST_APP_SETTINGS_JWT_SECRET = env "JWT_SECRET";
-          PGRST_APP_SETTINGS_JWT_EXP = env "JWT_EXPIRY";
+          PGRST_APP_SETTINGS_JWT_EXP = accessTokenLifetime;
         };
         command = [ "postgrest" ];
       };

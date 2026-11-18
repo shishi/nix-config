@@ -100,7 +100,6 @@ def initial_environment(origin_values):
         "POSTGRES_HOST": "db",
         "POSTGRES_PORT": "5432",
         "POSTGRES_DB": "postgres",
-        "JWT_EXPIRY": "3600",
         "JWT_SECRET": jwt_secret,
         "ANON_KEY": token(jwt_secret, "anon", issued_at),
         "SERVICE_ROLE_KEY": token(jwt_secret, "service_role", issued_at),
