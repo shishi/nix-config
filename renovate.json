@@ -1,21 +1,52 @@
 {
   "$schema": "https://docs.renovatebot.com/renovate-schema.json",
-  "enabledManagers": ["nix"],
-  "ignorePaths": ["templates/**"],
+  "enabledManagers": [
+    "nix",
+    "docker-compose",
+    "custom.regex"
+  ],
+  "ignorePaths": [
+    "templates/**"
+  ],
   "timezone": "Asia/Tokyo",
   "nix": {
     "enabled": true
   },
   "lockFileMaintenance": {
     "enabled": true,
-    "schedule": ["* 0-5 * * *"],
+    "schedule": [
+      "* 0-5 * * *"
+    ],
     "automerge": true
   },
   "packageRules": [
     {
-      "matchManagers": ["nix"],
-      "matchUpdateTypes": ["!lockFileMaintenance"],
+      "matchManagers": [
+        "nix"
+      ],
+      "matchUpdateTypes": [
+        "!lockFileMaintenance"
+      ],
       "enabled": false
+    },
+    {
+      "matchDatasources": [
+        "docker"
+      ],
+      "pinDigests": true
+    }
+  ],
+  "customManagers": [
+    {
+      "customType": "regex",
+      "managerFilePatterns": [
+        "/\\.nix$/"
+      ],
+      "matchStrings": [
+        "\\bimage\\s*=\\s*\"(?<depName>[a-z0-9][a-z0-9./_-]*):(?<currentValue>[a-zA-Z0-9][a-zA-Z0-9._-]*)(?:@(?<currentDigest>sha256:[a-f0-9]{64}))?\""
+      ],
+      "datasourceTemplate": "docker",
+      "versioningTemplate": "docker"
     }
   ]
 }
