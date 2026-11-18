@@ -55,7 +55,7 @@ let
     name = "readest";
     services = {
       db = {
-        image = "supabase/postgres:15.8.1.085";
+        image = "supabase/postgres:15.8.1.085@sha256:af083ef64d0408c8f098ee6f5c364a59b26f36fbc0f3a334a62c5c1d57362e9b";
         restart = "unless-stopped";
         volumes = [
           "${source}/docker/volumes/db/roles.sql:/docker-entrypoint-initdb.d/init-scripts/99-roles.sql:ro"
@@ -96,7 +96,7 @@ let
         };
       };
       kong = {
-        image = "kong:2.8.1";
+        image = "kong:2.8.1@sha256:1b53405d8680a09d6f44494b7990bf7da2ea43f84a258c59717d4539abf09f6d";
         restart = "unless-stopped";
         volumes = [ "${source}/docker/volumes/api/kong.yml:/home/kong/temp.yml:ro" ];
         environment = {
@@ -115,7 +115,7 @@ let
         };
       };
       auth = {
-        image = "supabase/gotrue:v2.185.0";
+        image = "supabase/gotrue:v2.185.0@sha256:de22ff0811f3e4f7e6d3ba226f75ed8d82310df577bbd61e16fbfd7a50a8c9ce";
         restart = "unless-stopped";
         depends_on.db.condition = "service_healthy";
         environment = {
@@ -145,7 +145,7 @@ let
       };
       rest = {
         # 発行直後の JWT を散発的に誤拒否する不具合の修正版（PostgREST #5196）。
-        image = "postgrest/postgrest:v14.18";
+        image = "postgrest/postgrest:v14.18@sha256:c7cd7e265a85b05248abf53f4473fcec7e327c282d0bd0cf60f1551996d09fcf";
         restart = "unless-stopped";
         depends_on.db.condition = "service_healthy";
         environment = {
@@ -227,7 +227,7 @@ let
         };
       };
       proxy = {
-        image = "nginx:1.28-alpine";
+        image = "nginx:1.28-alpine@sha256:a8b39bd9cf0f83869a2162827a0caf6137ddf759d50a171451b335cecc87d236";
         restart = "unless-stopped";
         ports = [ "127.0.0.1:3080:80" ];
         volumes = [
