@@ -9,6 +9,7 @@
     "templates/**"
   ],
   "timezone": "Asia/Tokyo",
+  "automerge": true,
   "nix": {
     "enabled": true
   },
@@ -34,6 +35,23 @@
         "docker"
       ],
       "pinDigests": true
+    },
+    {
+      "description": "Readest のデータを持つコンテナーと、上流の SQL・Kong 設定に合わせる API 層は、互換性を確認しバックアップしてから版を上げるため自動マージしない。版を変えないダイジェストの固定は対象外。",
+      "matchFileNames": [
+        "hosts/jupiter/readest.nix"
+      ],
+      "matchPackageNames": [
+        "supabase/postgres",
+        "supabase/gotrue",
+        "postgrest/postgrest",
+        "kong",
+        "chrislusf/seaweedfs"
+      ],
+      "matchUpdateTypes": [
+        "!pinDigest"
+      ],
+      "automerge": false
     }
   ],
   "customManagers": [
@@ -46,7 +64,54 @@
         "\\bimage\\s*=\\s*\"(?<depName>[a-z0-9][a-z0-9./_-]*):(?<currentValue>[a-zA-Z0-9][a-zA-Z0-9._-]*)(?:@(?<currentDigest>sha256:[a-f0-9]{64}))?\""
       ],
       "datasourceTemplate": "docker",
-      "versioningTemplate": "docker"
+      "versioningTemplate": "docker",
+      "autoReplaceStringTemplate": "image = \"{{{depName}}}:{{{newValue}}}{{#if newDigest}}@{{{newDigest}}}{{/if}}\""
+    },
+    {
+      "customType": "regex",
+      "managerFilePatterns": [
+        "/^pkgs/tunnel-client/default\\.nix$/"
+      ],
+      "matchStrings": [
+        "\\btag\\s*=\\s*\"(?<currentValue>v[0-9][^\"]*)\";\\s*sha256\\s*=\\s*\"(?<currentDigest>[a-f0-9]{64})\";"
+      ],
+      "depNameTemplate": "openai/tunnel-client",
+      "datasourceTemplate": "custom.openai-tunnel-client"
+    },
+    {
+      "customType": "regex",
+      "managerFilePatterns": [
+        "/^pkgs/oracle-cloud-agent/default\\.nix$/"
+      ],
+      "matchStrings": [
+        "\\brelease\\s*=\\s*\"(?<currentValue>[0-9][^\"]*_[0-9]+)\";\\s*sha512\\s*=\\s*\"(?<currentDigest>[a-f0-9]{128})\";"
+      ],
+      "depNameTemplate": "oracle-cloud-agent",
+      "datasourceTemplate": "custom.oracle-cloud-agent",
+      "versioningTemplate": "regex:^(?<major>\\d+)\\.(?<minor>\\d+)\\.(?<patch>\\d+)-(?<build>\\d+)_(?<revision>\\d+)$"
+    }
+  ],
+  "customDatasources": {
+    "openai-tunnel-client": {
+      "defaultRegistryUrlTemplate": "https://api.github.com/repos/openai/tunnel-client/releases?per_page=100",
+      "transformTemplates": [
+        "{\"releases\": [$[draft = false and prerelease = false].($release := $; {\"version\": tag_name, \"releaseTimestamp\": published_at, \"digest\": $substringAfter(assets[name = \"tunnel-client-\" & $release.tag_name & \"-linux-amd64.zip\"].digest, \"sha256:\")})]}"
+      ]
+    },
+    "oracle-cloud-agent": {
+      "defaultRegistryUrlTemplate": "https://api.snapcraft.io/api/v1/snaps/details/oracle-cloud-agent?channel=stable",
+      "transformTemplates": [
+        "{\"releases\": [{\"version\": version & \"_\" & $string(revision), \"digest\": download_sha512}]}"
+      ]
+    }
+  },
+  "hostRules": [
+    {
+      "matchHost": "api.snapcraft.io",
+      "headers": {
+        "X-Ubuntu-Series": "16",
+        "X-Ubuntu-Architecture": "arm64"
+      }
     }
   ]
 }

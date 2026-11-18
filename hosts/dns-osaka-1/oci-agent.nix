@@ -1,27 +1,6 @@
 { pkgs, ... }:
 let
-  oracleCloudAgent = pkgs.stdenvNoCC.mkDerivation {
-    pname = "oracle-cloud-agent";
-    version = "1.61.0-6";
-    src = pkgs.fetchurl {
-      url = "https://api.snapcraft.io/api/v1/snaps/download/ltx4XjES2e2ujitNIuO5GxPYDM6lp6ry_125.snap";
-      hash = "sha256-U83Y/hO6XLgDcGIgAXFFpUgyme8j3c45Gzz5mYZbM+M=";
-    };
-    nativeBuildInputs = [ pkgs.squashfsTools ];
-    dontPatchELF = true;
-    dontStrip = true;
-    unpackPhase = ''
-      runHook preUnpack
-      unsquashfs -q -d source "$src"
-      runHook postUnpack
-    '';
-    installPhase = ''
-      runHook preInstall
-      install -Dm755 source/agent "$out/agent"
-      install -Dm755 source/plugins/gomon/gomon "$out/plugins/gomon/gomon"
-      runHook postInstall
-    '';
-  };
+  oracleCloudAgent = pkgs.callPackage ../../pkgs/oracle-cloud-agent { };
 in
 {
   users.groups.snap_daemon = { };

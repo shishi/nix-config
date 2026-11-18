@@ -1,7 +1,7 @@
 { inputs, self, ... }:
 {
   perSystem =
-    { pkgs, ... }:
+    { pkgs, self', ... }:
     let
       # eval のみ強制する check(drvPath を text に埋めると評価が走る)
       evalOnly =
@@ -54,6 +54,12 @@
           ${pkgs.bash}/bin/bash ${../scripts/slate-update.test.sh} ${../scripts/slate-update.sh}
           touch $out
         '';
+
+        # PR の CI はホストを評価するだけで fetchurl を実行しない。Renovate が自動マージする
+        # 版とハッシュの組を、マージ前にここで取得・照合する。固定出力の取得結果は
+        # system に依存しないので、arm64 向けの oracle-cloud-agent もここで照合できる。
+        tunnel-client-package = self'.packages.tunnel-client;
+        oracle-cloud-agent-package = pkgs.callPackage ../pkgs/oracle-cloud-agent { };
 
         readest-initialization-contract = pkgs.runCommand "readest-initialization-contract" { } ''
           ${pkgs.python3.interpreter} ${../scripts/readest-init.test.py} ${../scripts/readest-init.py}

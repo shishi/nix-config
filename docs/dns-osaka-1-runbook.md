@@ -144,8 +144,14 @@ tailnet 内からは認証なしの `http://<oracle-tailscale-ip>:8080/digest.at
 
 Container Manager のProjectとして
 `/volume1/docker/adguard/compose.yaml` を使う。リポジトリ内の正本は
-`deploy/synology-adguardhome/compose.yaml` である。イメージはOracle側と同じ
-AdGuard Home `v0.107.78` に固定している。DSM 7版Tailscaleのハイブリッド方式は
+`deploy/synology-adguardhome/compose.yaml` である。Oracle 側の Nix 設定と正本の
+Compose ファイルは、どちらも AdGuard Home の新しい版へ自動で追従する。Oracle 側は
+nixpkgs の更新で、正本の Compose ファイルは Renovate の PR で新しい版になり、
+どちらも CI が通ると自動マージする。上流の公開から nixpkgs への取り込みまでの間は、
+両者の版が一時的にずれる。実機の版は、Oracle 側を switch し、Synology 側の
+Project を作り直すまで変わらない。Renovate は Synology 上の Project を更新しない
+ため、正本を `/volume1/docker/adguard/compose.yaml` へ反映し、Container Manager で
+Project を作り直して新しいイメージで起動する。DSM 7版Tailscaleのハイブリッド方式は
 `100.71.227.37` 宛のTCP/UDPをloopbackへ転送するため、Container側は
 `127.0.0.1` にだけbindし、LANには公開しない。
 

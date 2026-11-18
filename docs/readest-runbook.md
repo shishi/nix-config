@@ -159,7 +159,13 @@ docker volume inspect readest_db-data readest_db-config readest_storage-data
 ## 更新と制限
 
 コンテナーのバージョンと上流 SQL の版は Nix モジュールで固定します。
-更新時は両方の互換性を確認して構成を変更し、反映前にバックアップします。
+上流のソースと、そこからビルドする Web 版のイメージは手動で更新します。
+外部のコンテナーイメージは、Renovate が更新の PR を作ります。
+PostgreSQL・GoTrue・PostgREST・SeaweedFS・Kong の版やダイジェストを変える PR は自動マージしません。
+これらはデータを持つか、上流の SQL や Kong の設定と版を合わせる必要があるためです。
+上流のソースを更新するときと、これらの PR を取り込むときは、互換性を確認します。
+反映前にはバックアップします。
+データを持たない nginx の更新と、今のタグのダイジェストを書き足す PR は、CI が通ると自動マージします。
 既存の PostgreSQL volume では初期化 SQL は再実行しません。
 上流の migration を更新した場合は、起動後に次を実行します。
 
