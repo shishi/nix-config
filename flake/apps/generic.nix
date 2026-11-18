@@ -56,6 +56,29 @@
           program = "${check-env}/bin/check-env";
         };
 
+        # CI の Readest 互換性テスト。Docker と Nix は実行ホストのものを使う。
+        readest-compat-test = {
+          type = "app";
+          meta.description = "Start an updated Readest configuration on data created by a base commit";
+          program = "${
+            pkgs.writeShellApplication {
+              name = "readest-compat-test";
+              runtimeInputs = with pkgs; [
+                coreutils
+                curl
+                diffutils
+                findutils
+                git
+                gnugrep
+                gnused
+                jq
+                python3
+              ];
+              text = builtins.readFile ../../scripts/readest-compat-test.sh;
+            }
+          }/bin/readest-compat-test";
+        };
+
         # rust-bootstrap: HM 側と同一実体(home/core/rust.nix と同じ script + tools 既定値)
         rust-bootstrap = {
           type = "app";

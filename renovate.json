@@ -35,23 +35,6 @@
         "docker"
       ],
       "pinDigests": true
-    },
-    {
-      "description": "Readest のデータを持つコンテナーと、上流の SQL・Kong 設定に合わせる API 層は、互換性を確認しバックアップしてから版を上げるため自動マージしない。版を変えないダイジェストの固定は対象外。",
-      "matchFileNames": [
-        "hosts/jupiter/readest.nix"
-      ],
-      "matchPackageNames": [
-        "supabase/postgres",
-        "supabase/gotrue",
-        "postgrest/postgrest",
-        "kong",
-        "chrislusf/seaweedfs"
-      ],
-      "matchUpdateTypes": [
-        "!pinDigest"
-      ],
-      "automerge": false
     }
   ],
   "customManagers": [
@@ -89,6 +72,17 @@
       "depNameTemplate": "oracle-cloud-agent",
       "datasourceTemplate": "custom.oracle-cloud-agent",
       "versioningTemplate": "regex:^(?<major>\\d+)\\.(?<minor>\\d+)\\.(?<patch>\\d+)-(?<build>\\d+)_(?<revision>\\d+)$"
+    },
+    {
+      "customType": "regex",
+      "managerFilePatterns": [
+        "/^hosts/jupiter/readest\\.nix$/"
+      ],
+      "matchStrings": [
+        "\\breadestTag\\s*=\\s*\"(?<currentValue>v[0-9][^\"]*)\";\\s*readestRev\\s*=\\s*\"(?<currentDigest>[0-9a-f]{40})\";"
+      ],
+      "depNameTemplate": "readest/readest",
+      "datasourceTemplate": "github-tags"
     }
   ],
   "customDatasources": {

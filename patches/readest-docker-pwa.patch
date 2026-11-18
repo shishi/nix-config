@@ -1,62 +1,52 @@
+diff --git a/Dockerfile b/Dockerfile
+index a29567c..353cf32 100644
 --- a/Dockerfile
 +++ b/Dockerfile
-@@ -52 +52 @@
+@@ -49,7 +49,7 @@ WORKDIR /app/apps/readest-app
+ # next.config.mjs gates `output: 'standalone'` on BUILD_STANDALONE so other
+ # web builds keep their default output.
+ ENV BUILD_STANDALONE=true
 -RUN pnpm build-web
 +RUN pnpm patch-build-webpack && NODE_OPTIONS=--max-old-space-size=8192 pnpm build-web
---- a/apps/readest-app/src/sw.ts
-+++ b/apps/readest-app/src/sw.ts
-@@ -0,0 +1 @@
-+import { PAGES_CACHE_NAME } from '@serwist/next/worker';
-@@ -30,5 +31,2 @@
--      matcher: ({ url, request }) => {
--        const clientRoutes = ['/library', '/reader'];
--        const isClientRoute = clientRoutes.some((route) => url.pathname.startsWith(route));
--        return isClientRoute && request.mode === 'navigate';
--      },
-+      matcher: ({ url, request, sameOrigin }) =>
-+        sameOrigin && request.mode === 'navigate' && !url.pathname.startsWith('/api/'),
-@@ -36 +34 @@
--        cacheName: 'client-pages',
-+        cacheName: PAGES_CACHE_NAME.html,
-@@ -46,8 +43,0 @@
--          {
--            cacheKeyWillBeUsed: async ({ request }) => {
--              const url = new URL(request.url);
--              const basePath = url.pathname.split('/')[1];
--              const cacheKey = `${url.origin}/${basePath}`;
--              return cacheKey;
--            },
--          },
+ 
+ # Production runtime ships only the standalone server, its traced node_modules,
+ # and the static/public assets — no pnpm, no source tree, no dev dependencies,
+diff --git a/apps/readest-app/next.config.mjs b/apps/readest-app/next.config.mjs
+index 4fece62..871319d 100644
 --- a/apps/readest-app/next.config.mjs
 +++ b/apps/readest-app/next.config.mjs
-@@ -3,0 +4 @@
+@@ -1,6 +1,7 @@
+ import withSerwistInit from '@serwist/next';
+ import withBundleAnalyzer from '@next/bundle-analyzer';
+ import path from 'node:path';
 +import { randomUUID } from 'node:crypto';
-@@ -186,0 +188 @@
+ import { fileURLToPath } from 'node:url';
+ 
+ const __dirname = path.dirname(fileURLToPath(import.meta.url));
+@@ -187,6 +188,7 @@ const withPWA = pwaDisabled
+   : withSerwistInit({
+       swSrc: 'src/sw.ts',
+       swDest: 'public/sw.js',
 +      additionalPrecacheEntries: [{ url: '/offline', revision: randomUUID() }],
---- a/apps/readest-app/src/services/tts/TTSController.ts
-+++ b/apps/readest-app/src/services/tts/TTSController.ts
-@@ -36,0 +37,2 @@
-+import { releaseUnblockAudio, unblockAudio } from './ttsMediaBridge';
-+import { getOSPlatform } from '@/utils/misc';
-@@ -384,0 +387,7 @@
-+  #syncSilentAudio() {
-+    if (getOSPlatform() === 'ios' && !this.appService?.isIOSApp) {
-+      if (this.ttsClient === this.ttsWebClient) releaseUnblockAudio();
-+      else unblockAudio();
-+    }
-+  }
-+
-@@ -575,0 +585 @@
-+    this.#syncSilentAudio();
-@@ -2328,0 +2339 @@
-+      this.#syncSilentAudio();
-@@ -2370,0 +2382 @@
-+    this.#syncSilentAudio();
+       cacheOnNavigation: true,
+       reloadOnOnline: true,
+       disable: false,
+diff --git a/apps/readest-app/src/__tests__/services/tts-controller.test.ts b/apps/readest-app/src/__tests__/services/tts-controller.test.ts
+index c47b0ae..2c05b40 100644
 --- a/apps/readest-app/src/__tests__/services/tts-controller.test.ts
 +++ b/apps/readest-app/src/__tests__/services/tts-controller.test.ts
-@@ -5,0 +6 @@
+@@ -3,6 +3,7 @@ import { TTSController } from '@/services/tts/TTSController';
+ import { TTSClient, TTSMessageEvent } from '@/services/tts/TTSClient';
+ import { TTSGranularity, TTSVoicesGroup } from '@/services/tts/types';
+ import { TTSUtils } from '@/services/tts/TTSUtils';
 +import { releaseUnblockAudio, unblockAudio } from '@/services/tts/ttsMediaBridge';
-@@ -228,0 +230,66 @@
+ import { FoliateView } from '@/types/view';
+ import { AppService } from '@/types/system';
+ 
+@@ -229,6 +230,72 @@ describe('TTSController', () => {
+     vi.restoreAllMocks();
+   });
+ 
 +  describe('iOS Web TTS silent audio ownership', () => {
 +    let audioElements: HTMLAudioElement[];
 +
@@ -123,17 +113,26 @@
 +    });
 +  });
 +
-@@ -330 +397 @@
+   describe('constructor', () => {
+     test('sets initial state to stopped', () => {
+       expect(controller.state).toBe('stopped');
+@@ -355,7 +422,7 @@ describe('TTSController', () => {
+     });
+ 
+     test('respects preferred client from TTSUtils', async () => {
 -      vi.mocked(TTSUtils.getPreferredClient).mockReturnValue('web');
 +      vi.mocked(TTSUtils.getPreferredClient).mockReturnValueOnce('web');
---- a/apps/readest-app/src/utils/lang.ts
-+++ b/apps/readest-app/src/utils/lang.ts
-@@ -90 +90 @@
--  return lang.split('-')[0]!.toLowerCase();
-+  return lang.split(/[-_]/)[0]!.toLowerCase();
+       await controller.init();
+       expect(controller.ttsClient.name).toBe('web');
+     });
+diff --git a/apps/readest-app/src/__tests__/services/web-speech-client.test.ts b/apps/readest-app/src/__tests__/services/web-speech-client.test.ts
+index 49cb84a..f166967 100644
 --- a/apps/readest-app/src/__tests__/services/web-speech-client.test.ts
 +++ b/apps/readest-app/src/__tests__/services/web-speech-client.test.ts
-@@ -137,0 +138,32 @@
+@@ -135,3 +135,35 @@ describe('WebSpeechClient init with no voices available', () => {
+     expect((await client.getAllVoices()).length).toBe(voices.length);
+   });
+ });
 +
 +describe('WebSpeechClient Android locale voices', () => {
 +  test.each([
@@ -166,3 +165,108 @@
 +    );
 +  });
 +});
+diff --git a/apps/readest-app/src/services/tts/TTSController.ts b/apps/readest-app/src/services/tts/TTSController.ts
+index b56a693..86b5ade 100644
+--- a/apps/readest-app/src/services/tts/TTSController.ts
++++ b/apps/readest-app/src/services/tts/TTSController.ts
+@@ -34,6 +34,8 @@ import { DownloadableSentence, SectionEnumerator, TTSDownloader } from './TTSDow
+ import { TTSUtils } from './TTSUtils';
+ import { TTSClient } from './TTSClient';
+ import { startAudioKeepAlive, stopAudioKeepAlive } from './WebAudioPlayer';
++import { releaseUnblockAudio, unblockAudio } from './ttsMediaBridge';
++import { getOSPlatform } from '@/utils/misc';
+ import { isSameLang, isValidLang } from '@/utils/lang';
+ import { normalizeLyricText } from '@/utils/ttsLyrics';
+ import {
+@@ -384,6 +386,13 @@ export class TTSController extends EventTarget {
+     });
+   }
+ 
++  #syncSilentAudio() {
++    if (getOSPlatform() === 'ios' && !this.appService?.isIOSApp) {
++      if (this.ttsClient === this.ttsWebClient) releaseUnblockAudio();
++      else unblockAudio();
++    }
++  }
++
+   // Keep the hidden WebView schedulable, in the two cases where it would
+   // otherwise fall silent and get frozen by Chromium. Android-only (iOS drives
+   // playout through its own native audio session).
+@@ -576,6 +585,7 @@ export class TTSController extends EventTarget {
+         this.ttsClient = this.ttsMediaOverlayClient;
+       }
+     }
++    this.#syncSilentAudio();
+   }
+ 
+   get narrationAvailable(): boolean {
+@@ -2406,6 +2416,7 @@ export class TTSController extends EventTarget {
+       await this.ttsMediaOverlayClient.setRate(this.ttsRate);
+       TTSUtils.setPreferredVoice(this.ttsMediaOverlayClient.name, lang, voiceId);
+       this.#sectionTimeline?.setVoice(this.ttsMediaOverlayClient.getVoiceId());
++      this.#syncSilentAudio();
+       return;
+     }
+ 
+@@ -2449,6 +2460,7 @@ export class TTSController extends EventTarget {
+     TTSUtils.setPreferredClient(this.ttsClient.name, this.ttsLang);
+     TTSUtils.setPreferredVoice(this.ttsClient.name, lang, voiceId);
+     await this.ttsClient.setVoice(voiceId);
++    this.#syncSilentAudio();
+     // A different voice speaks at a different pace: re-estimate the timeline
+     // under the new voice (measured durations are keyed per voice already).
+     this.#sectionTimeline?.setVoice(this.ttsClient.getVoiceId());
+diff --git a/apps/readest-app/src/sw.ts b/apps/readest-app/src/sw.ts
+index 3077e95..8ed3346 100644
+--- a/apps/readest-app/src/sw.ts
++++ b/apps/readest-app/src/sw.ts
+@@ -1,3 +1,4 @@
++import { PAGES_CACHE_NAME } from '@serwist/next/worker';
+ import type { PrecacheEntry, SerwistGlobalConfig } from 'serwist';
+ import { NetworkFirst, CacheFirst, ExpirationPlugin, Serwist } from 'serwist';
+ 
+@@ -27,13 +28,10 @@ const serwist = new Serwist({
+   },
+   runtimeCaching: [
+     {
+-      matcher: ({ url, request }) => {
+-        const clientRoutes = ['/library', '/reader'];
+-        const isClientRoute = clientRoutes.some((route) => url.pathname.startsWith(route));
+-        return isClientRoute && request.mode === 'navigate';
+-      },
++      matcher: ({ url, request, sameOrigin }) =>
++        sameOrigin && request.mode === 'navigate' && !url.pathname.startsWith('/api/'),
+       handler: new NetworkFirst({
+-        cacheName: 'client-pages',
++        cacheName: PAGES_CACHE_NAME.html,
+         networkTimeoutSeconds: 3,
+         matchOptions: {
+           ignoreSearch: true,
+@@ -43,14 +41,6 @@ const serwist = new Serwist({
+             maxEntries: 128,
+             maxAgeSeconds: 365 * 24 * 60 * 60,
+           }),
+-          {
+-            cacheKeyWillBeUsed: async ({ request }) => {
+-              const url = new URL(request.url);
+-              const basePath = url.pathname.split('/')[1];
+-              const cacheKey = `${url.origin}/${basePath}`;
+-              return cacheKey;
+-            },
+-          },
+         ],
+       }),
+     },
+diff --git a/apps/readest-app/src/utils/lang.ts b/apps/readest-app/src/utils/lang.ts
+index d0d1463..e6e74a6 100644
+--- a/apps/readest-app/src/utils/lang.ts
++++ b/apps/readest-app/src/utils/lang.ts
+@@ -101,7 +101,7 @@ export const normalizeToShortLang = (langCode: string): string => {
+ 
+ export const normalizedLangCode = (lang: string | null | undefined): string => {
+   if (!lang) return '';
+-  return lang.split('-')[0]!.toLowerCase();
++  return lang.split(/[-_]/)[0]!.toLowerCase();
+ };
+ 
+ export const isSameLang = (lang1?: string | null, lang2?: string | null): boolean => {

@@ -36,6 +36,28 @@ jobs:
           github_access_token: ${{ secrets.GITHUB_TOKEN }}
       - run: nix develop --accept-flake-config --no-update-lock-file .#cache -c python3 scripts/push-missing-to-r2.test.py scripts/push-missing-to-r2.py
       - run: nix flake check --accept-flake-config --no-update-lock-file --print-build-logs
+      # Readest の構成が変わる PR では、基準 commit で作ったデータに更新後の構成を起動して
+      # 互換性を確かめる。この job は必須チェックなので、失敗した更新は自動マージされない。
+      - name: Detect Readest changes
+        id: readest
+        if: github.event_name == 'pull_request'
+        env:
+          BASE_SHA: ${{ github.event.pull_request.base.sha }}
+        run: |
+          git fetch --no-tags --depth=1 origin "$BASE_SHA"
+          if git diff --name-only "$BASE_SHA" HEAD | grep -qE '^(hosts/jupiter/readest\.nix|patches/readest-|scripts/readest-)'; then
+            echo changed=true >> "$GITHUB_OUTPUT"
+          fi
+      - name: Free space for the Readest image build
+        if: steps.readest.outputs.changed == 'true'
+        run: |
+          sudo rm -rf /usr/local/lib/android /usr/share/dotnet /opt/ghc /opt/hostedtoolcache
+          df -h /
+      - name: Start the Readest update on data created by the base commit
+        if: steps.readest.outputs.changed == 'true'
+        env:
+          BASE_SHA: ${{ github.event.pull_request.base.sha }}
+        run: nix run --accept-flake-config --no-update-lock-file .#readest-compat-test -- "$BASE_SHA"
 
   r2-preflight:
     if: >-
