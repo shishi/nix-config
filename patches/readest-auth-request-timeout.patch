@@ -1,0 +1,284 @@
+diff --git a/apps/readest-app/src/__tests__/utils/auth-request-timeout.test.ts b/apps/readest-app/src/__tests__/utils/auth-request-timeout.test.ts
+new file mode 100644
+index 00000000..8dfcf23d
+--- /dev/null
++++ b/apps/readest-app/src/__tests__/utils/auth-request-timeout.test.ts
+@@ -0,0 +1,146 @@
++import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
++import { createClient } from '@supabase/supabase-js';
++import { AUTH_REQUEST_TIMEOUT_MS, withAuthRequestTimeout } from '@/utils/authRequestTimeout';
++
++// A request that never gets an answer and only ends when its signal aborts,
++// like fetch() does.
++const unanswered = (_input: RequestInfo | URL, init?: RequestInit) =>
++  new Promise<Response>((_, reject) => {
++    init?.signal?.addEventListener('abort', () => reject(init.signal!.reason));
++  });
++
++// An answer whose headers arrive but whose body stops halfway. Like fetch(),
++// aborting the signal errors the body.
++const stalledBody = async (_input: RequestInfo | URL, init?: RequestInit) =>
++  new Response(
++    new ReadableStream({
++      start(controller) {
++        controller.enqueue(new TextEncoder().encode('{"access_token":'));
++        init?.signal?.addEventListener('abort', () => controller.error(init.signal!.reason));
++      },
++    }),
++    { headers: { 'Content-Type': 'application/json' } },
++  );
++
++const settled = (promise: Promise<unknown>) => {
++  let done = false;
++  promise.then(
++    () => (done = true),
++    () => (done = true),
++  );
++  return () => done;
++};
++
++beforeEach(() => {
++  vi.useFakeTimers();
++});
++
++afterEach(() => {
++  vi.useRealTimers();
++});
++
++describe('withAuthRequestTimeout', () => {
++  it('fails an auth request that gets no answer', async () => {
++    const request = withAuthRequestTimeout(unanswered)(
++      'https://auth.example.test/auth/v1/token?grant_type=refresh_token',
++      { method: 'POST' },
++    );
++    const isSettled = settled(request);
++
++    await vi.advanceTimersByTimeAsync(AUTH_REQUEST_TIMEOUT_MS - 1);
++    expect(isSettled()).toBe(false);
++    await vi.advanceTimersByTimeAsync(1);
++    await expect(request).rejects.toMatchObject({ name: 'TimeoutError' });
++  });
++
++  it('fails an auth request whose body stops arriving', async () => {
++    const request = withAuthRequestTimeout(stalledBody)(
++      'https://auth.example.test/auth/v1/token?grant_type=refresh_token',
++      { method: 'POST' },
++    );
++    const assertion = expect(request).rejects.toMatchObject({ name: 'TimeoutError' });
++
++    await vi.advanceTimersByTimeAsync(AUTH_REQUEST_TIMEOUT_MS);
++    await assertion;
++  });
++
++  it('fails an auth request under a base path', async () => {
++    const request = withAuthRequestTimeout(unanswered)(
++      'https://reader.example.test/backend/auth/v1/token?grant_type=refresh_token',
++      { method: 'POST' },
++    );
++    const assertion = expect(request).rejects.toMatchObject({ name: 'TimeoutError' });
++
++    await vi.advanceTimersByTimeAsync(AUTH_REQUEST_TIMEOUT_MS);
++    await assertion;
++  });
++
++  it('passes other requests through unchanged', async () => {
++    const inner = vi.fn<typeof fetch>().mockResolvedValue(new Response('ok'));
++    const init = { method: 'GET' };
++
++    await withAuthRequestTimeout(inner)('https://auth.example.test/rest/v1/books', init);
++
++    expect(inner).toHaveBeenCalledWith('https://auth.example.test/rest/v1/books', init);
++  });
++
++  it("aborts with the caller's signal", async () => {
++    const caller = new AbortController();
++    const request = withAuthRequestTimeout(unanswered)(
++      new URL('https://auth.example.test/auth/v1/logout'),
++      { method: 'POST', signal: caller.signal },
++    );
++
++    caller.abort(new Error('closed'));
++
++    await expect(request).rejects.toThrow('closed');
++  });
++
++  it("aborts with the signal of the caller's Request", async () => {
++    const caller = new AbortController();
++    const request = withAuthRequestTimeout(unanswered)(
++      new Request('https://auth.example.test/auth/v1/logout', {
++        method: 'POST',
++        signal: caller.signal,
++      }),
++    );
++
++    caller.abort(new Error('closed'));
++
++    await expect(request).rejects.toThrow('closed');
++  });
++
++  it('lets a stalled session refresh give up instead of waiting forever', async () => {
++    const user = { id: '00000000-0000-0000-0000-000000000001', aud: 'authenticated' };
++    const authFetch = vi.fn<typeof fetch>(async (input, init) => {
++      const url = new URL(String(input));
++      if (url.searchParams.get('grant_type') === 'password') {
++        return Response.json({
++          access_token: 'access-token',
++          refresh_token: 'refresh-token',
++          token_type: 'bearer',
++          expires_in: 3600,
++          expires_at: Math.floor(Date.now() / 1000) + 3600,
++          user,
++        });
++      }
++      return unanswered(input, init);
++    });
++    const supabase = createClient('https://auth.example.test', 'test-anon-key', {
++      global: { fetch: withAuthRequestTimeout(authFetch) },
++      auth: {
++        autoRefreshToken: false,
++        detectSessionInUrl: false,
++        storageKey: 'auth-request-timeout-test',
++      },
++    });
++    await supabase.auth.signInWithPassword({ email: 'reader@example.test', password: 'pw' });
++
++    const refresh = supabase.auth.refreshSession();
++    await vi.advanceTimersByTimeAsync(60_000);
++    const { error } = await refresh;
++
++    expect(error?.name).toBe('AuthRetryableFetchError');
++    localStorage.removeItem('auth-request-timeout-test');
++  });
++});
+diff --git a/apps/readest-app/src/__tests__/utils/supabase-auth-proxy.test.ts b/apps/readest-app/src/__tests__/utils/supabase-auth-proxy.test.ts
+index c83c5411..b11f4e3e 100644
+--- a/apps/readest-app/src/__tests__/utils/supabase-auth-proxy.test.ts
++++ b/apps/readest-app/src/__tests__/utils/supabase-auth-proxy.test.ts
+@@ -85,6 +85,35 @@ describe('Readest Cloud auth routing (#6416)', () => {
+     ]);
+   });
+ 
++  it('refreshes on the Supabase host when the proxy never answers', async () => {
++    const supabase = await loadClient(CLOUD_URL);
++    await supabase.auth.signInWithPassword({ email: 'a@b.c', password: 'pw' });
++    fetchMock.mockClear();
++    fetchMock.mockImplementation(async (input, init) => {
++      if (new URL(String(input)).origin === PROXY_URL) {
++        return new Promise<Response>((_, reject) => {
++          init?.signal?.addEventListener('abort', () => reject(init.signal!.reason));
++        });
++      }
++      return new Response(JSON.stringify({ ...session, access_token: 'access-2' }), {
++        status: 200,
++      });
++    });
++
++    vi.useFakeTimers();
++    const refresh = supabase.auth.refreshSession();
++    await vi.advanceTimersByTimeAsync(35_000);
++    const { data, error } = await refresh;
++    vi.useRealTimers();
++
++    expect(error).toBeNull();
++    expect(data.session?.access_token).toBe('access-2');
++    expect(requestedUrls()).toEqual([
++      `${PROXY_URL}/auth/v1/token?grant_type=refresh_token`,
++      `${CLOUD_URL}/auth/v1/token?grant_type=refresh_token`,
++    ]);
++  });
++
+   it('keeps the proxy answer when the proxy can be reached', async () => {
+     const supabase = await loadClient(CLOUD_URL);
+     await supabase.auth.signInWithPassword({ email: 'a@b.c', password: 'pw' });
+diff --git a/apps/readest-app/src/utils/authRequestTimeout.ts b/apps/readest-app/src/utils/authRequestTimeout.ts
+new file mode 100644
+index 00000000..c4082753
+--- /dev/null
++++ b/apps/readest-app/src/utils/authRequestTimeout.ts
+@@ -0,0 +1,39 @@
++// supabase-js sends auth requests without a time limit. A request that never gets
++// an answer, such as one sent on a connection that died while the device slept,
++// keeps refreshSession() and signOut() waiting for good, and every later refresh
++// waits on that same request. Failing it after a while lets auth-js retry the
++// refresh with a new request.
++export const AUTH_REQUEST_TIMEOUT_MS = 10_000;
++
++// Matches the auth API under any base path, e.g. a self-hosted
++// https://example.com/supabase/auth/v1/token.
++const isAuthRequest = ({ pathname }: URL) => pathname.includes('/auth/v1/');
++
++export const withAuthRequestTimeout =
++  (fetchImpl: typeof fetch): typeof fetch =>
++  async (input, init) => {
++    const request = input instanceof Request ? input : undefined;
++    if (!isAuthRequest(new URL(request?.url ?? (input as string | URL)))) {
++      return fetchImpl(input, init);
++    }
++
++    const controller = new AbortController();
++    const callerSignal = init?.signal ?? request?.signal;
++    const abortWithCaller = () => controller.abort(callerSignal?.reason);
++    if (callerSignal?.aborted) abortWithCaller();
++    else callerSignal?.addEventListener('abort', abortWithCaller, { once: true });
++    const timer = setTimeout(
++      () => controller.abort(new DOMException('The auth request timed out', 'TimeoutError')),
++      AUTH_REQUEST_TIMEOUT_MS,
++    );
++    try {
++      const response = await fetchImpl(input, { ...init, signal: controller.signal });
++      // fetch() resolves once the headers arrive and auth-js reads the body after
++      // that, so wait for the body within the same limit.
++      await response.clone().arrayBuffer();
++      return response;
++    } finally {
++      clearTimeout(timer);
++      callerSignal?.removeEventListener('abort', abortWithCaller);
++    }
++  };
+diff --git a/apps/readest-app/src/utils/supabase.ts b/apps/readest-app/src/utils/supabase.ts
+index fc7b173e..61d60f79 100644
+--- a/apps/readest-app/src/utils/supabase.ts
++++ b/apps/readest-app/src/utils/supabase.ts
+@@ -1,5 +1,6 @@
+ import { createClient } from '@supabase/supabase-js';
+ import { getRuntimeConfig } from '@/services/runtimeConfig';
++import { withAuthRequestTimeout } from './authRequestTimeout';
+ 
+ const supabaseUrl =
+   getRuntimeConfig()?.supabaseUrl ||
+@@ -32,18 +33,22 @@ const isProxiedAuthRequest = ({ pathname, searchParams }: URL) =>
+   (pathname === '/auth/v1/token' &&
+     ['password', 'refresh_token'].includes(searchParams.get('grant_type') ?? ''));
+ 
++const authFetch = withAuthRequestTimeout((input, init) => fetch(input, init));
++
+ // A network that can't reach the proxy host (a filter that blocks the new
+ // domain) goes to the Supabase host instead, as before the proxy existed;
+ // otherwise every refresh fails and the reader is signed out (#7538). Only a
+-// failed connection falls back: an answer from the proxy is final.
++// failed or timed-out connection falls back: an answer from the proxy is final.
++// Each attempt gets its own time limit, so a proxy that never answers still
++// leaves time for the Supabase host.
+ const proxyAuthFetch: typeof fetch = async (input, init) => {
+   const url = new URL(input instanceof Request ? input.url : input);
+-  if (!isProxiedAuthRequest(url)) return fetch(input, init);
++  if (!isProxiedAuthRequest(url)) return authFetch(input, init);
+   try {
+-    return await fetch(`${AUTH_PROXY_URL}${url.pathname}${url.search}`, init);
++    return await authFetch(`${AUTH_PROXY_URL}${url.pathname}${url.search}`, init);
+   } catch (error) {
+     if (init?.signal?.aborted) throw error;
+-    return fetch(input, init);
++    return authFetch(input, init);
+   }
+ };
+ 
+@@ -52,7 +57,7 @@ export const supabase = createClient(
+   supabaseAnonKey,
+   READEST_CLOUD_HOSTS.includes(new URL(supabaseUrl).hostname)
+     ? { auth: { storageKey: 'sb-readest-auth-token' }, global: { fetch: proxyAuthFetch } }
+-    : undefined,
++    : { global: { fetch: authFetch } },
+ );
+ 
+ export const createSupabaseClient = (accessToken?: string) => {
