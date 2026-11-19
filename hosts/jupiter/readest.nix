@@ -317,7 +317,7 @@ let
       };
       rest = {
         # 発行直後の JWT を散発的に誤拒否する不具合の修正版（PostgREST #5196）。
-        image = "postgrest/postgrest:v14.18@sha256:c7cd7e265a85b05248abf53f4473fcec7e327c282d0bd0cf60f1551996d09fcf";
+        image = "postgrest/postgrest:v16.6@sha256:5ce030c153500fe90ba157da4da8ba99ab51d3bc7b95e071bd0b544b67a632f7";
         restart = "unless-stopped";
         depends_on.db.condition = "service_healthy";
         environment = {
