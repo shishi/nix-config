@@ -27,6 +27,100 @@ let
   };
   webImage = "readest-local:${builtins.baseNameOf webBuildSource}";
   env = name: "$" + "{${name}}";
+  # PostgreSQL のイメージが変わると、照合順序を提供する glibc の版も変わることがある。
+  # 並び順が変わると文字列の索引と食い違うため、版が変わった DB の索引を作り直す。
+  refreshCollation = pkgs.writeText "readest-refresh-collation.sh" ''
+    set -eu
+    export PGHOST="$POSTGRES_HOST" PGPORT="$POSTGRES_PORT" PGPASSWORD="$POSTGRES_PASSWORD"
+    psql_admin() {
+      psql -v ON_ERROR_STOP=1 --no-password --no-psqlrc -U supabase_admin "$@"
+    }
+    stale=$(psql_admin -d postgres -tAc "SELECT datname FROM pg_database
+      WHERE datallowconn
+        AND datcollversion IS DISTINCT FROM pg_database_collation_actual_version(oid)")
+    for db in $stale; do
+      echo "readest-collation: rebuilding the indexes of $db"
+      psql_admin -d "$db" -c "REINDEX DATABASE \"$db\""
+      psql_admin -d "$db" -c "ALTER DATABASE \"$db\" REFRESH COLLATION VERSION"
+    done
+  '';
+  # PostgreSQL のメジャー版の更新で、旧版のデータを pg_upgrade するためだけに使う旧版のイメージ。
+  # 旧版のデータを読めればよく、新しいメジャー版へ上げると移行できなくなるため、Renovate が
+  # 更新する `image = "..."` の形では書かない。
+  postgresUpgradeSource = "supabase/postgres:15.20.0.001@sha256:87b54b71426fc082f6a11ce3deb76ff6914744064f08e32014f2f78d1d5a6a16";
+  postgresMajor = image: builtins.head (builtins.match "supabase/postgres:([0-9]+)\\..*" image);
+  # データが自分のメジャー版で、db のイメージと違うときだけ、旧版の PostgreSQL を
+  # Nix のストアパスごと共有の volume へ写す。
+  copyUpgradeSource = pkgs.writeText "readest-postgres-upgrade-source.sh" ''
+    set -eu
+    from=$(cat /data/PG_VERSION 2>/dev/null || true)
+    own=$(postgres -V | sed -E 's/.* ([0-9]+)\..*/\1/')
+    if [ "$from" != "$own" ] || [ "$from" = "$PG_TARGET_MAJOR" ] || [ -f /upgrade-bin/bindir ]; then
+      exit 0
+    fi
+    package=$(dirname "$(dirname "$(readlink -f /usr/lib/postgresql/bin/postgres)")")
+    paths=$(nix-store --query --requisites "$package")
+    rm -rf /upgrade-bin/store
+    mkdir /upgrade-bin/store
+    cp -a $paths /upgrade-bin/store/
+    echo "$package/bin" >/upgrade-bin/bindir
+  '';
+  # 新しいメジャー版の PostgreSQL は旧版のデータディレクトリを読めない。旧版のバイナリーで
+  # pg_upgrade し、移行後のクラスターを同じ volume の中で入れ替える。旧クラスターは残さない。
+  # 版が変わる起動の前に readest-backup が volume を退避しているため。
+  upgradePostgres = pkgs.writeText "readest-postgres-upgrade.sh" ''
+    set -eu
+    data=/var/lib/postgresql/data
+    work="$data/.pg-upgrade"
+    # upgraded が無い間は、使うクラスターは常に $data にある。
+    if [ ! -e "$work/upgraded" ]; then
+      from=$(cat "$data/PG_VERSION" 2>/dev/null || true)
+      if [ -z "$from" ] || [ "$from" = "$PG_TARGET_MAJOR" ]; then
+        # 後片付けの途中で止まった移行の残りを消す。
+        rm -rf "$work" /upgrade-bin/bindir /upgrade-bin/store
+        exit 0
+      fi
+      if [ ! -f /upgrade-bin/bindir ]; then
+        echo "readest-postgres-upgrade: no PostgreSQL $from binaries to upgrade the data with; set postgresUpgradeSource to a supabase/postgres $from image" >&2
+        exit 1
+      fi
+      echo "readest-postgres-upgrade: upgrading the data from PostgreSQL $from to $PG_TARGET_MAJOR"
+      # 旧版のバイナリーは自分のストアパスにある依存を読み込むため、同じパスに見せる。
+      for path in /upgrade-bin/store/*; do
+        [ -e "/nix/store/''${path##*/}" ] || ln -s "$path" /nix/store/
+      done
+      new_bin=$(dirname "$(readlink -f /usr/lib/postgresql/bin/postgres)")
+      # 旧版のイメージで作ったデータは、UID の違う postgres が所有していることがある。
+      chown -R postgres:postgres "$data"
+      rm -rf "$work"
+      mkdir -p "$work/new" "$work/old"
+      chown postgres:postgres "$work" "$work/new"
+      cd "$work"
+      su-exec postgres "$new_bin/initdb" --username=supabase_admin -D "$work/new"
+      su-exec postgres "$new_bin/pg_upgrade" --username=supabase_admin \
+        --old-bindir="$(cat /upgrade-bin/bindir)" --new-bindir="$new_bin" \
+        --old-datadir="$data" --new-datadir="$work/new"
+      # pg_upgrade は統計を移さない。pg_upgrade が出す update_extensions.sql は当てない。
+      # pg_graphql には旧版からの更新経路が無く、拡張はマイナー版の更新と同じく移行前の版で動く。
+      su-exec postgres "$new_bin/pg_ctl" -D "$work/new" -w \
+        -o "-c listen_addresses= -c unix_socket_directories=$work" start
+      su-exec postgres "$new_bin/vacuumdb" -h "$work" -U supabase_admin --all --analyze-only
+      su-exec postgres "$new_bin/pg_ctl" -D "$work/new" -w stop
+      touch "$work/upgraded"
+    fi
+    # 入れ替えが途中で止まっても、次の起動で残りを移す。
+    if [ ! -e "$work/old-moved" ]; then
+      for entry in "$data"/*; do
+        [ ! -e "$entry" ] || mv "$entry" "$work/old/"
+      done
+      touch "$work/old-moved"
+    fi
+    for entry in "$work"/new/*; do
+      [ ! -e "$entry" ] || mv "$entry" "$data/"
+    done
+    rm "$work/upgraded"
+    rm -rf "$work" /upgrade-bin/bindir /upgrade-bin/store
+  '';
   proxyConfig = pkgs.writeText "readest-nginx.conf" ''
     upstream readest_library {
       server unix:/run/readest-opds/http.sock;
@@ -65,7 +159,7 @@ let
     name = "readest";
     services = rec {
       db = {
-        image = "supabase/postgres:15.8.1.085@sha256:af083ef64d0408c8f098ee6f5c364a59b26f36fbc0f3a334a62c5c1d57362e9b";
+        image = "supabase/postgres:17.12.0.001@sha256:374df435f973b1d371dbaecb1a69403f4fdbb67238f354be424fe04435a45aee";
         restart = "unless-stopped";
         volumes = [
           "${source}/docker/volumes/db/roles.sql:/docker-entrypoint-initdb.d/init-scripts/99-roles.sql:ro"
@@ -104,6 +198,50 @@ let
           retries = 30;
           start_period = "20s";
         };
+        depends_on = {
+          db-config-refresh.condition = "service_completed_successfully";
+          db-upgrade.condition = "service_completed_successfully";
+        };
+      };
+      db-upgrade-source = {
+        image = postgresUpgradeSource;
+        volumes = [
+          "db-data:/data:ro"
+          "db-upgrade-bin:/upgrade-bin"
+          "${copyUpgradeSource}:/copy-upgrade-source.sh:ro"
+        ];
+        environment.PG_TARGET_MAJOR = postgresMajor db.image;
+        entrypoint = [
+          "sh"
+          "/copy-upgrade-source.sh"
+        ];
+      };
+      db-upgrade = {
+        inherit (db) image;
+        volumes = [
+          "db-data:/var/lib/postgresql/data"
+          "db-upgrade-bin:/upgrade-bin"
+          "${upgradePostgres}:/upgrade-postgres.sh:ro"
+        ];
+        environment.PG_TARGET_MAJOR = postgresMajor db.image;
+        entrypoint = [
+          "sh"
+          "/upgrade-postgres.sh"
+        ];
+        depends_on.db-upgrade-source.condition = "service_completed_successfully";
+      };
+      # 上流の構成は pgsodium の鍵を残すために /etc/postgresql-custom を volume にしているが、
+      # volume は作成時のイメージの設定ファイルと postgres の UID も保持し続ける。新しいイメージは
+      # そこに無い設定を読みに行き、UID の違う鍵も読めずに起動できない。起動のたびに今の
+      # イメージの設定と所有者へ揃える。鍵はイメージに含まれないので上書きされずに残る。
+      db-config-refresh = {
+        inherit (db) image;
+        volumes = [ "db-config:/persisted" ];
+        entrypoint = [
+          "sh"
+          "-c"
+          "cp -a /etc/postgresql-custom/. /persisted/ && chown -R postgres:postgres /persisted"
+        ];
       };
       # 上流の初期化処理は migration を DB の新規作成時にしか当てない。既存の DB にも
       # 起動のたびに未適用分だけを当て、Web 版はその完了を待ってから起動する。
@@ -113,6 +251,7 @@ let
         volumes = [
           "${source}/docker/volumes/db/migrations:/readest-migrations:ro"
           "${source}/docker/volumes/db/apply-migrations.sh:/apply-migrations.sh:ro"
+          "${refreshCollation}:/refresh-collation.sh:ro"
         ];
         environment = {
           POSTGRES_HOST = "db";
@@ -122,7 +261,8 @@ let
         };
         entrypoint = [
           "sh"
-          "/apply-migrations.sh"
+          "-c"
+          "sh /refresh-collation.sh && exec sh /apply-migrations.sh"
         ];
       };
       kong = {
@@ -273,6 +413,7 @@ let
     volumes = {
       db-data = { };
       db-config = { };
+      db-upgrade-bin = { };
       storage-data = { };
     };
   };
