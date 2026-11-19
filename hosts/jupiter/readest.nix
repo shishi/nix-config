@@ -266,7 +266,7 @@ let
         ];
       };
       kong = {
-        image = "kong:2.8.1@sha256:1b53405d8680a09d6f44494b7990bf7da2ea43f84a258c59717d4539abf09f6d";
+        image = "kong:2.8.5@sha256:34bbeaf6ee4c2db5f5c33ecf4793f29155753e2191b121eb25ffb6d8f151b37b";
         restart = "unless-stopped";
         volumes = [ "${source}/docker/volumes/api/kong.yml:/home/kong/temp.yml:ro" ];
         environment = {
