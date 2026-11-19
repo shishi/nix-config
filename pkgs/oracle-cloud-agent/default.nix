@@ -8,8 +8,8 @@ let
   # Renovate が snap ストアの「版_revision」と配布物の SHA-512 を一緒に更新するので、
   # この 2 行は隣接させて書く。revision はアーキテクチャーごとに異なり、これは arm64 用。
   # 取得するアーキテクチャーは renovate.json の hostRules のヘッダーでも指定している。
-  release = "1.61.0-6_125";
-  sha512 = "55e18082541d9e03b4312490d42ce3fd009871111d19eecf488ce7c8593297b079337e56e27692f8034ef3b0ce148fbadadd11aceeeb8855ed526a821f11f8a6";
+  release = "1.63.0-9_134";
+  sha512 = "eecab21c3f26a4721aa8ebaf74a67a9aae51e3f5a2c56c7182db4d58cf49af18d63e62717cda15b7197a27dcca27f7269bcbf9526a7aa2e93ee9d5f8f134e698";
   releaseParts = lib.splitString "_" release;
 in
 stdenvNoCC.mkDerivation {
