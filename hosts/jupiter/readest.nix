@@ -126,19 +126,21 @@ let
         ];
       };
       kong = {
-        image = "kong:2.8.1@sha256:1b53405d8680a09d6f44494b7990bf7da2ea43f84a258c59717d4539abf09f6d";
+        image = "kong:3.9.4@sha256:ad6cc0c8cca5b66b3cdab3bde7bc7ca973d4d820dd2c6651a7e3042f5428a76a";
         restart = "unless-stopped";
         volumes = [ "${source}/docker/volumes/api/kong.yml:/home/kong/temp.yml:ro" ];
         environment = {
           KONG_DATABASE = "off";
           KONG_NGINX_WORKER_PROCESSES = "1";
-          KONG_DECLARATIVE_CONFIG = "/home/kong/kong.yml";
+          # kong:3.9 のイメージには /home/kong が無く、雛形の mount で Docker が root の所有で作るため、
+          # kong ユーザーは書き込めない。展開した設定は kong ユーザーが所有する Kong の prefix に置く。
+          KONG_DECLARATIVE_CONFIG = "/usr/local/kong/kong.yml";
           KONG_DNS_ORDER = "LAST,A,CNAME";
           KONG_PLUGINS = "request-transformer,cors,key-auth,acl,basic-auth";
           SUPABASE_ANON_KEY = env "ANON_KEY";
           SUPABASE_SERVICE_KEY = env "SERVICE_ROLE_KEY";
         };
-        entrypoint = ''bash -c 'eval "echo \"$$(cat ~/temp.yml)\"" > ~/kong.yml && /docker-entrypoint.sh kong docker-start' '';
+        entrypoint = ''bash -c 'eval "echo \"$$(cat ~/temp.yml)\"" > "$$KONG_DECLARATIVE_CONFIG" && /docker-entrypoint.sh kong docker-start' '';
         depends_on = {
           auth.condition = "service_started";
           rest.condition = "service_started";
