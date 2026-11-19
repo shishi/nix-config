@@ -1,14 +1,24 @@
-{ config, pkgs, ... }:
+{
+  config,
+  lib,
+  pkgs,
+  ...
+}:
 let
   serviceName = "readest";
   # Web 版は API に手元のアクセストークンを送り、起動のたびに試す更新が完了するまで差し替えない。
   # 更新がサーバーへ届かない端末でも期限内なら同期を続けられるよう、1 年有効にする。
   accessTokenLifetime = toString (365 * 24 * 60 * 60);
-  source = pkgs.fetchgit {
+  # Renovate が上流リリースの tag と commit を一緒に更新するので、この 2 行は隣接させて書く。
+  # commit で内容が決まるため、Renovate が計算できない Nix のハッシュは持たない。
+  readestTag = "v0.12.20";
+  readestRev = "28aab23e039a23511bc478c23bf5278daa43cc68";
+  source = builtins.fetchGit {
     url = "https://github.com/readest/readest.git";
-    rev = "2d37bbfc2e94725e1343ab2a825573545aa59f5f";
-    hash = "sha256-b6Ce6TtHDmY3g0q7BV6ITlnh0njhBUit2sRp4dDy4+k=";
-    fetchSubmodules = true;
+    ref = "refs/tags/${readestTag}";
+    rev = readestRev;
+    submodules = true;
+    shallow = true;
   };
   webBuildSource = pkgs.applyPatches {
     name = "readest-web-pwa";
@@ -51,9 +61,9 @@ let
       }
     }
   '';
-  composeFile = (pkgs.formats.yaml { }).generate "readest-compose.yaml" {
+  composeConfig = {
     name = "readest";
-    services = {
+    services = rec {
       db = {
         image = "supabase/postgres:15.8.1.085@sha256:af083ef64d0408c8f098ee6f5c364a59b26f36fbc0f3a334a62c5c1d57362e9b";
         restart = "unless-stopped";
@@ -94,6 +104,26 @@ let
           retries = 30;
           start_period = "20s";
         };
+      };
+      # 上流の初期化処理は migration を DB の新規作成時にしか当てない。既存の DB にも
+      # 起動のたびに未適用分だけを当て、Web 版はその完了を待ってから起動する。
+      migrate = {
+        inherit (db) image;
+        depends_on.db.condition = "service_healthy";
+        volumes = [
+          "${source}/docker/volumes/db/migrations:/readest-migrations:ro"
+          "${source}/docker/volumes/db/apply-migrations.sh:/apply-migrations.sh:ro"
+        ];
+        environment = {
+          POSTGRES_HOST = "db";
+          POSTGRES_PORT = env "POSTGRES_PORT";
+          POSTGRES_DB = env "POSTGRES_DB";
+          POSTGRES_PASSWORD = env "POSTGRES_PASSWORD";
+        };
+        entrypoint = [
+          "sh"
+          "/apply-migrations.sh"
+        ];
       };
       kong = {
         image = "kong:2.8.1@sha256:1b53405d8680a09d6f44494b7990bf7da2ea43f84a258c59717d4539abf09f6d";
@@ -224,6 +254,7 @@ let
         depends_on = {
           kong.condition = "service_started";
           storage.condition = "service_healthy";
+          migrate.condition = "service_completed_successfully";
         };
       };
       proxy = {
@@ -243,6 +274,20 @@ let
       storage-data = { };
     };
   };
+  composeFile = (pkgs.formats.yaml { }).generate "readest-compose.yaml" composeConfig;
+  # volume の中身を書き換えうる版の組。上流のリリースは DB の migration を、GoTrue は
+  # 認証スキーマの migration を持つ。nixpkgs だけの更新でも Compose ファイルの
+  # store path は変わるため、退避の要否はそれでは判断しない。
+  dataRelease = pkgs.writeText "readest-data-release" (
+    lib.concatLines (
+      [ readestRev ]
+      ++ map (name: composeConfig.services.${name}.image) [
+        "db"
+        "auth"
+        "storage"
+      ]
+    )
+  );
   compose = pkgs.writeShellApplication {
     name = "readest-compose";
     runtimeInputs = [
@@ -285,6 +330,54 @@ let
       if ! docker image inspect "$web_image" >/dev/null 2>&1; then
         ${compose}/bin/readest-compose build client
       fi
+    '';
+  };
+  # dataRelease が変わった起動の前に、停止した状態の 3 つの volume をまとめて退避する。
+  # 版の更新で DB の形式が変わっても、更新前の世代へ戻せるようにするため。
+  backup = pkgs.writeShellApplication {
+    name = "readest-backup";
+    runtimeInputs = [
+      pkgs.coreutils
+      pkgs.diffutils
+      pkgs.docker
+      pkgs.findutils
+      pkgs.gnugrep
+      pkgs.jq
+    ];
+    text = ''
+      state="''${XDG_DATA_HOME:-$HOME/.local/share}/readest"
+      # 記録は「volume をこの版の組で作ったか、この版の組の起動前に退避した」ことを表す。
+      # 失敗した更新の再起動のたびに退避すると、更新前の世代が整理で消えるため、
+      # 起動の成否では記録を更新しない。
+      if cmp -s "$state/volumes-release" ${dataRelease}; then
+        exit 0
+      fi
+      # 一覧を取れないときは止める。問い合わせの失敗を volume の不在と取り違えると、
+      # 退避せずに記録だけが進む。
+      volumes=$(docker volume ls --quiet)
+      if ! grep -qx readest_db-data <<<"$volumes"; then
+        cat ${dataRelease} >"$state/volumes-release"
+        exit 0
+      fi
+      ${compose}/bin/readest-compose down --timeout 30
+      backups="$state/backups"
+      mkdir -p "$backups"
+      # 失敗や中断で残った作成途中のファイルが、再起動のたびに積み上がらないようにする。
+      rm -f "$backups"/*.partial
+      archive="$(date +%Y%m%dT%H%M%S).tar"
+      # volume の中身は root と postgres の所有なので、コンテナー内で読み取り、所有者を戻す。
+      image=$(${compose}/bin/readest-compose config --format json | jq -er '.services.proxy.image')
+      docker run --rm \
+        --volume readest_db-data:/volumes/db-data:ro \
+        --volume readest_db-config:/volumes/db-config:ro \
+        --volume readest_storage-data:/volumes/storage-data:ro \
+        --volume "$backups:/backups" \
+        --entrypoint sh "$image" -c "tar --numeric-owner -C /volumes -cf /backups/$archive.partial . && chown $(id -u):$(id -g) /backups/$archive.partial"
+      mv "$backups/$archive.partial" "$backups/$archive"
+      cat ${dataRelease} >"$state/volumes-release"
+      find "$backups" -maxdepth 1 -name '*.tar' -printf '%f\n' | sort -r | tail -n +4 |
+        while read -r old; do rm -- "$backups/$old"; done
+      echo "Readest volumes were saved to $backups/$archive before starting new Readest releases."
     '';
   };
   ready = pkgs.writeShellApplication {
@@ -336,6 +429,7 @@ in
           ExecStartPre = [
             "${initialize}/bin/readest-initialize"
             "${compose}/bin/readest-compose pull --ignore-buildable --policy missing --quiet"
+            "${backup}/bin/readest-backup"
           ];
           ExecStart = "${compose}/bin/readest-compose up --no-color --remove-orphans";
           ExecStartPost = "${ready}/bin/readest-ready";

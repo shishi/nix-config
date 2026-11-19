@@ -4,7 +4,7 @@
 
 この構成は Readest の Web 版と同期用バックエンドを Docker Compose で起動します。
 Nixpkgs の `readest` はデスクトップ版のため、サーバーには上流の Dockerfile を使います。
-公式イメージではオフライン用の Service Worker が生成されないため、固定したソースから Web 版をビルドします。
+公式イメージではオフライン用の Service Worker が生成されないため、上流リリースのソースから Web 版をビルドします。
 上流の Webpack 切替スクリプトで Service Worker を生成します。
 画面の保存先と参照先は Serwist の標準ページキャッシュに揃え、圏外での起動に使います。
 上流のビルド引数にセルフホストの接続先と公開用の認証キーを渡し、初期化時もその接続先を使います。
@@ -12,7 +12,7 @@ Nixpkgs の `readest` はデスクトップ版のため、サーバーには上�
 イメージがない場合だけ起動前にビルドし、通常の起動と再起動では完成済みのイメージを使います。
 初回ビルドには外部レジストリへの接続、依存パッケージの取得とコンパイルが必要です。
 ビルド時の Node のヒープ上限は 8 GiB で、ほかのプロセスが使うメモリも必要です。
-初期化とビルド、イメージ取得のタイムアウトは各 30 分で、起動確認は約 6 分で失敗を返します。
+初期化とビルド、イメージ取得、volume の退避のタイムアウトは各 30 分で、起動確認は約 6 分で失敗を返します。
 ソースやパッチの更新時も新しいイメージを作り、起動前のビルド中は Web 版が停止します。
 旧イメージは切り戻し用に残し、自動削除しません。
 Compose の起動・停止はユーザーの systemd が管理します。
@@ -149,6 +149,16 @@ readest-compose exec db psql -U supabase_admin -d postgres
 `.env` には既存データへ接続するためのパスワードと署名鍵が入っています。
 volume と同じ世代の `.env` を安全な場所へ保管します。
 
+上流のリリースか、PostgreSQL・GoTrue・SeaweedFS のイメージが変わった起動の前には、
+`readest.service` が 3 つの volume を停止した状態で
+`${XDG_DATA_HOME:-$HOME/.local/share}/readest/backups/` へ日時名の tar として保存します。
+volume の中身を書き換えうるのはこれらの版だけなので、nixpkgs やほかのイメージの更新では退避しません。
+同じ版の起動に失敗して再起動を繰り返しても退避を取り直さず、更新前の世代を残します。
+新しい 3 世代を残し、古いものから削除します。
+退避の分だけ起動が遅れ、保存先は作成中の 1 つを含めて volume の合計の 4 倍まで使います。
+`.env` は更新で変わらないため、同じ場所の `.env` と組み合わせて復元できます。
+tar の中には `db-data`、`db-config`、`storage-data` の 3 つのディレクトリーがあります。
+
 ファイルとして volume を保存する場合は、両サービスを停止してから取得します。
 稼働中の PostgreSQL データディレクトリをコピーしてはいけません。
 保存先を用意し、Docker の volume バックアップ手順で 3 つとも保存します。
@@ -161,29 +171,48 @@ docker volume inspect readest_db-data readest_db-config readest_storage-data
 
 復元時もサービスを停止します。
 同じ名前の volume へデータを戻し、同世代の `.env` を元の場所へ戻します。
+自動で退避した tar は、空にした同じ名前の volume へ展開して戻します。
+`backup` には戻す tar のパスを設定します。
+更新前の volume は、その更新を起動する前に作られた最新の tar です。
+復元した volume は記録した版と一致しないため、退避の記録を消して次の起動で退避させます。
+
+```bash
+systemctl --user stop readest-serve readest
+backup="$HOME/.local/share/readest/backups/20260101T000000.tar"
+image=$(readest-compose config --format json | jq -er '.services.proxy.image')
+docker volume rm readest_db-data readest_db-config readest_storage-data
+docker run --rm --volume readest_db-data:/volumes/db-data --volume readest_db-config:/volumes/db-config --volume readest_storage-data:/volumes/storage-data --volume "$backup:/backup.tar:ro" --entrypoint tar "$image" --numeric-owner -C /volumes -xpf /backup.tar
+rm -f "$HOME/.local/share/readest/volumes-release"
+```
+
+この手順で作った volume には、起動時に Compose が作成元についての警告を出しますが、そのまま使えます。
 `.env` の権限を `0600`、格納ディレクトリを `0700` にしてから起動します。
 バックアップの検証は別環境で復元し、ログイン、本のダウンロード、同期を確認します。
 
 ## 更新と制限
 
-コンテナーのバージョンと上流 SQL の版は Nix モジュールで固定します。
-上流のソースと、そこからビルドする Web 版のイメージは手動で更新します。
-外部のコンテナーイメージは、Renovate が更新の PR を作ります。
-PostgreSQL・GoTrue・PostgREST・SeaweedFS・Kong の版やダイジェストを変える PR は自動マージしません。
-これらはデータを持つか、上流の SQL や Kong の設定と版を合わせる必要があるためです。
-上流のソースを更新するときと、これらの PR を取り込むときは、互換性を確認します。
-反映前にはバックアップします。
-データを持たない nginx の更新と、今のタグのダイジェストを書き足す PR は、CI が通ると自動マージします。
+コンテナーのバージョンと上流のリリースは Nix モジュールで固定し、Renovate が更新の PR を作ります。
+上流のリリースは tag と commit で固定し、Renovate が両方を一緒に更新します。
+Readest の構成を変える PR では、CI が基準 commit の構成でアカウントと本のデータを作ります。
+続けて同じ volume で更新後の構成を起動します。
+更新前に発行したトークンのまま同期とトークン更新ができることと、ログインを確かめます。
+同期 API での保存と読み出し、ファイルの保存と取得、DB の migration も確かめます。
+どれかが通らない PR は CI が失敗し、自動マージされません。
+CI が通った PR は自動マージします。
+CI は Web 版の画面操作と圏外での起動までは確かめないため、それらの不具合は反映後に分かります。
+`flake.lock` だけの更新では、このテストは走りません。
+テストが失敗した更新の PR は、通知されずに開いたまま残ります。
+
+反映は jupiter の switch で行います。
 既存の PostgreSQL volume では初期化 SQL は再実行しません。
-上流の migration を更新した場合は、起動後に次を実行します。
-
-```bash
-readest-compose exec db /docker-entrypoint-initdb.d/zz-readest-migrations.sh
-```
-
+起動のたびに、Web 版より先に未適用の上流 migration を当てます。
 適用済みの migration は上流の管理テーブルで判別します。
+volume の中身を書き換えうる版が変わった起動の前には、volume を自動で退避します。
 スキーマ更新後の切り戻しは、コンテナーの版だけを戻しても成立するとは限りません。
-必要な場合は更新前の volume と `.env` をまとめて復元します。
+必要な場合は、サービスを止めて更新前の volume を復元してから、前の世代へ戻します。
+先に前の世代へ戻すと、更新前の版が migration 済みの DB で起動します。
+更新は main に残るため、repo で取り消すまで次の switch は行いません。
+取り消すときは `renovate.json` でその版を除外し、同じ更新が作り直されて自動マージされないようにします。
 
 ストレージ容量と翻訳枠は、実用上使い切れない大きな上限を Nix モジュールで指定します。
 実際の空き容量と外部翻訳サービス側の制限は残ります。
