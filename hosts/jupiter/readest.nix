@@ -409,7 +409,7 @@ let
         };
       };
       proxy = {
-        image = "nginx:1.28-alpine@sha256:a8b39bd9cf0f83869a2162827a0caf6137ddf759d50a171451b335cecc87d236";
+        image = "nginx:1.31-alpine@sha256:0563c36f94a6d3ec3584161b77859f740f7e20b4853f52c796a864ce6908e8ea";
         restart = "unless-stopped";
         ports = [ "127.0.0.1:3080:80" ];
         volumes = [
