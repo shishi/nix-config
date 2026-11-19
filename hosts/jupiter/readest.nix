@@ -24,7 +24,11 @@ let
     name = "readest-web-pwa";
     src = source;
     patches = [
-      ../../patches/readest-docker-pwa.patch
+      ../../patches/readest-docker-service-worker.patch
+      ../../patches/readest-pwa-offline-page.patch
+      ../../patches/readest-pwa-navigation-cache.patch
+      ../../patches/readest-tts-android-locale.patch
+      ../../patches/readest-tts-ios-silent-audio.patch
       ../../patches/readest-auth-startup-session.patch
       ../../patches/readest-auth-request-timeout.patch
       ../../patches/readest-supabase-js-2.119.patch
