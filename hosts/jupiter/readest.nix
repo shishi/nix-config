@@ -27,6 +27,23 @@ let
   };
   webImage = "readest-local:${builtins.baseNameOf webBuildSource}";
   env = name: "$" + "{${name}}";
+  # PostgreSQL のイメージが変わると、照合順序を提供する glibc の版も変わることがある。
+  # 並び順が変わると文字列の索引と食い違うため、版が変わった DB の索引を作り直す。
+  refreshCollation = pkgs.writeText "readest-refresh-collation.sh" ''
+    set -eu
+    export PGHOST="$POSTGRES_HOST" PGPORT="$POSTGRES_PORT" PGPASSWORD="$POSTGRES_PASSWORD"
+    psql_admin() {
+      psql -v ON_ERROR_STOP=1 --no-password --no-psqlrc -U supabase_admin "$@"
+    }
+    stale=$(psql_admin -d postgres -tAc "SELECT datname FROM pg_database
+      WHERE datallowconn
+        AND datcollversion IS DISTINCT FROM pg_database_collation_actual_version(oid)")
+    for db in $stale; do
+      echo "readest-collation: rebuilding the indexes of $db"
+      psql_admin -d "$db" -c "REINDEX DATABASE \"$db\""
+      psql_admin -d "$db" -c "ALTER DATABASE \"$db\" REFRESH COLLATION VERSION"
+    done
+  '';
   proxyConfig = pkgs.writeText "readest-nginx.conf" ''
     upstream readest_library {
       server unix:/run/readest-opds/http.sock;
@@ -65,7 +82,7 @@ let
     name = "readest";
     services = rec {
       db = {
-        image = "supabase/postgres:15.8.1.085@sha256:af083ef64d0408c8f098ee6f5c364a59b26f36fbc0f3a334a62c5c1d57362e9b";
+        image = "supabase/postgres:15.20.0.001@sha256:87b54b71426fc082f6a11ce3deb76ff6914744064f08e32014f2f78d1d5a6a16";
         restart = "unless-stopped";
         volumes = [
           "${source}/docker/volumes/db/roles.sql:/docker-entrypoint-initdb.d/init-scripts/99-roles.sql:ro"
@@ -104,6 +121,20 @@ let
           retries = 30;
           start_period = "20s";
         };
+        depends_on.db-config-refresh.condition = "service_completed_successfully";
+      };
+      # 上流の構成は pgsodium の鍵を残すために /etc/postgresql-custom を volume にしているが、
+      # volume は作成時のイメージの設定ファイルと postgres の UID も保持し続ける。新しいイメージは
+      # そこに無い設定を読みに行き、UID の違う鍵も読めずに起動できない。起動のたびに今の
+      # イメージの設定と所有者へ揃える。鍵はイメージに含まれないので上書きされずに残る。
+      db-config-refresh = {
+        inherit (db) image;
+        volumes = [ "db-config:/persisted" ];
+        entrypoint = [
+          "sh"
+          "-c"
+          "cp -a /etc/postgresql-custom/. /persisted/ && chown -R postgres:postgres /persisted"
+        ];
       };
       # 上流の初期化処理は migration を DB の新規作成時にしか当てない。既存の DB にも
       # 起動のたびに未適用分だけを当て、Web 版はその完了を待ってから起動する。
@@ -113,6 +144,7 @@ let
         volumes = [
           "${source}/docker/volumes/db/migrations:/readest-migrations:ro"
           "${source}/docker/volumes/db/apply-migrations.sh:/apply-migrations.sh:ro"
+          "${refreshCollation}:/refresh-collation.sh:ro"
         ];
         environment = {
           POSTGRES_HOST = "db";
@@ -122,7 +154,8 @@ let
         };
         entrypoint = [
           "sh"
-          "/apply-migrations.sh"
+          "-c"
+          "sh /refresh-collation.sh && exec sh /apply-migrations.sh"
         ];
       };
       kong = {

@@ -1,5 +1,5 @@
 # Readest の構成を、基準版で作ったアカウントとデータを引き継ぐ更新として起動し、
-# 更新前のセッション・ログイン・同期 API の読み書き・ファイルの保存と取得・DB migration が
+# 更新前のセッション・ログイン・同期 API の読み書き・ファイルの保存と取得・DB migration・照合順序の更新が
 # 通ることを確かめる。
 # 使い方: readest-compat-test <基準の commit> [<更新後の flake 参照>]
 # 更新後の既定は、作業ツリーの HEAD の commit。Docker と Nix が使えるマシンで実行する。
@@ -39,6 +39,11 @@ work=$(mktemp -d)
 export XDG_DATA_HOME="$work/data"
 mkdir -p "$XDG_DATA_HOME/readest"
 cleanup() {
+  # 起動に失敗したコンテナーの理由はログにしか残らないため、消す前に CI の出力へ残す。
+  if (($? != 0)); then
+    "$head_compose" ps --all >&2 || true
+    "$head_compose" logs --no-color --tail 40 >&2 || true
+  fi
   "$head_compose" down --volumes --remove-orphans >/dev/null 2>&1 || true
   rm -rf "$work"
 }
@@ -183,8 +188,14 @@ if [[ -n $missing ]]; then
   exit 1
 fi
 applied=$(wc -l <"$work/expected-migrations")
+stale_collations=$("$head_compose" exec -T db psql -U supabase_admin -d postgres -tAc "SELECT datname FROM pg_database
+  WHERE datallowconn AND datcollversion IS DISTINCT FROM pg_database_collation_actual_version(oid)")
+if [[ -n $stale_collations ]]; then
+  echo "Indexes not rebuilt for the new collation version: $stale_collations" >&2
+  exit 1
+fi
 
 curl --fail --silent --show-error --request POST "$head_api/auth/v1/logout" \
   --header "apikey: $anon_key" --header "Authorization: Bearer $token"
 
-echo "== Readest accepted the update: existing sessions, sign-in, sync, storage and $applied migrations"
+echo "== Readest accepted the update: existing sessions, sign-in, sync, storage, $applied migrations and collation versions"
