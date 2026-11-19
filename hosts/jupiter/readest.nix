@@ -23,7 +23,12 @@ let
   webBuildSource = pkgs.applyPatches {
     name = "readest-web-pwa";
     src = source;
-    patches = [ ../../patches/readest-docker-pwa.patch ];
+    patches = [
+      ../../patches/readest-docker-pwa.patch
+      ../../patches/readest-auth-startup-session.patch
+      ../../patches/readest-auth-request-timeout.patch
+      ../../patches/readest-supabase-js-2.119.patch
+    ];
   };
   webImage = "readest-local:${builtins.baseNameOf webBuildSource}";
   env = name: "$" + "{${name}}";
