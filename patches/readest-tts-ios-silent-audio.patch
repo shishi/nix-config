@@ -1,38 +1,5 @@
-diff --git a/Dockerfile b/Dockerfile
-index a29567c..353cf32 100644
---- a/Dockerfile
-+++ b/Dockerfile
-@@ -49,7 +49,7 @@ WORKDIR /app/apps/readest-app
- # next.config.mjs gates `output: 'standalone'` on BUILD_STANDALONE so other
- # web builds keep their default output.
- ENV BUILD_STANDALONE=true
--RUN pnpm build-web
-+RUN pnpm patch-build-webpack && NODE_OPTIONS=--max-old-space-size=8192 pnpm build-web
- 
- # Production runtime ships only the standalone server, its traced node_modules,
- # and the static/public assets — no pnpm, no source tree, no dev dependencies,
-diff --git a/apps/readest-app/next.config.mjs b/apps/readest-app/next.config.mjs
-index 4fece62..871319d 100644
---- a/apps/readest-app/next.config.mjs
-+++ b/apps/readest-app/next.config.mjs
-@@ -1,6 +1,7 @@
- import withSerwistInit from '@serwist/next';
- import withBundleAnalyzer from '@next/bundle-analyzer';
- import path from 'node:path';
-+import { randomUUID } from 'node:crypto';
- import { fileURLToPath } from 'node:url';
- 
- const __dirname = path.dirname(fileURLToPath(import.meta.url));
-@@ -187,6 +188,7 @@ const withPWA = pwaDisabled
-   : withSerwistInit({
-       swSrc: 'src/sw.ts',
-       swDest: 'public/sw.js',
-+      additionalPrecacheEntries: [{ url: '/offline', revision: randomUUID() }],
-       cacheOnNavigation: true,
-       reloadOnOnline: true,
-       disable: false,
 diff --git a/apps/readest-app/src/__tests__/services/tts-controller.test.ts b/apps/readest-app/src/__tests__/services/tts-controller.test.ts
-index c47b0ae..2c05b40 100644
+index c47b0ae1..2c05b40d 100644
 --- a/apps/readest-app/src/__tests__/services/tts-controller.test.ts
 +++ b/apps/readest-app/src/__tests__/services/tts-controller.test.ts
 @@ -3,6 +3,7 @@ import { TTSController } from '@/services/tts/TTSController';
@@ -125,48 +92,8 @@ index c47b0ae..2c05b40 100644
        await controller.init();
        expect(controller.ttsClient.name).toBe('web');
      });
-diff --git a/apps/readest-app/src/__tests__/services/web-speech-client.test.ts b/apps/readest-app/src/__tests__/services/web-speech-client.test.ts
-index 49cb84a..f166967 100644
---- a/apps/readest-app/src/__tests__/services/web-speech-client.test.ts
-+++ b/apps/readest-app/src/__tests__/services/web-speech-client.test.ts
-@@ -135,3 +135,35 @@ describe('WebSpeechClient init with no voices available', () => {
-     expect((await client.getAllVoices()).length).toBe(voices.length);
-   });
- });
-+
-+describe('WebSpeechClient Android locale voices', () => {
-+  test.each([
-+    ['ja', 'Japanese Japan', 'ja_JP'],
-+    ['en-US', 'English United States', 'en_US'],
-+  ])('offers Android voices for %s books', async (bookLang, name, voiceLang) => {
-+    const androidVoices = [
-+      makeVoice('Japanese Japan', 'ja_JP'),
-+      makeVoice('English United States', 'en_US'),
-+    ];
-+    Object.defineProperty(window, 'speechSynthesis', {
-+      value: {
-+        getVoices: () => androidVoices,
-+        cancel: vi.fn(),
-+        pause: vi.fn(),
-+        resume: vi.fn(),
-+        speak: vi.fn(),
-+      },
-+      configurable: true,
-+    });
-+    const client = new WebSpeechClient();
-+    await client.init();
-+
-+    const groups = await client.getVoices(bookLang);
-+
-+    expect(groups[0]!.disabled).toBe(false);
-+    expect(groups[0]!.voices.map((voice) => voice.name)).toEqual([name]);
-+    expect(await client.getWebSpeechVoiceFromLang(bookLang)).toBe(
-+      androidVoices.find((voice) => voice.lang === voiceLang),
-+    );
-+  });
-+});
 diff --git a/apps/readest-app/src/services/tts/TTSController.ts b/apps/readest-app/src/services/tts/TTSController.ts
-index b56a693..86b5ade 100644
+index b56a6937..86b5ade2 100644
 --- a/apps/readest-app/src/services/tts/TTSController.ts
 +++ b/apps/readest-app/src/services/tts/TTSController.ts
 @@ -34,6 +34,8 @@ import { DownloadableSentence, SectionEnumerator, TTSDownloader } from './TTSDow
@@ -216,57 +143,3 @@ index b56a693..86b5ade 100644
      // A different voice speaks at a different pace: re-estimate the timeline
      // under the new voice (measured durations are keyed per voice already).
      this.#sectionTimeline?.setVoice(this.ttsClient.getVoiceId());
-diff --git a/apps/readest-app/src/sw.ts b/apps/readest-app/src/sw.ts
-index 3077e95..8ed3346 100644
---- a/apps/readest-app/src/sw.ts
-+++ b/apps/readest-app/src/sw.ts
-@@ -1,3 +1,4 @@
-+import { PAGES_CACHE_NAME } from '@serwist/next/worker';
- import type { PrecacheEntry, SerwistGlobalConfig } from 'serwist';
- import { NetworkFirst, CacheFirst, ExpirationPlugin, Serwist } from 'serwist';
- 
-@@ -27,13 +28,10 @@ const serwist = new Serwist({
-   },
-   runtimeCaching: [
-     {
--      matcher: ({ url, request }) => {
--        const clientRoutes = ['/library', '/reader'];
--        const isClientRoute = clientRoutes.some((route) => url.pathname.startsWith(route));
--        return isClientRoute && request.mode === 'navigate';
--      },
-+      matcher: ({ url, request, sameOrigin }) =>
-+        sameOrigin && request.mode === 'navigate' && !url.pathname.startsWith('/api/'),
-       handler: new NetworkFirst({
--        cacheName: 'client-pages',
-+        cacheName: PAGES_CACHE_NAME.html,
-         networkTimeoutSeconds: 3,
-         matchOptions: {
-           ignoreSearch: true,
-@@ -43,14 +41,6 @@ const serwist = new Serwist({
-             maxEntries: 128,
-             maxAgeSeconds: 365 * 24 * 60 * 60,
-           }),
--          {
--            cacheKeyWillBeUsed: async ({ request }) => {
--              const url = new URL(request.url);
--              const basePath = url.pathname.split('/')[1];
--              const cacheKey = `${url.origin}/${basePath}`;
--              return cacheKey;
--            },
--          },
-         ],
-       }),
-     },
-diff --git a/apps/readest-app/src/utils/lang.ts b/apps/readest-app/src/utils/lang.ts
-index d0d1463..e6e74a6 100644
---- a/apps/readest-app/src/utils/lang.ts
-+++ b/apps/readest-app/src/utils/lang.ts
-@@ -101,7 +101,7 @@ export const normalizeToShortLang = (langCode: string): string => {
- 
- export const normalizedLangCode = (lang: string | null | undefined): string => {
-   if (!lang) return '';
--  return lang.split('-')[0]!.toLowerCase();
-+  return lang.split(/[-_]/)[0]!.toLowerCase();
- };
- 
- export const isSameLang = (lang1?: string | null, lang2?: string | null): boolean => {
