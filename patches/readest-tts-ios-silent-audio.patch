@@ -1,99 +1,101 @@
 diff --git a/apps/readest-app/src/__tests__/services/tts-controller.test.ts b/apps/readest-app/src/__tests__/services/tts-controller.test.ts
-index c47b0ae1..2c05b40d 100644
+index c47b0ae13..a73180a33 100644
 --- a/apps/readest-app/src/__tests__/services/tts-controller.test.ts
 +++ b/apps/readest-app/src/__tests__/services/tts-controller.test.ts
-@@ -3,6 +3,7 @@ import { TTSController } from '@/services/tts/TTSController';
- import { TTSClient, TTSMessageEvent } from '@/services/tts/TTSClient';
- import { TTSGranularity, TTSVoicesGroup } from '@/services/tts/types';
- import { TTSUtils } from '@/services/tts/TTSUtils';
-+import { releaseUnblockAudio, unblockAudio } from '@/services/tts/ttsMediaBridge';
- import { FoliateView } from '@/types/view';
- import { AppService } from '@/types/system';
+@@ -41,6 +41,13 @@ vi.mock('@/services/tts/WebAudioPlayer', async (importActual) => ({
+   startAudioKeepAlive: () => startKeepAlive(),
+   stopAudioKeepAlive: () => stopKeepAlive(),
+ }));
++const releaseUnblock = vi.fn();
++const unblock = vi.fn();
++vi.mock('@/services/tts/ttsMediaBridge', async (importActual) => ({
++  ...(await importActual<typeof import('@/services/tts/ttsMediaBridge')>()),
++  releaseUnblockAudio: () => releaseUnblock(),
++  unblockAudio: () => unblock(),
++}));
  
-@@ -229,6 +230,72 @@ describe('TTSController', () => {
+ vi.mock('@/services/tts/TTSUtils', () => ({
+   TTSUtils: {
+@@ -229,6 +236,77 @@ describe('TTSController', () => {
      vi.restoreAllMocks();
    });
  
 +  describe('iOS Web TTS silent audio ownership', () => {
-+    let audioElements: HTMLAudioElement[];
-+
 +    beforeEach(() => {
 +      vi.spyOn(navigator, 'userAgent', 'get').mockReturnValue(
 +        'Mozilla/5.0 (iPhone; CPU iPhone OS 26_0 like Mac OS X)',
 +      );
-+      vi.spyOn(HTMLMediaElement.prototype, 'play').mockResolvedValue();
-+      vi.spyOn(HTMLMediaElement.prototype, 'pause').mockImplementation(() => {});
-+      vi.spyOn(HTMLMediaElement.prototype, 'load').mockImplementation(() => {});
-+      releaseUnblockAudio();
-+      audioElements = [];
-+      const createElement = document.createElement.bind(document);
-+      vi.spyOn(document, 'createElement').mockImplementation(((
-+        tagName: string,
-+        options?: ElementCreationOptions,
-+      ) => {
-+        const element = createElement(tagName, options);
-+        if (tagName === 'audio') audioElements.push(element as HTMLAudioElement);
-+        return element;
-+      }) as typeof document.createElement);
++      releaseUnblock.mockClear();
++      unblock.mockClear();
++      speakingControllers.push(controller);
 +    });
 +
-+    afterEach(() => {
-+      releaseUnblockAudio();
-+    });
-+
-+    test('releases the silent audio when the remembered iOS voice is Web TTS', async () => {
++    test('releases the silent audio once reading starts with Web TTS', async () => {
 +      vi.mocked(TTSUtils.getPreferredClient).mockReturnValueOnce('web');
-+      unblockAudio();
-+      const audio = audioElements[0]!;
-+      expect(audio.src).not.toBe('');
-+
 +      await controller.init();
++      await controller.initViewTTS(0);
++      expect(
++        releaseUnblock,
++        'the silent audio is left alone until reading starts',
++      ).not.toHaveBeenCalled();
++
++      await controller.speak('<speak>hello</speak>');
 +
 +      expect(controller.ttsClient).toBe(controller.ttsWebClient);
-+      expect(audio.getAttribute('src')).toBe('');
++      expect(releaseUnblock, 'the silent audio is released for Web TTS').toHaveBeenCalled();
++      expect(unblock, 'the silent audio stays released').not.toHaveBeenCalled();
 +    });
 +
-+    test('restores silent audio when switching from iOS Web TTS to Edge', async () => {
++    test("releases it when the book's language picks Web TTS", async () => {
++      await controller.init();
++      await controller.initViewTTS(0);
++      expect(controller.ttsClient).toBe(controller.ttsEdgeClient);
++      expect(unblock, 'the silent audio is left alone until reading starts').not.toHaveBeenCalled();
++
++      vi.mocked(TTSUtils.getPreferredClientForLang).mockReturnValueOnce('web');
++      await controller.setLang('ja');
++      await controller.speak('<speak>hello</speak>');
++
++      expect(controller.ttsClient).toBe(controller.ttsWebClient);
++      expect(releaseUnblock, 'the silent audio is released for Web TTS').toHaveBeenCalled();
++      expect(unblock, 'the silent audio stays released').not.toHaveBeenCalled();
++    });
++
++    test('restores it when switching from Web TTS to Edge', async () => {
 +      controller.ttsEdgeVoices = [{ id: 'edge-voice-1', name: 'Edge', lang: 'ja-JP' }];
-+      unblockAudio();
-+      const previousAudio = audioElements[0]!;
++      await controller.initViewTTS(0);
 +
 +      await controller.setVoice('unknown-voice', 'ja');
++      await controller.start();
++      expect(controller.ttsClient).toBe(controller.ttsWebClient);
++      expect(releaseUnblock, 'the silent audio is released for Web TTS').toHaveBeenCalledTimes(1);
 +
-+      expect(previousAudio.getAttribute('src')).toBe('');
++      await controller.stop();
 +      await controller.setVoice('edge-voice-1', 'ja');
++      await controller.start();
 +      expect(controller.ttsClient).toBe(controller.ttsEdgeClient);
-+      expect(audioElements).toHaveLength(2);
-+      expect(audioElements[1]!.src).not.toBe('');
++      expect(unblock, 'the silent audio is restored for Edge').toHaveBeenCalledTimes(1);
 +    });
 +
-+    test('preserves silent audio for Web TTS on Windows', async () => {
++    test('leaves the silent audio alone for Web TTS on Windows', async () => {
 +      vi.spyOn(navigator, 'userAgent', 'get').mockReturnValue(
 +        'Mozilla/5.0 (Windows NT 10.0; Win64; x64)',
 +      );
-+      unblockAudio();
-+      const audio = audioElements[0]!;
++      await controller.initViewTTS(0);
 +
 +      await controller.setVoice('unknown-voice', 'ja');
++      await controller.start();
 +
-+      expect(audio.src).not.toBe('');
++      expect(releaseUnblock).not.toHaveBeenCalled();
++      expect(unblock).not.toHaveBeenCalled();
 +    });
 +  });
 +
    describe('constructor', () => {
      test('sets initial state to stopped', () => {
        expect(controller.state).toBe('stopped');
-@@ -355,7 +422,7 @@ describe('TTSController', () => {
-     });
- 
-     test('respects preferred client from TTSUtils', async () => {
--      vi.mocked(TTSUtils.getPreferredClient).mockReturnValue('web');
-+      vi.mocked(TTSUtils.getPreferredClient).mockReturnValueOnce('web');
-       await controller.init();
-       expect(controller.ttsClient.name).toBe('web');
-     });
 diff --git a/apps/readest-app/src/services/tts/TTSController.ts b/apps/readest-app/src/services/tts/TTSController.ts
-index b56a6937..86b5ade2 100644
+index b56a69372..0ae0e9be2 100644
 --- a/apps/readest-app/src/services/tts/TTSController.ts
 +++ b/apps/readest-app/src/services/tts/TTSController.ts
 @@ -34,6 +34,8 @@ import { DownloadableSentence, SectionEnumerator, TTSDownloader } from './TTSDow
@@ -105,10 +107,16 @@ index b56a6937..86b5ade2 100644
  import { isSameLang, isValidLang } from '@/utils/lang';
  import { normalizeLyricText } from '@/utils/ttsLyrics';
  import {
-@@ -384,6 +386,13 @@ export class TTSController extends EventTarget {
+@@ -384,6 +386,19 @@ export class TTSController extends EventTarget {
      });
    }
  
++  // In the browser on iOS, Web Speech is silent while the looping element from
++  // unblockAudio() plays, so the element goes while Web Speech reads and comes
++  // back for the other engines, which need it to play with the mute switch on.
++  // Synced when reading starts, not where the engine is chosen: setLang() can
++  // still switch engines after init(), and a start stopped before it speaks
++  // must not bring the element back.
 +  #syncSilentAudio() {
 +    if (getOSPlatform() === 'ios' && !this.appService?.isIOSApp) {
 +      if (this.ttsClient === this.ttsWebClient) releaseUnblockAudio();
@@ -119,27 +127,19 @@ index b56a6937..86b5ade2 100644
    // Keep the hidden WebView schedulable, in the two cases where it would
    // otherwise fall silent and get frozen by Chromium. Android-only (iOS drives
    // playout through its own native audio session).
-@@ -576,6 +585,7 @@ export class TTSController extends EventTarget {
-         this.ttsClient = this.ttsMediaOverlayClient;
-       }
-     }
-+    this.#syncSilentAudio();
+@@ -2148,6 +2163,7 @@ export class TTSController extends EventTarget {
    }
  
-   get narrationAvailable(): boolean {
-@@ -2406,6 +2416,7 @@ export class TTSController extends EventTarget {
-       await this.ttsMediaOverlayClient.setRate(this.ttsRate);
-       TTSUtils.setPreferredVoice(this.ttsMediaOverlayClient.name, lang, voiceId);
-       this.#sectionTimeline?.setVoice(this.ttsMediaOverlayClient.getVoiceId());
-+      this.#syncSilentAudio();
-       return;
-     }
- 
-@@ -2449,6 +2460,7 @@ export class TTSController extends EventTarget {
-     TTSUtils.setPreferredClient(this.ttsClient.name, this.ttsLang);
-     TTSUtils.setPreferredVoice(this.ttsClient.name, lang, voiceId);
-     await this.ttsClient.setVoice(voiceId);
+   async speak(ssml: string | Promise<string>, oneTime = false, oneTimeCallback?: () => void) {
 +    this.#syncSilentAudio();
-     // A different voice speaks at a different pace: re-estimate the timeline
-     // under the new voice (measured durations are keyed per voice already).
-     this.#sectionTimeline?.setVoice(this.ttsClient.getVoiceId());
+     await this.initViewTTS();
+     this.#speak(ssml, oneTime)
+       .then(() => {
+@@ -2168,6 +2184,7 @@ export class TTSController extends EventTarget {
+   }
+ 
+   async start() {
++    this.#syncSilentAudio();
+     await this.initViewTTS();
+     // Always resume from the current list position instead of calling tts.start().
+     // tts.start() resets the TTS list to position 0 (section beginning), which is
