@@ -1,5 +1,56 @@
+diff --git a/apps/readest-app/src/__tests__/hooks/useTTSControl.test.tsx b/apps/readest-app/src/__tests__/hooks/useTTSControl.test.tsx
+index a59cdff77..dc4a19979 100644
+--- a/apps/readest-app/src/__tests__/hooks/useTTSControl.test.tsx
++++ b/apps/readest-app/src/__tests__/hooks/useTTSControl.test.tsx
+@@ -173,6 +173,7 @@ vi.mock('@/services/tts', () => ({
+       startFromRange: vi.fn().mockReturnValue('<speak>hello</speak>'),
+       stop: vi.fn().mockResolvedValue(undefined),
+       shutdown: vi.fn().mockResolvedValue(undefined),
++      unblockSilentAudio: vi.fn(),
+       forward: vi.fn().mockResolvedValue(undefined),
+       backward: vi.fn().mockResolvedValue(undefined),
+       getVoices: vi.fn().mockResolvedValue([]),
+@@ -473,6 +474,38 @@ describe('useTTSControl changing the voice', () => {
+     expect(controller.setVoice).toHaveBeenCalledWith('edge:en-US-GuyNeural', 'en');
+     await waitFor(() => expect(controller.start).toHaveBeenCalled());
+   });
++
++  it('plays the silent audio inside the tap, before stopping to switch voices', async () => {
++    render(<ApiHarness />);
++    await act(async () => {
++      const started = eventDispatcher.dispatch('tts-speak', { bookKey: 'book-1' });
++      for (let i = 0; i < 10; i++) await Promise.resolve();
++      while (pendingInitResolvers.length > 0) pendingInitResolvers.shift()!();
++      await started;
++    });
++    const controller = ttsControllerInstances.at(-1) as {
++      state: string;
++      stop: ReturnType<typeof vi.fn>;
++      unblockSilentAudio: ReturnType<typeof vi.fn>;
++    };
++    controller.state = 'playing';
++    const calls: string[] = [];
++    controller.unblockSilentAudio.mockImplementation(() => calls.push('unblock'));
++    controller.stop.mockImplementation(async () => {
++      calls.push('stop');
++    });
++    // What runs before the first await is what runs inside the tap.
++    let beforeAwait: string[] = [];
++    await act(async () => {
++      const switching = hookApi!.handleSetVoice('edge:en-US-AvaNeural', 'en');
++      beforeAwait = [...calls];
++      await switching;
++    });
++    expect(beforeAwait, 'the silent audio plays before the switch leaves the tap').toEqual([
++      'unblock',
++      'stop',
++    ]);
++  });
+ });
+ 
+ describe('useTTSControl a start that fails', () => {
 diff --git a/apps/readest-app/src/__tests__/services/tts-controller.test.ts b/apps/readest-app/src/__tests__/services/tts-controller.test.ts
-index c47b0ae13..a73180a33 100644
+index c47b0ae13..96421c767 100644
 --- a/apps/readest-app/src/__tests__/services/tts-controller.test.ts
 +++ b/apps/readest-app/src/__tests__/services/tts-controller.test.ts
 @@ -41,6 +41,13 @@ vi.mock('@/services/tts/WebAudioPlayer', async (importActual) => ({
@@ -16,7 +67,7 @@ index c47b0ae13..a73180a33 100644
  
  vi.mock('@/services/tts/TTSUtils', () => ({
    TTSUtils: {
-@@ -229,6 +236,77 @@ describe('TTSController', () => {
+@@ -229,6 +236,95 @@ describe('TTSController', () => {
      vi.restoreAllMocks();
    });
  
@@ -77,6 +128,24 @@ index c47b0ae13..a73180a33 100644
 +      expect(unblock, 'the silent audio is restored for Edge').toHaveBeenCalledTimes(1);
 +    });
 +
++    test('plays the silent audio for a voice change only in the browser on iOS', () => {
++      controller.unblockSilentAudio();
++      expect(unblock, 'played in the browser on iOS').toHaveBeenCalledTimes(1);
++
++      vi.spyOn(navigator, 'userAgent', 'get').mockReturnValue(
++        'Mozilla/5.0 (Windows NT 10.0; Win64; x64)',
++      );
++      controller.unblockSilentAudio();
++      expect(unblock, 'left alone on Windows').toHaveBeenCalledTimes(1);
++
++      vi.spyOn(navigator, 'userAgent', 'get').mockReturnValue(
++        'Mozilla/5.0 (iPhone; CPU iPhone OS 26_0 like Mac OS X)',
++      );
++      const iosApp = new TTSController(createMockAppService(false, true), mockView, false);
++      iosApp.unblockSilentAudio();
++      expect(unblock, 'left alone in the iOS app').toHaveBeenCalledTimes(1);
++    });
++
 +    test('leaves the silent audio alone for Web TTS on Windows', async () => {
 +      vi.spyOn(navigator, 'userAgent', 'get').mockReturnValue(
 +        'Mozilla/5.0 (Windows NT 10.0; Win64; x64)',
@@ -94,8 +163,25 @@ index c47b0ae13..a73180a33 100644
    describe('constructor', () => {
      test('sets initial state to stopped', () => {
        expect(controller.state).toBe('stopped');
+diff --git a/apps/readest-app/src/app/reader/hooks/useTTSControl.ts b/apps/readest-app/src/app/reader/hooks/useTTSControl.ts
+index d56bc9bba..702a1e119 100644
+--- a/apps/readest-app/src/app/reader/hooks/useTTSControl.ts
++++ b/apps/readest-app/src/app/reader/hooks/useTTSControl.ts
+@@ -1358,6 +1358,12 @@ export const useTTSControl = ({ bookKey, onRequestHidePanel }: UseTTSControlProp
+       const ttsController = ttsControllerRef.current;
+       if (ttsController) {
+         if (ttsController.state === 'playing' || resume) {
++          // In the browser on iOS the silent element is released while Web
++          // Speech reads, and the start() below, after these awaits, may be
++          // too late for the browser to let a new one play. Play it now, still
++          // inside the tap when the throttle runs this at once. start()
++          // releases it again if the new voice is Web Speech.
++          ttsController.unblockSilentAudio();
+           await ttsController.stop();
+           await ttsController.setVoice(voice, lang);
+           await ttsController.start();
 diff --git a/apps/readest-app/src/services/tts/TTSController.ts b/apps/readest-app/src/services/tts/TTSController.ts
-index b56a69372..0ae0e9be2 100644
+index b56a69372..2455174e4 100644
 --- a/apps/readest-app/src/services/tts/TTSController.ts
 +++ b/apps/readest-app/src/services/tts/TTSController.ts
 @@ -34,6 +34,8 @@ import { DownloadableSentence, SectionEnumerator, TTSDownloader } from './TTSDow
@@ -107,7 +193,7 @@ index b56a69372..0ae0e9be2 100644
  import { isSameLang, isValidLang } from '@/utils/lang';
  import { normalizeLyricText } from '@/utils/ttsLyrics';
  import {
-@@ -384,6 +386,19 @@ export class TTSController extends EventTarget {
+@@ -384,6 +386,30 @@ export class TTSController extends EventTarget {
      });
    }
  
@@ -118,16 +204,27 @@ index b56a69372..0ae0e9be2 100644
 +  // still switch engines after init(), and a start stopped before it speaks
 +  // must not bring the element back.
 +  #syncSilentAudio() {
-+    if (getOSPlatform() === 'ios' && !this.appService?.isIOSApp) {
++    if (this.#releasesSilentAudio()) {
 +      if (this.ttsClient === this.ttsWebClient) releaseUnblockAudio();
 +      else unblockAudio();
 +    }
 +  }
 +
++  // For the tap that changes the voice, before it awaits anything: start()
++  // runs after those awaits, where the browser may refuse to play an element
++  // it creates. Only needed where #syncSilentAudio() releases the element.
++  unblockSilentAudio() {
++    if (this.#releasesSilentAudio()) unblockAudio();
++  }
++
++  #releasesSilentAudio() {
++    return getOSPlatform() === 'ios' && !this.appService?.isIOSApp;
++  }
++
    // Keep the hidden WebView schedulable, in the two cases where it would
    // otherwise fall silent and get frozen by Chromium. Android-only (iOS drives
    // playout through its own native audio session).
-@@ -2148,6 +2163,7 @@ export class TTSController extends EventTarget {
+@@ -2148,6 +2174,7 @@ export class TTSController extends EventTarget {
    }
  
    async speak(ssml: string | Promise<string>, oneTime = false, oneTimeCallback?: () => void) {
@@ -135,7 +232,7 @@ index b56a69372..0ae0e9be2 100644
      await this.initViewTTS();
      this.#speak(ssml, oneTime)
        .then(() => {
-@@ -2168,6 +2184,7 @@ export class TTSController extends EventTarget {
+@@ -2168,6 +2195,7 @@ export class TTSController extends EventTarget {
    }
  
    async start() {
