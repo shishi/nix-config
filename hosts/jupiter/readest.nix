@@ -296,7 +296,7 @@ let
         };
       };
       auth = {
-        image = "supabase/gotrue:v2.185.0@sha256:de22ff0811f3e4f7e6d3ba226f75ed8d82310df577bbd61e16fbfd7a50a8c9ce";
+        image = "supabase/gotrue:v2.198.0@sha256:ba8c0c82c574756c835c696df2a2c698020cc408a42034013d3712e34de7964d";
         restart = "unless-stopped";
         depends_on.db.condition = "service_healthy";
         environment = {
