@@ -229,6 +229,7 @@ in
     ./mcp.nix
     ./slate.nix
     ./readest.nix
+    ./openwhispr.nix
   ];
 
   # Flutter 版は hwcodec を標準で含み、独自ビルドなしで GPU 動画圧縮を使える。

@@ -29,6 +29,7 @@ nix run .#switch
 ## jupiter
 
 Slate の既存トンネルの入力・常駐化は [MCP トンネル手順](jupiter-mcp-runbook.md)を使う。
+OpenWhispr の推論モデル常駐化は [OpenWhispr の運用手順](openwhispr-runbook.md)を使う。
 
 ### Flake app
 

@@ -35,6 +35,89 @@
     in
     {
       checks = {
+        openwhispr-models =
+          pkgs.runCommand "openwhispr-models"
+            {
+              nativeBuildInputs = with pkgs; [
+                bash
+                coreutils
+                curl
+                jq
+              ];
+            }
+            ''
+              bash ${../scripts/openwhispr-models.test.sh} ${../scripts/openwhispr-models.sh}
+              touch $out
+            '';
+
+        openwhispr-contract =
+          let
+            cfg = self.nixosConfigurations.jupiter.config;
+            serviceNames = [
+              "openwhispr-models"
+              "openwhispr-whisper"
+              "openwhispr-cleanup"
+              "openwhispr-serve"
+            ];
+            actual = {
+              services = builtins.listToAttrs (
+                map (
+                  name:
+                  let
+                    service = cfg.systemd.services.${name} or { };
+                    sc = service.serviceConfig or { };
+                  in
+                  {
+                    inherit name;
+                    value = {
+                      exec = sc.ExecStart or "";
+                      user = sc.User or "";
+                      timeout = sc.TimeoutStartSec or "";
+                      state = sc.StateDirectory or "";
+                      preventRestart = sc.RestartPreventExitStatus or [ ];
+                      requires = service.requires or [ ];
+                      requisite = service.unitConfig.Requisite or [ ];
+                      stopIfChanged = service.stopIfChanged or true;
+                      wants = service.wants or [ ];
+                      after = service.after or [ ];
+                    };
+                  }
+                ) serviceNames
+              );
+              tailscaledWants = cfg.systemd.services.tailscaled.wants;
+              groups = cfg.users.users.openwhispr.extraGroups or [ ];
+              graphics = cfg.hardware.graphics.enable;
+            };
+            configFile = pkgs.writeText "openwhispr-contract.json" (
+              builtins.unsafeDiscardStringContext (builtins.toJSON actual)
+            );
+            modelManifest = cfg.system.build.openwhisprModelManifest;
+            forbiddenGraph = pkgs.writeText "openwhispr-forbidden-derivation.json" (
+              builtins.toJSON {
+                version = 4;
+                derivations.model.outputs.out = {
+                  method = "flat";
+                  hash = builtins.convertHash {
+                    hash = (builtins.head modelManifest.models).sha256;
+                    hashAlgo = "sha256";
+                    toHashFormat = "sri";
+                  };
+                };
+              }
+            );
+            emptyGraph = pkgs.writeText "openwhispr-empty-derivations.json" "{}";
+          in
+          pkgs.runCommand "openwhispr-contract" { } ''
+            ${pkgs.python3.interpreter} ${../scripts/openwhispr-contract.test.py} ${configFile}
+            ${pkgs.python3.interpreter} ${../scripts/openwhispr-model-closure.py} ${modelManifest} ${emptyGraph}
+            if ${pkgs.python3.interpreter} ${../scripts/openwhispr-model-closure.py} ${modelManifest} ${forbiddenGraph} > forbidden.log 2>&1; then
+              echo "The closure check accepted a model output" >&2
+              exit 1
+            fi
+            ${pkgs.gnugrep}/bin/grep -q 'Model bytes entered the system derivation closure' forbidden.log
+            touch $out
+          '';
+
         direnv-contract = pkgs.runCommand "direnv-contract" { } ''
           ${pkgs.bash}/bin/bash ${../scripts/direnv.test.sh} ${../.envrc}
           ${pkgs.bash}/bin/bash ${../scripts/direnv.test.sh} ${../templates/basic/.envrc}

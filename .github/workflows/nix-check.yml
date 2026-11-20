@@ -35,6 +35,11 @@ jobs:
         with:
           github_access_token: ${{ secrets.GITHUB_TOKEN }}
       - run: nix develop --accept-flake-config --no-update-lock-file .#cache -c python3 scripts/push-missing-to-r2.test.py scripts/push-missing-to-r2.py
+      - name: Check that model outputs do not enter the system closure
+        run: |
+          manifest=$(nix build --accept-flake-config --no-update-lock-file --no-link --print-out-paths .#nixosConfigurations.jupiter.config.system.build.openwhisprModelManifest)
+          nix derivation show --accept-flake-config --no-update-lock-file --recursive .#nixosConfigurations.jupiter.config.system.build.toplevel > "$RUNNER_TEMP/jupiter-derivations.json"
+          nix develop --accept-flake-config --no-update-lock-file .#cache -c python3 scripts/openwhispr-model-closure.py "$manifest" "$RUNNER_TEMP/jupiter-derivations.json"
       - run: nix flake check --accept-flake-config --no-update-lock-file --print-build-logs
       # Readest の構成が変わる PR では、基準 commit で作ったデータに更新後の構成を起動して
       # 互換性を確かめる。この job は必須チェックなので、失敗した更新は自動マージされない。
