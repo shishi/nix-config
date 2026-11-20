@@ -50,7 +50,7 @@ index a59cdff77..dc4a19979 100644
  
  describe('useTTSControl a start that fails', () => {
 diff --git a/apps/readest-app/src/__tests__/services/tts-controller.test.ts b/apps/readest-app/src/__tests__/services/tts-controller.test.ts
-index c47b0ae13..96421c767 100644
+index c47b0ae13..dbdcea769 100644
 --- a/apps/readest-app/src/__tests__/services/tts-controller.test.ts
 +++ b/apps/readest-app/src/__tests__/services/tts-controller.test.ts
 @@ -41,6 +41,13 @@ vi.mock('@/services/tts/WebAudioPlayer', async (importActual) => ({
@@ -67,7 +67,7 @@ index c47b0ae13..96421c767 100644
  
  vi.mock('@/services/tts/TTSUtils', () => ({
    TTSUtils: {
-@@ -229,6 +236,95 @@ describe('TTSController', () => {
+@@ -229,6 +236,127 @@ describe('TTSController', () => {
      vi.restoreAllMocks();
    });
  
@@ -158,6 +158,38 @@ index c47b0ae13..96421c767 100644
 +      expect(releaseUnblock).not.toHaveBeenCalled();
 +      expect(unblock).not.toHaveBeenCalled();
 +    });
++
++    // iPadOS Safari sends a desktop ("Macintosh") user agent.
++    test('releases it for Web TTS in the browser on iPad', async () => {
++      vi.spyOn(navigator, 'userAgent', 'get').mockReturnValue(
++        'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/605.1.15 Version/26.0 Safari/605.1.15',
++      );
++      Object.defineProperty(navigator, 'maxTouchPoints', { value: 5, configurable: true });
++      try {
++        await controller.initViewTTS(0);
++
++        await controller.setVoice('unknown-voice', 'ja');
++        await controller.start();
++
++        expect(controller.ttsClient).toBe(controller.ttsWebClient);
++        expect(releaseUnblock, 'the silent audio is released on iPad').toHaveBeenCalled();
++      } finally {
++        Reflect.deleteProperty(navigator, 'maxTouchPoints');
++      }
++    });
++
++    test('leaves it alone for Web TTS in the browser on a Mac', async () => {
++      vi.spyOn(navigator, 'userAgent', 'get').mockReturnValue(
++        'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/605.1.15 Version/26.0 Safari/605.1.15',
++      );
++      await controller.initViewTTS(0);
++
++      await controller.setVoice('unknown-voice', 'ja');
++      await controller.start();
++
++      expect(releaseUnblock).not.toHaveBeenCalled();
++      expect(unblock).not.toHaveBeenCalled();
++    });
 +  });
 +
    describe('constructor', () => {
@@ -181,7 +213,7 @@ index d56bc9bba..702a1e119 100644
            await ttsController.setVoice(voice, lang);
            await ttsController.start();
 diff --git a/apps/readest-app/src/services/tts/TTSController.ts b/apps/readest-app/src/services/tts/TTSController.ts
-index b56a69372..2455174e4 100644
+index b56a69372..a4a83ca80 100644
 --- a/apps/readest-app/src/services/tts/TTSController.ts
 +++ b/apps/readest-app/src/services/tts/TTSController.ts
 @@ -34,6 +34,8 @@ import { DownloadableSentence, SectionEnumerator, TTSDownloader } from './TTSDow
@@ -193,19 +225,20 @@ index b56a69372..2455174e4 100644
  import { isSameLang, isValidLang } from '@/utils/lang';
  import { normalizeLyricText } from '@/utils/ttsLyrics';
  import {
-@@ -384,6 +386,30 @@ export class TTSController extends EventTarget {
+@@ -384,6 +386,35 @@ export class TTSController extends EventTarget {
      });
    }
  
 +  // In the browser on iOS, Web Speech is silent while the looping element from
-+  // unblockAudio() plays, so the element goes while Web Speech reads and comes
-+  // back for the other engines, which need it to play with the mute switch on.
++  // unblockAudio() plays, so the element goes while a direct-speak engine (the
++  // OS renders its audio; Web Speech there) reads and comes back for the other
++  // engines, which need it to play with the mute switch on.
 +  // Synced when reading starts, not where the engine is chosen: setLang() can
 +  // still switch engines after init(), and a start stopped before it speaks
 +  // must not bring the element back.
 +  #syncSilentAudio() {
 +    if (this.#releasesSilentAudio()) {
-+      if (this.ttsClient === this.ttsWebClient) releaseUnblockAudio();
++      if (this.ttsClient.getCapabilities().mediaClock === false) releaseUnblockAudio();
 +      else unblockAudio();
 +    }
 +  }
@@ -217,14 +250,18 @@ index b56a69372..2455174e4 100644
 +    if (this.#releasesSilentAudio()) unblockAudio();
 +  }
 +
++  // iPadOS Safari sends a desktop ("Macintosh") user agent; touch points give
++  // it away.
 +  #releasesSilentAudio() {
-+    return getOSPlatform() === 'ios' && !this.appService?.isIOSApp;
++    const os = getOSPlatform();
++    const iOS = os === 'ios' || (os === 'macos' && navigator.maxTouchPoints > 1);
++    return iOS && !this.appService?.isIOSApp;
 +  }
 +
    // Keep the hidden WebView schedulable, in the two cases where it would
    // otherwise fall silent and get frozen by Chromium. Android-only (iOS drives
    // playout through its own native audio session).
-@@ -2148,6 +2174,7 @@ export class TTSController extends EventTarget {
+@@ -2148,6 +2179,7 @@ export class TTSController extends EventTarget {
    }
  
    async speak(ssml: string | Promise<string>, oneTime = false, oneTimeCallback?: () => void) {
@@ -232,7 +269,7 @@ index b56a69372..2455174e4 100644
      await this.initViewTTS();
      this.#speak(ssml, oneTime)
        .then(() => {
-@@ -2168,6 +2195,7 @@ export class TTSController extends EventTarget {
+@@ -2168,6 +2200,7 @@ export class TTSController extends EventTarget {
    }
  
    async start() {

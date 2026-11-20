@@ -1,5 +1,5 @@
 diff --git a/apps/readest-app/next.config.mjs b/apps/readest-app/next.config.mjs
-index 4fece62c..e13bb179 100644
+index 4fece62ca..e13bb179d 100644
 --- a/apps/readest-app/next.config.mjs
 +++ b/apps/readest-app/next.config.mjs
 @@ -1,6 +1,7 @@
@@ -27,3 +27,46 @@ index 4fece62c..e13bb179 100644
        cacheOnNavigation: true,
        reloadOnOnline: true,
        disable: false,
+diff --git a/apps/readest-app/src/__tests__/next-config.test.ts b/apps/readest-app/src/__tests__/next-config.test.ts
+index d47389f9c..dde17ce4f 100644
+--- a/apps/readest-app/src/__tests__/next-config.test.ts
++++ b/apps/readest-app/src/__tests__/next-config.test.ts
+@@ -92,3 +92,38 @@ describe('Browser-only database WASM', () => {
+     expect(web.turbopack?.resolveAlias?.['@readest/turso-database-wasm/webpack']).toBeUndefined();
+   });
+ });
++
++describe('Service worker precache', () => {
++  // sw.ts serves its offline fallback from the precache only, so the web build
++  // has to add /offline to the manifest, next to the public/ files.
++  type ManifestEntry = { url: string; revision: string | null; size: number };
++  type SerwistOptions = {
++    manifestTransforms?: ((manifest: ManifestEntry[]) => Promise<{ manifest: ManifestEntry[] }>)[];
++  };
++
++  afterEach(() => {
++    vi.doUnmock('@serwist/next');
++    vi.unstubAllEnvs();
++    vi.resetModules();
++  });
++
++  test('the web build precaches the offline page', async () => {
++    const withSerwistInit = vi.fn((_options: SerwistOptions) => (config: unknown) => config);
++    vi.doMock('@serwist/next', () => ({ default: withSerwistInit }));
++    vi.stubEnv('NEXT_PUBLIC_APP_PLATFORM', 'web');
++    vi.resetModules();
++    await import('../../next.config.mjs');
++    expect(withSerwistInit, 'the web build sets up Serwist').toHaveBeenCalled();
++
++    let manifest: ManifestEntry[] = [
++      { url: '/vendor/pdfjs/pdf.worker.min.mjs', revision: 'r1', size: 1 },
++    ];
++    for (const transform of withSerwistInit.mock.lastCall?.[0].manifestTransforms ?? []) {
++      ({ manifest } = await transform(manifest));
++    }
++    const urls = manifest.map(({ url }) => url);
++
++    expect(urls, 'the precache lists the offline page').toContain('/offline');
++    expect(urls).toContain('/vendor/pdfjs/pdf.worker.min.mjs');
++  });
++});
