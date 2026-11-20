@@ -168,7 +168,7 @@ let
     name = "readest";
     services = rec {
       db = {
-        image = "supabase/postgres:17.12.0.001@sha256:374df435f973b1d371dbaecb1a69403f4fdbb67238f354be424fe04435a45aee";
+        image = "supabase/postgres:17.12.0.002@sha256:0b64586fb84124b9070525a6528616594a1aa84a75d84cd4c3d43acc8de3ba92";
         restart = "unless-stopped";
         volumes = [
           "${source}/docker/volumes/db/roles.sql:/docker-entrypoint-initdb.d/init-scripts/99-roles.sql:ro"
