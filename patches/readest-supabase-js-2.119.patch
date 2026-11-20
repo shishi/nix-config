@@ -1,5 +1,5 @@
 diff --git a/apps/readest-app/package.json b/apps/readest-app/package.json
-index 4c03b36d..b411b6a7 100644
+index 4c03b36d9..b411b6a78 100644
 --- a/apps/readest-app/package.json
 +++ b/apps/readest-app/package.json
 @@ -136,7 +136,7 @@
@@ -11,8 +11,38 @@ index 4c03b36d..b411b6a7 100644
      "@tauri-apps/api": "2.11.1",
      "@tauri-apps/plugin-biometric": "^2.3.3",
      "@tauri-apps/plugin-cli": "^2.4.1",
+diff --git a/apps/readest-app/src/__tests__/context/auth-context-logout.test.tsx b/apps/readest-app/src/__tests__/context/auth-context-logout.test.tsx
+index 6c1393f7d..d5d94aef3 100644
+--- a/apps/readest-app/src/__tests__/context/auth-context-logout.test.tsx
++++ b/apps/readest-app/src/__tests__/context/auth-context-logout.test.tsx
+@@ -93,4 +93,25 @@ describe('AuthContext logout', () => {
+       expect(localStorage.getItem(key), key).toBeNull();
+     }
+   });
++
++  it('signs this device out when the logout request cannot reach the server', async () => {
++    const { result } = renderHook(() => useAuth(), { wrapper: AuthProvider });
++    await waitFor(() => expect(result.current.user?.id).toBe(user.id));
++    const answer = authFetch.getMockImplementation()!;
++    authFetch.mockImplementation(async (input, init) => {
++      if (new URL(String(input)).pathname === '/auth/v1/logout') {
++        throw new TypeError('Failed to fetch');
++      }
++      return answer(input, init);
++    });
++
++    await act(async () => {
++      await result.current.logout();
++    });
++
++    // The SDK must not keep a session it would restore on the next start.
++    expect((await supabase.auth.getSession()).data.session).toBeNull();
++    expect(localStorage.getItem('logout-test-session')).toBeNull();
++    expect(result.current.user).toBeNull();
++  });
+ });
 diff --git a/pnpm-lock.yaml b/pnpm-lock.yaml
-index 2d91949f..76ce6d36 100644
+index 2d91949f4..76ce6d36e 100644
 --- a/pnpm-lock.yaml
 +++ b/pnpm-lock.yaml
 @@ -208,13 +208,13 @@ importers:
