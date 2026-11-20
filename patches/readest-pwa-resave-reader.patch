@@ -1,0 +1,146 @@
+diff --git a/apps/readest-app/src/__tests__/service-worker.test.ts b/apps/readest-app/src/__tests__/service-worker.test.ts
+index ef1817327..61a18c7ba 100644
+--- a/apps/readest-app/src/__tests__/service-worker.test.ts
++++ b/apps/readest-app/src/__tests__/service-worker.test.ts
+@@ -10,12 +10,16 @@ type CachedResponseWillBeUsed = (options: {
+   cachedResponse?: Response;
+   event: unknown;
+ }) => Promise<Response | null | undefined>;
++type CacheKeyWillBeUsed = (options: { request: Request; mode: string }) => Promise<string>;
+ type Route = {
+   matcher: (options: { url: URL; request: Pick<Request, 'mode'> }) => boolean;
+   handler: {
+     options: {
+       cacheName?: string;
+-      plugins?: { cachedResponseWillBeUsed?: CachedResponseWillBeUsed }[];
++      plugins?: {
++        cachedResponseWillBeUsed?: CachedResponseWillBeUsed;
++        cacheKeyWillBeUsed?: CacheKeyWillBeUsed;
++      }[];
+     };
+   };
+ };
+@@ -175,6 +179,7 @@ describe('service worker page cache', () => {
+     const general = await caches.open('offline-cache');
+     await general.put(`${ORIGIN}/reader/a1b2`, saved('reader'));
+     await general.put(`${ORIGIN}/_next/static/chunks/app.js`, saved('chunk'));
++    vi.spyOn(globalThis, 'fetch').mockRejectedValue(new TypeError('Failed to fetch'));
+     registration.active = {};
+ 
+     await fire('install');
+@@ -204,10 +209,39 @@ describe('service worker page cache', () => {
+     expect(await savedBody('/library'), 'the open page is saved from the new build').toBe(
+       'new /library',
+     );
+-    expect(await savedBody('/reader/a1b2'), 'a page not open stays cleared').toBeUndefined();
++    expect(
++      await savedBody('/reader/a1b2'),
++      'the old copy of a page not open stays cleared',
++    ).toBeUndefined();
+     expect(await savedBody('/user'), 'only the app pages are saved').toBeUndefined();
+   });
+ 
++  // A window reports the URL it loaded, so a tab that opened a book from the
++  // library inside the app looks like the library to the worker.
++  test('saves the reader again when it was saved, for every book', async () => {
++    const pages = await caches.open(PAGES_CACHE_NAME.html);
++    await pages.put(`${ORIGIN}/library`, saved('old library'));
++    await pages.put(`${ORIGIN}/reader/a1b2`, saved('old reader'));
++    openWindows = [{ url: `${ORIGIN}/library` }];
++    vi.spyOn(globalThis, 'fetch').mockImplementation(
++      async (url) => new Response(`new ${new URL(String(url)).pathname}`),
++    );
++    registration.active = {};
++
++    await fire('install');
++    await fire('activate');
++
++    const cacheKey = routeFor('/reader/c3d4')?.handler.options.plugins?.find(
++      (plugin) => plugin.cacheKeyWillBeUsed,
++    )?.cacheKeyWillBeUsed;
++    const key = await cacheKey!({ request: new Request(`${ORIGIN}/reader/c3d4`), mode: 'read' });
++    expect(
++      await (await (await caches.open(PAGES_CACHE_NAME.html)).match(key))?.text(),
++      'a book opens offline from the reader saved from the new build',
++    ).toBe('new /reader');
++    expect(await savedBody('/'), 'a kind of page not saved before stays unsaved').toBeUndefined();
++  });
++
+   test('keeps the saved pages on a first install', async () => {
+     await (await caches.open(PAGES_CACHE_NAME.html)).put(`${ORIGIN}/library`, saved('library'));
+ 
+diff --git a/apps/readest-app/src/sw.ts b/apps/readest-app/src/sw.ts
+index 10e6174b4..87c9ec82e 100644
+--- a/apps/readest-app/src/sw.ts
++++ b/apps/readest-app/src/sw.ts
+@@ -14,6 +14,11 @@ declare const self: ServiceWorkerGlobalScope;
+ // and the reader.
+ const isClientRoute = ({ pathname }: URL) =>
+   pathname === '/' || ['/library', '/reader'].some((route) => pathname.startsWith(route));
++const isAppPage = (url: URL) => url.origin === self.location.origin && isClientRoute(url);
++
++// The page route reads `pages` by the first path segment, so one saved reader
++// serves every book.
++const pageCacheKey = ({ origin, pathname }: URL) => `${origin}/${pathname.split('/')[1]}`;
+ 
+ const PAGE_MAX_AGE_SECONDS = 365 * 24 * 60 * 60;
+ 
+@@ -51,12 +56,7 @@ const serwist = new Serwist({
+             maxAgeSeconds: PAGE_MAX_AGE_SECONDS,
+           }),
+           {
+-            cacheKeyWillBeUsed: async ({ request }) => {
+-              const url = new URL(request.url);
+-              const basePath = url.pathname.split('/')[1];
+-              const cacheKey = `${url.origin}/${basePath}`;
+-              return cacheKey;
+-            },
++            cacheKeyWillBeUsed: async ({ request }) => pageCacheKey(new URL(request.url)),
+           },
+           {
+             // In a browser tab the reader is at /reader/<ids>, and
+@@ -142,25 +142,35 @@ self.addEventListener('activate', (event) => {
+   event.waitUntil(
+     (async () => {
+       if (!(await caches.has(REPLACING_MARKER))) return;
++      const savedKinds = (await (await caches.open(PAGES_CACHE_NAME.html)).keys())
++        .map(({ url }) => new URL(url))
++        .filter(isAppPage)
++        .map(pageCacheKey);
+       await Promise.all([caches.delete(PAGES_CACHE_NAME.html), caches.delete('client-pages')]);
+       // cacheOnNavigation refetches a page through the service worker, so an old
+       // copy in the general cache could come back into `pages` on a slow network.
+       const general = await caches.open('offline-cache');
+       for (const request of await general.keys()) {
+-        const url = new URL(request.url);
+-        if (url.origin === self.location.origin && isClientRoute(url))
+-          await general.delete(request);
++        if (isAppPage(new URL(request.url))) await general.delete(request);
+       }
+       // The visit that brought this worker saved its page just before the worker
+-      // took over. Save the open pages again from this build, so the app still
+-      // opens offline before it navigates again. A network that doesn't answer
+-      // in time leaves them to be saved on the next visit.
++      // took over. Save again from this build the pages the open windows loaded,
++      // so the app still opens offline before it navigates again. A window
++      // reports the URL it loaded, not one it moved to inside the app, so a book
++      // opened from the library would be left out: also save each kind of page
++      // saved before, under the key its route reads. A network that doesn't
++      // answer in time leaves them to be saved on the next visit.
+       const pages = await caches.open(PAGES_CACHE_NAME.html);
+       const open = await self.clients.matchAll({ type: 'window', includeUncontrolled: true });
++      const urls = new Set([
++        ...open
++          .map(({ url }) => new URL(url))
++          .filter(isAppPage)
++          .map(({ href }) => href),
++        ...savedKinds,
++      ]);
+       await Promise.all(
+-        open.map(async ({ url }) => {
+-          const page = new URL(url);
+-          if (page.origin !== self.location.origin || !isClientRoute(page)) return;
++        [...urls].map(async (url) => {
+           try {
+             const response = await fetch(url, { signal: AbortSignal.timeout(3000) });
+             if (response.ok) await pages.put(url, response);

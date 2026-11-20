@@ -27,6 +27,7 @@ let
       ../../patches/readest-docker-service-worker.patch
       ../../patches/readest-pwa-offline-page.patch
       ../../patches/readest-pwa-navigation-cache.patch
+      ../../patches/readest-pwa-resave-reader.patch
       ../../patches/readest-tts-android-locale.patch
       ../../patches/readest-tts-ios-silent-audio.patch
       ../../patches/readest-auth-startup-session.patch
