@@ -6,6 +6,17 @@
 }:
 let
   serviceName = "readest";
+  # 起動前にイメージを作り直すため、起動の完了まで長くかかる。
+  startTimeoutMinutes = 30;
+  stopTimeoutSeconds = 90;
+  startPre = [
+    "${initialize}/bin/readest-initialize"
+    "${compose}/bin/readest-compose pull --ignore-buildable --policy missing --quiet"
+    "${backup}/bin/readest-backup"
+  ];
+  # systemd は起動の上限を ExecStartPre・ExecStart・ExecStartPost のコマンドごとにかけるため、
+  # 起動はその合計まで延びうる。
+  startLimitMinutes = (builtins.length startPre + 2) * startTimeoutMinutes;
   # Web 版は API に手元のアクセストークンを送り、起動のたびに試す更新が完了するまで差し替えない。
   # 更新がサーバーへ届かない端末でも期限内なら同期を続けられるよう、1 年有効にする。
   accessTokenLifetime = toString (365 * 24 * 60 * 60);
@@ -567,8 +578,16 @@ in
     enable = true;
     extraSetFlags = [ "--operator=shishi" ];
   };
+  # readest を再起動する switch では、Home Manager の activation が停止と起動の完了を待つ。
+  # Home Manager の既定の 5 分に、その上限を足す。
+  systemd.services.home-manager-shishi.serviceConfig.TimeoutStartSec = lib.mkForce "${
+    toString (5 * 60 + stopTimeoutSeconds + startLimitMinutes * 60)
+  }s";
   home-manager.users.shishi = {
     home.packages = [ compose ];
+    # 未指定だと sd-switch は、起動ジョブの完了待ちが 2 分を超えると、完了後に switch を失敗扱いにする。
+    # 起動の上限より長くして、イメージを作り直す起動を失敗扱いにしない。
+    systemd.user.servicesStartTimeoutMs = (startLimitMinutes + 1) * 60 * 1000;
     systemd.user.services = {
       readest = {
         Unit = {
@@ -579,18 +598,14 @@ in
         Install.WantedBy = [ "default.target" ];
         Service = {
           Type = "exec";
-          ExecStartPre = [
-            "${initialize}/bin/readest-initialize"
-            "${compose}/bin/readest-compose pull --ignore-buildable --policy missing --quiet"
-            "${backup}/bin/readest-backup"
-          ];
+          ExecStartPre = startPre;
           ExecStart = "${compose}/bin/readest-compose up --no-color --remove-orphans";
           ExecStartPost = "${ready}/bin/readest-ready";
           ExecStop = "${compose}/bin/readest-compose down --timeout 30";
           Restart = "on-failure";
           RestartSec = "15s";
-          TimeoutStartSec = "30min";
-          TimeoutStopSec = "90s";
+          TimeoutStartSec = "${toString startTimeoutMinutes}min";
+          TimeoutStopSec = "${toString stopTimeoutSeconds}s";
           UMask = "0077";
         };
       };
