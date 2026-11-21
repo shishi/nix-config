@@ -136,7 +136,7 @@ in
     openwhispr-cleanup = lib.recursiveUpdate inference {
       description = "OpenWhispr cleanup with Gemma E4B";
       serviceConfig = {
-        ExecStart = "${cleanup}/bin/llama-server --host 127.0.0.1 --port 8179 --model ${modelDirectory}/cleanup.gguf --alias gemma-4-e4b --parallel 1 --ctx-size 8192 --gpu-layers auto --sleep-idle-seconds -1";
+        ExecStart = "${cleanup}/bin/llama-server --host 127.0.0.1 --port 8179 --model ${modelDirectory}/cleanup.gguf --alias gemma-4-e4b --parallel 1 --ctx-size 8192 --gpu-layers auto --sleep-idle-seconds -1 --spec-type ngram-simple --spec-ngram-simple-size-n 4 --spec-ngram-simple-size-m 16";
         ExecStartPost = "${lib.getExe ready} http://127.0.0.1:8179/health";
       };
     };
