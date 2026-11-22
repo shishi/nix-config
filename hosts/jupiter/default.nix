@@ -747,6 +747,7 @@ in
         ../../home
         ../../home/optional/skk
         ../../home/optional/gui
+        ./heeler-host-helper.nix
       ];
       my.desktopSession = desktop;
       my.skk.enable = true;

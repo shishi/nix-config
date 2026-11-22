@@ -35,6 +35,8 @@
     in
     {
       checks = {
+        inherit (self'.packages) heeler-host-helper;
+
         openwhispr-models =
           pkgs.runCommand "openwhispr-models"
             {

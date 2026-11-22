@@ -317,6 +317,23 @@
         "type": "github"
       }
     },
+    "heeler": {
+      "flake": false,
+      "locked": {
+        "lastModified": 1795352526,
+        "narHash": "sha256-ZJwwI7osImzlsymN3OK+aYXydx+YUWFKeQ/+HS5gVX4=",
+        "owner": "ZingerLittleBee",
+        "repo": "Heeler",
+        "rev": "ef75473b38073d4791ac6250629c9323fd057679",
+        "type": "github"
+      },
+      "original": {
+        "owner": "ZingerLittleBee",
+        "ref": "main",
+        "repo": "Heeler",
+        "type": "github"
+      }
+    },
     "home-manager": {
       "inputs": {
         "nixpkgs": [
@@ -716,6 +733,7 @@
         "codex-desktop-linux": "codex-desktop-linux",
         "disko": "disko",
         "flake-parts": "flake-parts",
+        "heeler": "heeler",
         "home-manager": "home-manager",
         "lanzaboote": "lanzaboote",
         "llm-agents": "llm-agents",

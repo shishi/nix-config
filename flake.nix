@@ -23,6 +23,10 @@
     # 上流 CI と同じ nixpkgs pin を使い、Numtide の binary cache を利用する。
     # follows すると derivation が変わり、Codex 等が source build に落ちる。
     llm-agents.url = "github:numtide/llm-agents.nix";
+    heeler = {
+      url = "github:ZingerLittleBee/Heeler/main";
+      flake = false;
+    };
     nix-index-database = {
       url = "github:nix-community/nix-index-database";
       inputs.nixpkgs.follows = "nixpkgs";
