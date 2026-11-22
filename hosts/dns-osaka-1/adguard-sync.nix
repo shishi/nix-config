@@ -2,7 +2,7 @@
 {
   virtualisation.oci-containers.backend = "docker";
   virtualisation.oci-containers.containers.adguardhome-sync = {
-    image = "ghcr.io/bakito/adguardhome-sync:v0.10.0@sha256:1529bd7903ab4db785e1f3d2733727e0d96d532a3bc6e0ebd0e48df0f2ae906b";
+    image = "ghcr.io/bakito/adguardhome-sync:v0.10.1@sha256:7bbc0cce08be1005fe43449ec7fc40b40e9e7d742ee5026b6c3fb388948e486b";
     cmd = [ "run" ];
     extraOptions = [ "--network=host" ];
     environmentFiles = [ config.sops.secrets."adguard-sync-env".path ];
