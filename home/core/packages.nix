@@ -24,7 +24,6 @@
     less
     llm-agents.claude-code
     llm-agents.codex
-    llm-agents.herdr
     llm-agents.herdr-core
     llm-agents.hunk
     lua-language-server
