@@ -5,7 +5,6 @@
   ...
 }:
 let
-  # クライアントと同じ重みを保つため、モデルはエンジンの更新とは分けて固定する。
   models = [
     {
       name = "whisper.bin";
@@ -14,8 +13,8 @@ let
     }
     {
       name = "cleanup.gguf";
-      url = "https://huggingface.co/bartowski/google_gemma-4-E4B-it-GGUF/resolve/029e94146666900b08caf49a3b47b413dfa8ec66/google_gemma-4-E4B-it-Q4_K_M.gguf";
-      sha256 = "d35a3aa7a6d47de237fd488bb6f7f3efd62908d828f85a63da0ee93acdbefe9f";
+      url = "https://huggingface.co/TrevorJS/gemma-4-E4B-it-uncensored-GGUF/resolve/771f130d4c49735ace331f68a80f7ae31387e51c/gemma-4-E4B-it-uncensored-Q4_K_M.gguf";
+      sha256 = "b2a89ec2df7f13440c723fb3fda2c531696cbe8e20ed2f1122f97a43aaafcb50";
     }
   ];
   generation = builtins.hashString "sha256" (builtins.toJSON models);
