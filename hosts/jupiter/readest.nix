@@ -31,22 +31,7 @@ let
     submodules = true;
     shallow = true;
   };
-  webBuildSource = pkgs.applyPatches {
-    name = "readest-web-pwa";
-    src = source;
-    patches = [
-      ../../patches/readest-docker-service-worker.patch
-      ../../patches/readest-pwa-offline-page.patch
-      ../../patches/readest-pwa-navigation-cache.patch
-      ../../patches/readest-pwa-resave-reader.patch
-      ../../patches/readest-tts-android-locale.patch
-      ../../patches/readest-tts-ios-silent-audio.patch
-      ../../patches/readest-auth-startup-session.patch
-      ../../patches/readest-auth-request-timeout.patch
-      ../../patches/readest-supabase-js-2.119.patch
-    ];
-  };
-  webImage = "readest-local:${builtins.baseNameOf webBuildSource}";
+  webImage = "readest-local:${builtins.baseNameOf source.outPath}";
   env = name: "$" + "{${name}}";
   # PostgreSQL のイメージが変わると、照合順序を提供する glibc の版も変わることがある。
   # 並び順が変わると文字列の索引と食い違うため、版が変わった DB の索引を作り直す。
@@ -382,7 +367,7 @@ let
         image = env "READEST_WEB_IMAGE";
         pull_policy = "never";
         build = {
-          context = "${webBuildSource}";
+          context = "${source}";
           target = "production-stage";
           args = {
             NEXT_PUBLIC_APP_PLATFORM = "web";
