@@ -22,8 +22,8 @@ let
   accessTokenLifetime = toString (365 * 24 * 60 * 60);
   # Renovate が上流リリースの tag と commit を一緒に更新するので、この 2 行は隣接させて書く。
   # commit で内容が決まるため、Renovate が計算できない Nix のハッシュは持たない。
-  readestTag = "v0.12.20";
-  readestRev = "28aab23e039a23511bc478c23bf5278daa43cc68";
+  readestTag = "v0.12.26";
+  readestRev = "cefdc9eddc68f7d47cb32d0dd6df387fe5f6e2ca";
   source = builtins.fetchGit {
     url = "https://github.com/readest/readest.git";
     ref = "refs/tags/${readestTag}";
